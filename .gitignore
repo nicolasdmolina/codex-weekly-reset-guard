@@ -1,0 +1,24 @@
+/.build/
+/dist/
+/.swiftpm/
+.DS_Store
+/qa-artifacts/
+/.scratch/
+__pycache__/
+*.pyc
+
+# Local design-process records are retained locally, outside the public source.
+/APP-FOUNDRY-*
+/DESIGN-DIRECTION-PACKET.*
+/docs/foundry-planning/
+
+# Runtime/account material must never enter the source repository.
+.env*
+auth.json
+credentials.json
+*.pem
+*.key
+/profiles/
+/state.json
+/events.json
+*.log

@@ -2,9 +2,11 @@
 
 Date: 2026-09-20 · Version: 0.1.0 source preview
 
-Status: local source-preview checks passed; not published. Files are staged for
-the first commit, with no remote configured. Publication, hosted CI, a signed
-public binary and real-account redemption are separate gates.
+Status: source published at
+[nicolasdmolina/codex-weekly-reset-guard](https://github.com/nicolasdmolina/codex-weekly-reset-guard).
+Local and hosted checks passed. The default branch requires pull requests and
+the `macos` CI check, blocks force pushes/deletion, and applies those protections
+to administrators. Private vulnerability reporting is enabled.
 
 ## Scope
 
@@ -21,13 +23,14 @@ Local environment: macOS 26.3, Apple Silicon (arm64), Swift 6.2.4.
 | Check | Result |
 | --- | --- |
 | `./scripts/native_release_check.sh` | Passed: 120 Swift tests, debug/release warnings-as-errors, self-test, eight synthetic renders, plist validation and strict signature verification |
-| Fresh source archive, `./scripts/native_release_check.sh --skip-previews` | Prior preparation passed 113 tests and a package build without the original build cache; final revision is also checked by hosted CI before release |
+| Fresh source build | Prior local archive passed 113 tests; the published revision passed 120 tests and packaging from a clean GitHub macOS runner |
 | `./scripts/test_tooling.sh` | Passed: mocked build/sign failures, running-app protection, retained backups, launch opt-in, bundled MIT license and QA-marker rejection |
 | `python3 scripts/test_public_release.py` | All 20 synthetic publication-safety cases passed, including removed historical content and value withholding |
-| `python3 scripts/check_public_release.py` | Passed: 53 staged source files; no existing commit history |
+| `python3 scripts/check_public_release.py` | Passed: 53 published source files and reachable history scanned locally and in GitHub CI |
 | `git diff --check` and `git diff --cached --check` | Passed |
 | Native render review | Eight 760 × 1120 fixtures inspected; misleading preview dates repaired and re-reviewed; no remaining high/medium visual findings |
 | Native interaction | Passed: real typing, Tab focus, validation, safe preview isolation, toggle on/off, refresh, Add/Cancel and scrolling |
+| Hosted CI | [Initial source revision passed](https://github.com/nicolasdmolina/codex-weekly-reset-guard/actions/runs/35543082817) on GitHub's macOS 15 runner |
 
 Focused independent review covered reset safety, protocol compatibility,
 onboarding concurrency, publication hygiene, tooling and documentation. No known
@@ -48,6 +51,8 @@ of eligibility or successful live redemption.
 - Packaging is host-architecture and ad-hoc signed, without Developer ID or notarization.
   The release machine reports zero valid code-signing identities; no signed binary
   download is included in this source preview.
-- Hosted GitHub CI and clean-machine sign-in remain unverified until those steps are run.
-- Only the local toolchain and architecture are directly tested here; deployment
+- Live browser authentication is still awaiting the operator. The diagnostic UI
+  is isolated from installed profiles and writes only its own temporary runtime;
+  its read-only policy prevents redemption, not local enrollment/session writes.
+- Local Apple Silicon and the GitHub macOS runner were tested; deployment
   target macOS 14 and Swift tools version 6.0 are not a full compatibility matrix.

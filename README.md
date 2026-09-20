@@ -5,6 +5,8 @@ automatically redeem an available reset credit when the weekly balance is low.
 
 **Source preview · macOS 14+ · Swift 6+ · MIT**
 
+[![CI](https://github.com/nicolasdmolina/codex-weekly-reset-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/nicolasdmolina/codex-weekly-reset-guard/actions/workflows/ci.yml)
+
 Independent community software; not affiliated with or endorsed by OpenAI.
 Codex and ChatGPT are OpenAI products. This app does not grant or purchase reset
 credits, and reset availability depends on your account and Codex version.
@@ -34,11 +36,15 @@ No API key or third-party Swift package is required.
 From a checkout or extracted source archive:
 
 ```sh
+git clone https://github.com/nicolasdmolina/codex-weekly-reset-guard.git
+cd codex-weekly-reset-guard
 swift --version
 ./scripts/test.sh
 ./scripts/package_app.sh
 ./scripts/install_app.sh
 ```
+
+Skip the clone and `cd` lines if you already have the source directory open.
 
 The app is installed in `~/Applications/Codex Weekly Reset Guard.app`.
 Open it from Finder and look for the shield in the menu bar. The installer does

@@ -6,9 +6,9 @@ cannot be restored by this app.
 
 ## Reporting a vulnerability
 
-After this repository is published, use the **Security → Report a vulnerability**
-button for private reporting. The maintainer must enable private vulnerability
-reporting before publication. If that button is unavailable, open an issue asking
+Use the **Report a vulnerability** button on the repository's
+[Security advisories page](https://github.com/nicolasdmolina/codex-weekly-reset-guard/security/advisories)
+for private reporting. Private vulnerability reporting is enabled. If that button is unavailable, open an issue asking
 for a private contact channel without including exploit details or private data.
 
 Never include credentials, sign-in URLs, account identifiers, reset-credit IDs,

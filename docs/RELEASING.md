@@ -1,7 +1,9 @@
 # Releasing
 
-This checkout is prepared locally. Preparing source does not publish a repository,
-create a remote, push commits, enable account features, or produce a notarized app.
+The public repository is
+[nicolasdmolina/codex-weekly-reset-guard](https://github.com/nicolasdmolina/codex-weekly-reset-guard).
+Preparing a future release locally does not itself publish changes or produce a
+notarized app. Publication requires the maintainer's authorization.
 
 ## Local gate
 
@@ -24,13 +26,13 @@ review the publish set as well. If historical private material is found, stop an
 prepare a clean export with the owner's approval. Do not rewrite shared history
 automatically.
 
-## GitHub publication — separate owner action
+## GitHub publication
 
 Once the owner approves publication:
 
-1. Create the desired public repository on the owner's GitHub account.
-2. Set its description and topics; add a remote and push the reviewed source.
-3. Enable private vulnerability reporting under repository security settings.
+1. Push reviewed changes through the repository's pull-request and required-check flow.
+2. Verify repository metadata and release version numbers.
+3. Confirm private vulnerability reporting remains enabled.
 4. Confirm the macOS workflow passes in GitHub; local success is not hosted CI evidence.
 5. Enable appropriate branch protection once the workflow has run.
 6. Create a `v0.1.0` prerelease pointing to the reviewed commit. Use the changelog

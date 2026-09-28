@@ -1760,3 +1760,42 @@ private func requestStartedWriteDelayRechecksSafety(scenario: WriteDelayScenario
     #expect(try await persistence.snapshot().monitorState(for: profileID)?.attempt?.idempotencyKey == retainedKey)
     await controller.stop()
 }
+
+@Test func recoveredChecksClearOnlyTheirOwnBanner() async throws {
+    let fixture = try RuntimeFixture()
+    defer { fixture.remove() }
+    let clock = LockedTestClock(fixture.now)
+    let persistence = MonitorPersistence(stateFileURL: fixture.stateURL, profilesDirectory: fixture.profilesURL)
+    let first = RuntimeGuardSession(
+        email: fixture.emails[0], clock: clock, weeklyUsedPercent: 20,
+        resetAt: fixture.now.addingTimeInterval(86_400)
+    )
+    let second = RuntimeGuardSession(
+        email: fixture.emails[1], clock: clock, weeklyUsedPercent: 20,
+        resetAt: fixture.now.addingTimeInterval(86_400)
+    )
+    let controller = makeRuntimeController(
+        fixture: fixture, persistence: persistence,
+        sessions: [fixture.emails[0]: first, fixture.emails[1]: second], clock: clock
+    )
+    _ = try await controller.start()
+    #expect(await eventually {
+        let firstReads = await first.rateReadCount()
+        let secondReads = await second.rateReadCount()
+        let snapshot = await controller.snapshot()
+        return firstReads > 0 && secondReads > 0 && !snapshot.isChecking
+    })
+    await first.setEmail("wrong-first@example.com")
+    await second.setEmail("wrong-second@example.com")
+    _ = await controller.checkNow()
+    #expect(await controller.snapshot().banner != nil)
+    await first.setEmail(fixture.emails[0])
+    _ = await controller.checkNow()
+    #expect(await controller.snapshot().banner != nil)
+    await second.setEmail(fixture.emails[1])
+    _ = await controller.checkNow()
+    #expect(await controller.snapshot().banner == nil)
+    #expect(await first.consumeCount() == 0)
+    #expect(await second.consumeCount() == 0)
+    await controller.stop()
+}

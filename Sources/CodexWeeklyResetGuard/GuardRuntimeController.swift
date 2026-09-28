@@ -286,6 +286,7 @@ actor GuardRuntimeController {
     private var notificationTasks: [UUID: Task<Void, Never>] = [:]
     private var checksInFlight = Set<UUID>()
     private var lastLoggedFailure: [UUID: String] = [:]
+    private var checkFailureBanners: [UUID: String] = [:]
     private var lastCheckedAt: Date?
     private var banner: String?
     private var latestSnapshot: GuardRuntimeSnapshot = .empty
@@ -809,6 +810,7 @@ actor GuardRuntimeController {
             live.detail = "Weekly usage and saved resets are current."
             liveProfiles[profileID] = live
             lastLoggedFailure[profileID] = nil
+            checkFailureBanners[profileID] = nil
 
             guard let monitorState = persistentState?.monitorState(for: profileID) else {
                 throw MonitorPersistenceError.missingMonitorState(profileID)
@@ -1326,7 +1328,7 @@ actor GuardRuntimeController {
                 message: detail
             )
         }
-        banner = detail
+        checkFailureBanners[profileID] = detail
         lastCheckedAt = now()
     }
 
@@ -1351,7 +1353,7 @@ actor GuardRuntimeController {
             detail = "Codex could not be checked. No reset request was made."
         }
         setConnectionFailure(profileID: profileID, status: status, detail: detail)
-        banner = detail
+        checkFailureBanners[profileID] = detail
         lastCheckedAt = now()
     }
 
@@ -1455,7 +1457,7 @@ actor GuardRuntimeController {
             },
             isChecking: !checksInFlight.isEmpty,
             lastCheckedAt: lastCheckedAt,
-            banner: banner
+            banner: banner ?? state.profiles.compactMap { checkFailureBanners[$0.id] }.first
         )
         latestSnapshot = snapshot
         await updateHandler(snapshot)
@@ -1501,6 +1503,7 @@ actor GuardRuntimeController {
         if !keepSnapshot {
             persistentState = nil
             liveProfiles.removeAll()
+            checkFailureBanners.removeAll()
             latestSnapshot = .empty
         }
     }

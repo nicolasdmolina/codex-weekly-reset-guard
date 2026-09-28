@@ -93,16 +93,19 @@ actor MonitorPersistence {
 
     private let store: SecureStateStore<GuardPersistentState>
     private var testingFault: MonitorPersistenceTestingFault?
+    private let afterMonitorStateWrite: @Sendable (MonitorState) -> Void
 
     init(
         stateFileURL: URL = ProfileConfiguration.defaultApplicationSupportDirectory
             .appendingPathComponent("state.json", isDirectory: false),
-        profilesDirectory: URL = ProfileConfiguration.defaultProfilesDirectory
+        profilesDirectory: URL = ProfileConfiguration.defaultProfilesDirectory,
+        afterMonitorStateWrite: @escaping @Sendable (MonitorState) -> Void = { _ in }
     ) {
         self.stateFileURL = stateFileURL.standardizedFileURL
         self.profilesDirectory = profilesDirectory.standardizedFileURL
         self.store = SecureStateStore(fileURL: self.stateFileURL)
         self.testingFault = nil
+        self.afterMonitorStateWrite = afterMonitorStateWrite
     }
 
     func injectTestingFault(_ fault: MonitorPersistenceTestingFault) {
@@ -211,7 +214,7 @@ actor MonitorPersistence {
                 UUID(uuidString: monitorState.profileID) ?? UUID()
             )
         }
-        return try await store.update(defaultValue: baseline) { state in
+        let saved = try await store.update(defaultValue: baseline) { state in
             let actualRevision = state.revision ?? 0
             if let expectedRevision, actualRevision != expectedRevision {
                 throw MonitorPersistenceError.concurrentModification(
@@ -247,6 +250,8 @@ actor MonitorPersistence {
             try Self.validate(state)
             return state
         }
+        afterMonitorStateWrite(monitorState)
+        return saved
     }
 
     @discardableResult

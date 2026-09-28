@@ -957,8 +957,8 @@ actor GuardRuntimeController {
     ) async throws {
         guard isRedemptionBoundaryOpen(for: profile.id) else { return }
 
-        // Surface the redeeming state before the final safety read. Nothing after the durable
-        // requestStarted transaction may await except the consume call itself.
+        // Surface the redeeming state before the final safety read. On the successful path,
+        // nothing after the durable requestStarted transaction may await except consume itself.
         updateLiveDetail(profileID: profile.id, state: state)
         await publish()
 
@@ -1026,7 +1026,7 @@ actor GuardRuntimeController {
         let durableRequestStarted: GuardPersistentState
         do {
             // Compare-and-swap closes the race with a profile toggle. This durable save is the
-            // literal final awaited side effect before invoking the network request.
+            // final awaited side effect on the path that sends the network request.
             durableRequestStarted = try await persistence.saveMonitorState(
                 requestStarted,
                 now: boundaryTime,
@@ -1041,6 +1041,23 @@ actor GuardRuntimeController {
         adoptPersistentState(durableRequestStarted)
         guard isRedemptionBoundaryOpen(for: profile.id), !Task.isCancelled else {
             // The durable in-flight state is conservative: on restart it can only reuse this key.
+            return
+        }
+
+        guard GuardRedemptionSafetyGate.allowsConsume(
+            weeklyLimit: finalReading.weeklyLimit,
+            inventory: finalReading.inventory,
+            state: latestMonitorState,
+            attempt: latestAttempt,
+            policy: policy,
+            now: now()
+        ) else {
+            redemptionKillSwitches.insert(profile.id)
+            try await failClosedBeforeConsume(
+                profileID: profile.id,
+                state: requestStarted,
+                message: "Automatic redemption stopped because its safety checks expired before sending."
+            )
             return
         }
 

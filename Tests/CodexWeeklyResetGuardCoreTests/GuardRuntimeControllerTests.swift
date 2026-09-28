@@ -1709,3 +1709,54 @@ func shutdownErrorsKeepTheDurableAttempt(error: AppServerClientError) async thro
     #expect(await session.consumeCount() == 1)
     await controller.stop()
 }
+
+private enum WriteDelayScenario: Equatable, Sendable {
+    case oldestConfirmation
+    case naturalReset
+}
+
+@Test(arguments: [WriteDelayScenario.oldestConfirmation, .naturalReset])
+private func requestStartedWriteDelayRechecksSafety(scenario: WriteDelayScenario) async throws {
+    let fixture = try RuntimeFixture(emails: ["only@example.com"])
+    defer { fixture.remove() }
+    let clock = LockedTestClock(fixture.now)
+    let delay: TimeInterval = scenario == .oldestConfirmation ? 116 : 2
+    let resetAt = fixture.now.addingTimeInterval(scenario == .oldestConfirmation ? 86_400 : 301)
+    let persistence = MonitorPersistence(
+        stateFileURL: fixture.stateURL, profilesDirectory: fixture.profilesURL,
+        afterMonitorStateWrite: { state in
+            if state.attempt?.phase == .requestInFlight { clock.advance(by: delay) }
+        }
+    )
+    let initial = try await persistence.loadOrBootstrap(now: fixture.now)
+    let profileID = try #require(initial.profiles.first?.id)
+    var state = try #require(initial.monitorState(for: profileID))
+    state.confirmation = ThresholdConfirmation(
+        weeklyResetAt: resetAt, count: 1,
+        lastObservedAt: fixture.now.addingTimeInterval(-5), lastRemainingPercent: 2,
+        firstObservedAt: fixture.now.addingTimeInterval(-5)
+    )
+    _ = try await persistence.saveMonitorState(state, now: fixture.now)
+    let session = RuntimeGuardSession(
+        email: fixture.emails[0], clock: clock, weeklyUsedPercent: 98, resetAt: resetAt
+    )
+    let controller = makeRuntimeController(
+        fixture: fixture, persistence: persistence,
+        sessions: [fixture.emails[0]: session], clock: clock
+    )
+    _ = try await controller.start()
+    #expect(await eventually {
+        let reads = await session.rateReadCount()
+        let snapshot = await controller.snapshot()
+        return reads >= 2 && !snapshot.isChecking
+    })
+    #expect(clock.value == fixture.now.addingTimeInterval(delay))
+    #expect(await session.consumeCount() == 0)
+    let stopped = try await persistence.snapshot()
+    #expect(stopped.monitorState(for: profileID)?.attempt?.phase == .verificationFailed)
+    let retainedKey = try #require(stopped.monitorState(for: profileID)?.attempt?.idempotencyKey)
+    _ = await controller.checkNow()
+    #expect(await session.consumeCount() == 0)
+    #expect(try await persistence.snapshot().monitorState(for: profileID)?.attempt?.idempotencyKey == retainedKey)
+    await controller.stop()
+}

@@ -129,7 +129,10 @@ final class GuardAppModel: ObservableObject {
     }
 
     func reconnect(profileID: String) {
-        guard !isPreview else { return }
+        if isPreview {
+            banner = "Preview only. No sign-in was started."
+            return
+        }
         onReconnect?(profileID)
     }
 

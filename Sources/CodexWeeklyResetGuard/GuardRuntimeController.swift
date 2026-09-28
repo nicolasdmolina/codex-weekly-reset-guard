@@ -1161,10 +1161,10 @@ actor GuardRuntimeController {
     private nonisolated static func isDefiniteConsumeRejection(_ error: any Error) -> Bool {
         guard let clientError = error as? AppServerClientError else { return false }
         return switch clientError {
-        case .rpc, .shutDown, .invalidTimeout, .codexHomeMismatch, .invalidLoginResponse:
+        case .rpc, .invalidTimeout, .codexHomeMismatch, .invalidLoginResponse:
             true
-        case .transportClosed, .transportFailure, .timedOut, .invalidMessage,
-             .unexpectedResponse:
+        case .shutDown, .transportClosed, .transportFailure, .timedOut,
+             .invalidMessage, .unexpectedResponse:
             false
         }
     }

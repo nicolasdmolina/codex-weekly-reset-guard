@@ -1669,3 +1669,43 @@ private actor DiagnosticGuardSession: GuardAppServerSession {
     }
     func consumeCount() -> Int { consumes }
 }
+
+@Test(arguments: [AppServerClientError.shutDown, .transportClosed])
+func shutdownErrorsKeepTheDurableAttempt(error: AppServerClientError) async throws {
+    let fixture = try RuntimeFixture(emails: ["only@example.com"])
+    defer { fixture.remove() }
+    let clock = LockedTestClock(fixture.now)
+    let resetAt = fixture.now.addingTimeInterval(86_400)
+    let persistence = MonitorPersistence(stateFileURL: fixture.stateURL, profilesDirectory: fixture.profilesURL)
+    let initial = try await persistence.loadOrBootstrap(now: fixture.now)
+    let profileID = try #require(initial.profiles.first?.id)
+    var state = try #require(initial.monitorState(for: profileID))
+    state.confirmation = ThresholdConfirmation(
+        weeklyResetAt: resetAt, count: 1,
+        lastObservedAt: fixture.now.addingTimeInterval(-5), lastRemainingPercent: 2,
+        firstObservedAt: fixture.now.addingTimeInterval(-5)
+    )
+    _ = try await persistence.saveMonitorState(state, now: fixture.now)
+    let session = RuntimeGuardSession(
+        email: fixture.emails[0], clock: clock, weeklyUsedPercent: 98,
+        resetAt: resetAt, consumeScript: [.failure(error)]
+    )
+    let controller = makeRuntimeController(
+        fixture: fixture, persistence: persistence,
+        sessions: [fixture.emails[0]: session], clock: clock
+    )
+    _ = try await controller.start()
+    #expect(await eventually {
+        let count = await session.consumeCount()
+        let snapshot = await controller.snapshot()
+        return count == 1 && !snapshot.isChecking
+    })
+    let beforePause = try await persistence.snapshot()
+    let key = try #require(beforePause.monitorState(for: profileID)?.attempt?.idempotencyKey)
+    #expect(beforePause.monitorState(for: profileID)?.attempt?.phase == .retryable)
+    _ = try await controller.setEnabled(profileID: profileID, enabled: false)
+    #expect(try await persistence.snapshot().monitorState(for: profileID)?.attempt?.idempotencyKey == key)
+    _ = await controller.checkNow()
+    #expect(await session.consumeCount() == 1)
+    await controller.stop()
+}

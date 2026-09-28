@@ -1799,3 +1799,12 @@ private func requestStartedWriteDelayRechecksSafety(scenario: WriteDelayScenario
     #expect(await second.consumeCount() == 0)
     await controller.stop()
 }
+
+@Test @MainActor func previewConnectExplainsItsIsolation() {
+    let model = PreviewFixtures.model(for: .connect)
+    var calls = 0
+    model.onReconnect = { _ in calls += 1 }
+    model.reconnect(profileID: "profile-one")
+    #expect(calls == 0)
+    #expect(model.banner == "Preview only. No sign-in was started.")
+}

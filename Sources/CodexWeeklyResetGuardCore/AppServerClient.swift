@@ -444,7 +444,7 @@ public actor AppServerClient {
             params: try RPCJSONValue.encoding(
                 Params(idempotencyKey: idempotencyKey, creditID: creditID)
             ),
-            retry: .safe
+            retry: .never
         )
         return response.outcome
     }

@@ -1458,7 +1458,7 @@ actor GuardRuntimeController {
             },
             isChecking: !checksInFlight.isEmpty,
             lastCheckedAt: lastCheckedAt,
-            banner: banner ?? state.profiles.compactMap { checkFailureBanners[$0.id] }.first
+            banner: state.profiles.compactMap { checkFailureBanners[$0.id] }.first ?? banner
         )
         latestSnapshot = snapshot
         await updateHandler(snapshot)

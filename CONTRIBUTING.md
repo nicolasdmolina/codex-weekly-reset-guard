@@ -21,9 +21,15 @@ an account or Codex installation. It must never run the production app or `--doc
 window for safe keyboard and accessibility testing. Preview mode never creates a
 runtime. Dedicated QA bundles can carry a `GuardPreviewKind` marker so reopening
 them stays synthetic. A separate `GuardDiagnosticSupportDirectory` marker enables
-live sign-in and usage reads in an existing, isolated system-temporary directory;
-it disables reset redemption, notifications and launch at login. Diagnostic mode
-still writes its isolated profile/state/session files and must not run in CI.
+live sign-in and usage reads in an existing, isolated temporary directory. The
+directory must be owned by the current user with mode `0700`, strictly beneath a
+system temporary root or the process's explicit `TMPDIR`. An additional `TMPDIR`
+root must itself be absolute, existing, user-owned and mode `0700`; an absent or
+unsafe value adds no accepted root. Paths are resolved before containment checks,
+and production state, its descendants and its ancestors are always excluded.
+`TMPDIR` alone never enables diagnostic mode. Diagnostic mode disables reset
+redemption, notifications and launch at login, but still writes its isolated
+profile/state/session files and must not run in CI.
 The two markers are mutually exclusive, fail closed on invalid values, and are
 rejected by the public packaging script. Never put either marker in release metadata.
 

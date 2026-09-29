@@ -519,7 +519,7 @@ private func laterPauseSupersedesEnableWaitingForIdentity(action: FailedPauseAct
     ))
     var retry = attempt
     retry.phase = .retryable
-    #expect(GuardRedemptionSafetyGate.allowsConsume(
+    #expect(!GuardRedemptionSafetyGate.allowsConsume(
         weeklyLimit: weekly, inventory: inventory, state: stalePair, attempt: retry,
         policy: ResetPolicyEngine(), now: now
     ))
@@ -1758,6 +1758,147 @@ private func requestStartedWriteDelayRechecksSafety(scenario: WriteDelayScenario
     _ = await controller.checkNow()
     #expect(await session.consumeCount() == 0)
     #expect(try await persistence.snapshot().monitorState(for: profileID)?.attempt?.idempotencyKey == retainedKey)
+    await controller.stop()
+}
+
+@Test func expiredConfirmationCannotSendAfterFailedAttentionWriteAndRestart() async throws {
+    let fixture = try RuntimeFixture(emails: ["only@example.com"])
+    defer { fixture.remove() }
+    let clock = LockedTestClock(fixture.now)
+    let resetAt = fixture.now.addingTimeInterval(86_400)
+    let persistence = MonitorPersistence(
+        stateFileURL: fixture.stateURL, profilesDirectory: fixture.profilesURL,
+        afterMonitorStateWrite: { state in
+            if state.attempt?.phase == .requestInFlight, clock.value == fixture.now {
+                clock.advance(by: 116)
+            }
+        }
+    )
+    let initial = try await persistence.loadOrBootstrap(now: fixture.now)
+    let profileID = try #require(initial.profiles.first?.id)
+    var state = try #require(initial.monitorState(for: profileID))
+    state.confirmation = ThresholdConfirmation(
+        weeklyResetAt: resetAt, count: 1,
+        lastObservedAt: fixture.now.addingTimeInterval(-5), lastRemainingPercent: 2,
+        firstObservedAt: fixture.now.addingTimeInterval(-5)
+    )
+    _ = try await persistence.saveMonitorState(state, now: fixture.now)
+    await persistence.injectTestingFault(.beforeMonitorStateWrite(.verificationFailed))
+    let session = RuntimeGuardSession(
+        email: fixture.emails[0], clock: clock, weeklyUsedPercent: 98, resetAt: resetAt
+    )
+    let controller = makeRuntimeController(
+        fixture: fixture, persistence: persistence,
+        sessions: [fixture.emails[0]: session], clock: clock
+    )
+    _ = try await controller.start()
+    #expect(await eventually {
+        let reads = await session.rateReadCount()
+        let snapshot = await controller.snapshot()
+        return reads >= 2 && !snapshot.isChecking
+    })
+    #expect(clock.value == fixture.now.addingTimeInterval(116))
+    #expect(await session.consumeCount() == 0)
+    let failedWrite = try await persistence.snapshot()
+    let stranded = try #require(failedWrite.monitorState(for: profileID))
+    try #require(failedWrite.profiles.first?.isEnabled == true)
+    try #require(stranded.isEnabled)
+    try #require(stranded.attempt?.phase == .requestInFlight)
+    #expect(stranded.confirmation?.count == 2)
+    #expect(stranded.confirmation?.firstObservedAt == fixture.now.addingTimeInterval(-5))
+    #expect(stranded.confirmation?.lastObservedAt == fixture.now)
+    let key = try #require(stranded.attempt?.idempotencyKey)
+    for _ in 0..<2 {
+        _ = await controller.checkNow()
+        #expect(await session.consumeCount() == 0)
+        #expect(try await persistence.snapshot().monitorState(for: profileID)?.attempt?.idempotencyKey == key)
+    }
+    await controller.stop()
+
+    // Reopen the real state file without the first controller's stop or injected fault.
+    let reopened = MonitorPersistence(stateFileURL: fixture.stateURL, profilesDirectory: fixture.profilesURL)
+    try #require(try await reopened.snapshot().monitorState(for: profileID)?.attempt?.phase == .requestInFlight)
+    let restartedSession = RuntimeGuardSession(
+        email: fixture.emails[0], clock: clock, weeklyUsedPercent: 98, resetAt: resetAt
+    )
+    let restarted = makeRuntimeController(
+        fixture: fixture, persistence: reopened,
+        sessions: [fixture.emails[0]: restartedSession], clock: clock
+    )
+    _ = try await restarted.start()
+    #expect(await eventually {
+        let reads = await restartedSession.rateReadCount()
+        let snapshot = await restarted.snapshot()
+        return reads >= 2 && !snapshot.isChecking
+    })
+    #expect(await restartedSession.consumeCount() == 0)
+    for _ in 0..<2 {
+        clock.advance(by: 5)
+        _ = await restarted.checkNow()
+        #expect(await restartedSession.consumeCount() == 0)
+        let stored = try await reopened.snapshot()
+        #expect(stored.monitorState(for: profileID)?.attempt?.idempotencyKey == key)
+        #expect(stored.monitorState(for: profileID)?.attempt?.phase == .verificationFailed)
+        #expect(stored.monitorState(for: profileID)?.confirmation == stranded.confirmation)
+    }
+    await restarted.stop()
+}
+
+@Test(
+    arguments: [RedemptionAttemptPhase.requestInFlight, .retryable],
+    [TimeInterval?(5), 120, 121, nil]
+)
+func ambiguousAttemptsRetainTheirKeyAndRequireFreshEvidence(
+    phase: RedemptionAttemptPhase, oldestAge: TimeInterval?
+) async throws {
+    let fixture = try RuntimeFixture(emails: ["only@example.com"])
+    defer { fixture.remove() }
+    let clock = LockedTestClock(fixture.now)
+    let resetAt = fixture.now.addingTimeInterval(86_400)
+    let persistence = MonitorPersistence(stateFileURL: fixture.stateURL, profilesDirectory: fixture.profilesURL)
+    let initial = try await persistence.loadOrBootstrap(now: fixture.now)
+    let profileID = try #require(initial.profiles.first?.id)
+    var state = try #require(initial.monitorState(for: profileID))
+    state.confirmation = ThresholdConfirmation(
+        weeklyResetAt: resetAt, count: 2, lastObservedAt: fixture.now,
+        lastRemainingPercent: 2, firstObservedAt: oldestAge.map { fixture.now.addingTimeInterval(-$0) }
+    )
+    let key = "saved-ambiguous-attempt"
+    state.attempt = RedemptionAttempt(
+        profileID: state.profileID, idempotencyKey: key, creditID: "runtime-credit",
+        weeklyResetAtBefore: resetAt, weeklyUsedPercentBefore: 98,
+        availableCreditCountBefore: 1, preparedAt: fixture.now, phase: phase
+    )
+    _ = try await persistence.saveMonitorState(state, now: fixture.now)
+    let reopened = MonitorPersistence(stateFileURL: fixture.stateURL, profilesDirectory: fixture.profilesURL)
+    let session = RuntimeGuardSession(
+        email: fixture.emails[0], clock: clock, weeklyUsedPercent: 98, resetAt: resetAt
+    )
+    let controller = makeRuntimeController(
+        fixture: fixture, persistence: reopened,
+        sessions: [fixture.emails[0]: session], clock: clock
+    )
+    _ = try await controller.start()
+    #expect(await eventually {
+        let reads = await session.rateReadCount()
+        let snapshot = await controller.snapshot()
+        return reads >= 2 && !snapshot.isChecking
+    })
+    let shouldRetry = oldestAge == 5 || oldestAge == 120
+    #expect(await session.consumedKeys() == (shouldRetry ? [key] : []))
+    let firstCheck = try await reopened.snapshot()
+    #expect(firstCheck.monitorState(for: profileID)?.attempt?.idempotencyKey == key)
+    #expect(firstCheck.monitorState(for: profileID)?.attempt?.phase == (shouldRetry ? .nothingToReset : .awaitingVerification))
+    #expect(firstCheck.monitorState(for: profileID)?.confirmation == state.confirmation)
+    clock.advance(by: 61)
+    for _ in 0..<2 {
+        _ = await controller.checkNow()
+        #expect(await session.consumedKeys() == (shouldRetry ? [key] : []))
+        let stored = try await reopened.snapshot()
+        #expect(stored.monitorState(for: profileID)?.attempt?.idempotencyKey == key)
+        #expect(stored.monitorState(for: profileID)?.attempt?.phase == (shouldRetry ? .nothingToReset : .verificationFailed))
+        #expect(stored.monitorState(for: profileID)?.confirmation == state.confirmation)
+    }
     await controller.stop()
 }
 

@@ -175,8 +175,9 @@ enum GuardRedemptionSafetyGate {
         }
 
         guard weeklyLimit.observedAt >= confirmation.lastObservedAt else { return false }
-        if attempt.phase == .prepared,
-           !policy.hasFreshConfirmation(confirmation, for: weeklyLimit.resetsAt, at: now) {
+        // An in-flight write may have committed without a send. Retrying never refreshes the
+        // original confirmation evidence; stale ambiguous attempts must reconcile read-only.
+        if !policy.hasFreshConfirmation(confirmation, for: weeklyLimit.resetsAt, at: now) {
             return false
         }
 

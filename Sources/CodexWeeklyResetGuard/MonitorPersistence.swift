@@ -72,11 +72,12 @@ enum MonitorPersistenceError: Error, Equatable, LocalizedError, Sendable {
     }
 }
 
-enum MonitorPersistenceTestingFault: Sendable {
+enum MonitorPersistenceTestingFault: Equatable, Sendable {
     case beforeAddProfileWrite
     case afterAddProfileWrite
     case beforeSetProfileEnabledWrite
     case afterSetProfileEnabledWrite
+    case beforeMonitorStateWrite(RedemptionAttemptPhase)
 }
 
 private enum MonitorPersistenceTestingFailure: Error {
@@ -208,6 +209,11 @@ actor MonitorPersistence {
     ) async throws
         -> GuardPersistentState
     {
+        if case let .beforeMonitorStateWrite(phase) = testingFault,
+           monitorState.attempt?.phase == phase {
+            testingFault = nil
+            throw MonitorPersistenceTestingFailure.injected
+        }
         let baseline = try await snapshot()
         guard let profileID = UUID(uuidString: monitorState.profileID) else {
             throw MonitorPersistenceError.invalidMonitorState(

@@ -1457,6 +1457,8 @@ private actor RuntimeGuardSession: GuardAppServerSession {
     private var weeklyUsedPercent: Int
     private let resetAt: Date
     private var creditAvailable: Bool
+    private var inventoryPresent = true
+    private var rateReadError: AppServerClientError?
     private let blockAccountReadNumber: Int?
     private let blockShutdown: Bool
     private var advanceClockOnAccountReadNumber: (number: Int, seconds: TimeInterval)?
@@ -1540,6 +1542,7 @@ private actor RuntimeGuardSession: GuardAppServerSession {
 
     func readRateLimits() async throws -> RPCRateLimitsReadResponse {
         rateReads += 1
+        if let rateReadError { throw rateReadError }
         let current = clock.value
         let snapshot = RPCRateLimitSnapshot(
             limitID: "codex",
@@ -1569,10 +1572,10 @@ private actor RuntimeGuardSession: GuardAppServerSession {
         return RPCRateLimitsReadResponse(
             rateLimits: snapshot,
             rateLimitsByLimitID: ["codex": snapshot],
-            rateLimitResetCredits: RPCResetCreditsSummary(
+            rateLimitResetCredits: inventoryPresent ? RPCResetCreditsSummary(
                 availableCount: creditAvailable ? 1 : 0,
                 credits: credits
-            )
+            ) : nil
         )
     }
 
@@ -1590,6 +1593,8 @@ private actor RuntimeGuardSession: GuardAppServerSession {
     func setEmail(_ value: String) { email = value }
     func setWeeklyUsedPercent(_ value: Int) { weeklyUsedPercent = value }
     func setCreditAvailable(_ value: Bool) { creditAvailable = value }
+    func setInventoryPresent(_ value: Bool) { inventoryPresent = value }
+    func setRateReadError(_ value: AppServerClientError?) { rateReadError = value }
     func isAccountReadBlocked() -> Bool { blocked }
     func releaseBlockedAccountRead() {
         blockedContinuation?.resume()
@@ -1936,6 +1941,81 @@ func ambiguousAttemptsRetainTheirKeyAndRequireFreshEvidence(
     await second.setEmail(fixture.emails[1])
     _ = await controller.checkNow()
     #expect(await controller.snapshot().banner == nil)
+    #expect(await first.consumeCount() == 0)
+    #expect(await second.consumeCount() == 0)
+    await controller.stop()
+}
+
+private enum GeneralBannerAction: Sendable {
+    case enroll
+    case pause
+}
+
+@Test(arguments: [GeneralBannerAction.enroll, .pause])
+@MainActor private func generalBannersCannotHideActiveReadFailures(action: GeneralBannerAction) async throws {
+    let fixture = try RuntimeFixture()
+    defer { fixture.remove() }
+    let clock = LockedTestClock(fixture.now)
+    let persistence = MonitorPersistence(stateFileURL: fixture.stateURL, profilesDirectory: fixture.profilesURL)
+    let first = RuntimeGuardSession(
+        email: fixture.emails[0], clock: clock, weeklyUsedPercent: 20,
+        resetAt: fixture.now.addingTimeInterval(86_400)
+    )
+    let second = RuntimeGuardSession(
+        email: fixture.emails[1], clock: clock, weeklyUsedPercent: 30,
+        resetAt: fixture.now.addingTimeInterval(86_400)
+    )
+    let controller = makeRuntimeController(
+        fixture: fixture, persistence: persistence,
+        sessions: [fixture.emails[0]: first, fixture.emails[1]: second], clock: clock
+    )
+    _ = try await controller.start()
+    #expect(await eventually {
+        let firstReads = await first.rateReadCount()
+        let secondReads = await second.rateReadCount()
+        let snapshot = await controller.snapshot()
+        return firstReads > 0 && secondReads > 0 && !snapshot.isChecking
+    })
+    let profileID = try #require(await controller.snapshot().profiles.first?.id)
+    let generalMessage: String
+    switch action {
+    case .enroll:
+        _ = try await controller.addProfile(expectedEmail: "third@example.com", displayName: "Third")
+        generalMessage = "Profile added. Connect it to verify the account, then choose whether to enable Auto-redeem."
+    case .pause:
+        _ = try await controller.setEnabled(profileID: profileID, enabled: false)
+        generalMessage = "Automatic weekly reset paused."
+    }
+    #expect(await controller.snapshot().banner == generalMessage)
+
+    let model = GuardAppModel()
+    let inventoryError = "Saved-reset inventory was missing, so redemption is blocked."
+    let networkError = "Codex could not be checked. The app will retry without redeeming."
+    await first.setInventoryPresent(false)
+    model.apply(await controller.checkNow())
+    #expect(model.banner == inventoryError)
+    #expect(model.profiles[0].weeklyRemainingPercent == 80)
+    #expect(model.profiles[0].status == .attention)
+    #expect(!model.profiles[0].identityVerified)
+    #expect(model.profiles[0].detail == inventoryError)
+
+    await second.setRateReadError(.transportClosed)
+    model.apply(await controller.checkNow())
+    #expect(model.banner == inventoryError)
+    #expect(model.profiles[1].weeklyRemainingPercent == 70)
+    #expect(model.profiles[1].detail == networkError)
+    #expect(!model.profiles[1].identityVerified)
+
+    await first.setInventoryPresent(true)
+    model.apply(await controller.checkNow())
+    #expect(model.profiles[0].identityVerified)
+    #expect(model.banner == networkError)
+    #expect(model.profiles[1].status == .attention)
+
+    await second.setRateReadError(nil)
+    model.apply(await controller.checkNow())
+    #expect(model.profiles[1].identityVerified)
+    #expect(model.banner == generalMessage)
     #expect(await first.consumeCount() == 0)
     #expect(await second.consumeCount() == 0)
     await controller.stop()

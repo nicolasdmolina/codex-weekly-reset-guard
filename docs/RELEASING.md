@@ -40,7 +40,7 @@ Once the owner approves publication:
 
 Do not attach `dist/`, QA logs, local planning records, account directories, or an
 entire working-directory zip. GitHub's source archive contains only committed
-files. Locally, `git archive --format=zip HEAD > /tmp/weekly-reset-guard-source.zip`
+files. Locally, `git archive --format=zip HEAD > /tmp/second-wind-source.zip`
 creates a source-only archive after a reviewed commit exists.
 
 ## Binary distribution is a later gate

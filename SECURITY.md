@@ -2,7 +2,8 @@
 
 This app can redeem an existing Codex reset credit after the user enables
 automatic redemption. It cannot issue or purchase credits. A redeemed credit
-cannot be restored by this app.
+cannot be restored by this app. For Claude it only reads usage through Claude
+Code's local `/usage` command and never redeems a reset.
 
 ## Reporting a vulnerability
 

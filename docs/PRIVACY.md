@@ -1,52 +1,66 @@
 # Privacy and runtime data
 
-Weekly Reset Guard has no analytics, advertising SDK, crash uploader, or project
-backend. It launches an official Codex app-server process per enrolled account.
-Those processes communicate with OpenAI for sign-in, account information, usage,
-and an eligible reset request. OpenAI's own service policies apply to those calls.
+Second Wind has no analytics, advertising SDK, crash uploader or project backend.
+It talks to Codex and Claude only through their official local tools:
+
+- One official Codex app-server process per Codex account. It communicates with
+  OpenAI for sign-in, account information, usage and an eligible reset request.
+- The official `claude` executable for each Claude account. It communicates with
+  Anthropic for sign-in, account status and plan usage.
+
+OpenAI's and Anthropic's own service policies apply to those calls.
 
 ## Local storage
 
 Runtime data lives outside the checkout at:
 
 ```text
-~/Library/Application Support/CodexWeeklyResetGuard/
+~/Library/Application Support/SecondWind/
 ```
 
-- `state.json`: expected account email, display label, profile UUID, preferences,
-  usage observations, and any durable pending redemption attempt. Pending attempts
-  can include a credit identifier and idempotency key.
-- `events.json`: a bounded history of redacted operational events.
+- `state.json`: Codex account emails, names, profile UUIDs, preferences, usage
+  readings and any durable pending redemption, which can include a credit
+  identifier and idempotency key.
+- `events.json`: a bounded history of redacted Codex events.
+- `claude-state.json`: Claude account emails, names, profile UUIDs, plan name,
+  the latest usage reading and which low-limit alerts were already sent.
 - `guard.lock`: the single-instance process lock.
-- `profiles/<uuid>/`: an isolated `CODEX_HOME` maintained by Codex app-server.
-  The app configures file-backed authentication for isolation; Codex owns the
-  credentials and session files in that directory.
+- `profiles/<uuid>/`: an isolated `CODEX_HOME` maintained by Codex app-server,
+  configured for file-backed authentication. Codex owns the credentials there.
+- `claude/<uuid>/`: an isolated `CLAUDE_CONFIG_DIR` maintained by Claude Code.
+  Claude Code stores that account's sign-in in your login Keychain under an item
+  named for this folder, separate from your everyday Claude Code sign-in.
 
-Guard's state files use private file permissions and atomic, synchronized writes.
-Its own directories use mode `0700` and its files use mode `0600`. This is access
-control, not encryption. Other software running as your user may access them.
-Guard does not read, import, print, or copy OAuth token values. It discards
-app-server stderr and redacts sensitive fields from its event history. Redaction
-does not make the entire runtime directory safe to share.
+Second Wind's own directories use mode `0700` and its files `0600`, written
+atomically. This is access control, not encryption; other software running as
+your user may read them. Second Wind never reads, imports, prints or copies OAuth
+tokens or Keychain items. It discards the tools' stderr and redacts sensitive
+fields from its event history. That does not make the whole runtime directory
+safe to share.
 
-New installs do not discover or import CodexBar accounts. Existing Guard profiles
-remain usable with their saved preferences. The source retains a tested legacy
-CodexBar metadata parser, but onboarding does not call it.
+Child processes get a cleaned environment: inherited `OPENAI_*`/Codex credential
+variables are removed for Codex, and every `ANTHROPIC_*` and `CLAUDE_*` variable
+is removed for Claude, so an API key in your shell can never be picked up.
+
+Version 0.2.0 moves `~/Library/Application Support/CodexWeeklyResetGuard/` to the
+new location on first launch and leaves a small note file in its place. It never
+merges into an existing `SecondWind` folder.
 
 ## User controls
 
-Automatic redemption starts off for each new account. Connecting or reconnecting
-pauses it until explicitly re-enabled. Launch at login is also opt-in. macOS
-controls notification permission. Quitting the app stops its monitoring processes;
-it does not revoke the account's authorization or remove its local data.
+Automatic Codex redemption starts off for each new account, and reconnecting
+pauses it until you turn it back on. Launch at login is opt-in. macOS controls
+notification permission. Quitting stops all monitoring processes; it does not
+revoke account access or delete local data.
 
-To stop using the app, disable launch at login from its menu, quit it, and move the
-app bundle to Trash. You can then move its application-support directory to Trash
-if you intend to discard all profiles and recovery state. Do not discard that
-state to retry an uncertain redemption: it contains the idempotency key needed
-for safe recovery. Revoke account access through OpenAI's account controls when
-appropriate.
+To stop using the app, turn off launch at login, quit it and move the app to
+Trash. You can then trash its application-support directory to discard all
+accounts and recovery state. Do not discard it to retry an uncertain Codex
+redemption: it holds the idempotency key needed for safe recovery. A Claude
+account's Keychain item is named `Claude Code-credentials-` followed by a short
+hash; you can delete it in Keychain Access. Revoke access through OpenAI's or
+Anthropic's account settings when appropriate.
 
-Do not submit runtime files in issues, pull requests, or release archives. The
-repository's publish check excludes runtime paths, local QA output, and personal
+Do not attach runtime files to issues, pull requests or release archives. The
+repository's publish check excludes runtime paths, local QA output and personal
 design-process records; it is a guardrail, not a guarantee against every secret.

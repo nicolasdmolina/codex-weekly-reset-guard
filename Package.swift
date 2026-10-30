@@ -2,17 +2,17 @@
 import PackageDescription
 
 let package = Package(
-    name: "CodexWeeklyResetGuard",
+    name: "SecondWind",
     platforms: [.macOS(.v14)],
     products: [
-        .library(name: "CodexWeeklyResetGuardCore", targets: ["CodexWeeklyResetGuardCore"]),
-        .executable(name: "CodexWeeklyResetGuard", targets: ["CodexWeeklyResetGuard"]),
+        .library(name: "SecondWindCore", targets: ["SecondWindCore"]),
+        .executable(name: "SecondWind", targets: ["SecondWind"]),
     ],
     targets: [
-        .target(name: "CodexWeeklyResetGuardCore"),
+        .target(name: "SecondWindCore"),
         .executableTarget(
-            name: "CodexWeeklyResetGuard",
-            dependencies: ["CodexWeeklyResetGuardCore"],
+            name: "SecondWind",
+            dependencies: ["SecondWindCore"],
             linkerSettings: [
                 .linkedFramework("AppKit"),
                 .linkedFramework("SwiftUI"),
@@ -21,8 +21,8 @@ let package = Package(
             ]
         ),
         .testTarget(
-            name: "CodexWeeklyResetGuardCoreTests",
-            dependencies: ["CodexWeeklyResetGuardCore", "CodexWeeklyResetGuard"]
+            name: "SecondWindTests",
+            dependencies: ["SecondWindCore", "SecondWind"]
         ),
     ]
 )

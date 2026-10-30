@@ -1,7 +1,7 @@
 import Darwin
 import Foundation
 import Testing
-@testable import CodexWeeklyResetGuardCore
+@testable import SecondWindCore
 
 @Test func secureStateStoreRoundTripsAtomicallyAtPrivatePermissions() async throws {
     struct State: Codable, Equatable, Sendable {
@@ -218,7 +218,7 @@ import Testing
 
 private func temporaryDirectory() throws -> URL {
     let directory = FileManager.default.temporaryDirectory
-        .appendingPathComponent("CodexWeeklyResetGuardTests-\(UUID().uuidString)", isDirectory: true)
+        .appendingPathComponent("SecondWindTests-\(UUID().uuidString)", isDirectory: true)
     try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)
     return directory
 }

@@ -1,4 +1,4 @@
-import CodexWeeklyResetGuardCore
+import SecondWindCore
 import Foundation
 
 struct GuardPersistentState: Codable, Equatable, Sendable {
@@ -53,7 +53,7 @@ enum MonitorPersistenceError: Error, Equatable, LocalizedError, Sendable {
         case let .unsupportedSchemaVersion(version):
             "The saved monitor state uses unsupported schema version \(version)."
         case .stateNotInitialized:
-            "Open Reset Guard to set up your first profile."
+            "Open Second Wind to set up your first account."
         case .duplicateProfileIdentifier:
             "The saved profile identifiers are not unique."
         case .duplicateExpectedIdentity:

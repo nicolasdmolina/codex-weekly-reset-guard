@@ -4,14 +4,15 @@ set -euo pipefail
 # Exercise replacement and failure behavior in temporary directories. Swift,
 # signing, process checks, and app launching are mocked; no real app is started.
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-TEST_DIRECTORY="$(mktemp -d "${TMPDIR:-/tmp}/reset-guard-tooling.XXXXXX")"
+TEST_DIRECTORY="$(mktemp -d "${TMPDIR:-/tmp}/second-wind-tooling.XXXXXX")"
 trap 'rm -rf "$TEST_DIRECTORY"' EXIT
 FIXTURE_ROOT="$TEST_DIRECTORY/source checkout"
 INSTALL_DIRECTORY="$TEST_DIRECTORY/custom Applications"
-APP_NAME="Codex Weekly Reset Guard.app"
+APP_NAME="Second Wind.app"
+LEGACY_APP_NAME="Codex Weekly Reset Guard.app"
 mkdir -p "$FIXTURE_ROOT/scripts" "$FIXTURE_ROOT/Resources" "$TEST_DIRECTORY/bin"
 cp "$PROJECT_ROOT/scripts/package_app.sh" "$PROJECT_ROOT/scripts/install_app.sh" "$FIXTURE_ROOT/scripts/"
-cp "$PROJECT_ROOT/Resources/Info.plist" "$FIXTURE_ROOT/Resources/"
+cp "$PROJECT_ROOT/Resources/Info.plist" "$PROJECT_ROOT/Resources/AppIcon.icns" "$FIXTURE_ROOT/Resources/"
 cp "$PROJECT_ROOT/LICENSE" "$FIXTURE_ROOT/LICENSE"
 
 export GUARD_TOOLING_TEST_LOG="$TEST_DIRECTORY/commands.log"
@@ -27,8 +28,8 @@ if [[ " $* " == *" --show-bin-path "* ]]; then
   printf '%s\n' "$PWD/.build/mock release"
 else
   mkdir -p "$PWD/.build/mock release"
-  printf '#!/bin/bash\nexit 0\n' > "$PWD/.build/mock release/CodexWeeklyResetGuard"
-  chmod +x "$PWD/.build/mock release/CodexWeeklyResetGuard"
+  printf '#!/bin/bash\nexit 0\n' > "$PWD/.build/mock release/SecondWind"
+  chmod +x "$PWD/.build/mock release/SecondWind"
 fi
 SH
 cat > "$TEST_DIRECTORY/bin/codesign" <<'SH'
@@ -39,7 +40,11 @@ printf 'codesign\n' >> "$GUARD_TOOLING_TEST_LOG"
 SH
 cat > "$TEST_DIRECTORY/bin/pgrep" <<'SH'
 #!/bin/bash
-[[ "${GUARD_TOOLING_TEST_RUNNING:-0}" == 1 ]]
+if [[ "$*" == *"Codex Weekly Reset Guard"* ]]; then
+  [[ "${GUARD_TOOLING_TEST_LEGACY_RUNNING:-0}" == 1 ]]
+else
+  [[ "${GUARD_TOOLING_TEST_RUNNING:-0}" == 1 ]]
+fi
 SH
 cat > "$TEST_DIRECTORY/bin/open" <<'SH'
 #!/bin/bash
@@ -74,6 +79,14 @@ test ! -e "$GUARD_TOOLING_TEST_LOG" || fail 'running app did not prevent build/i
 test -f "$INSTALL_DIRECTORY/$APP_NAME/preserved.marker" || fail 'running app was replaced'
 unset GUARD_TOOLING_TEST_RUNNING
 
+mkdir -p "$INSTALL_DIRECTORY/$LEGACY_APP_NAME"
+printf 'legacy installation\n' > "$INSTALL_DIRECTORY/$LEGACY_APP_NAME/legacy.marker"
+export GUARD_TOOLING_TEST_LEGACY_RUNNING=1
+expect_failure "$FIXTURE_ROOT/scripts/install_app.sh" --destination "$INSTALL_DIRECTORY"
+test ! -e "$GUARD_TOOLING_TEST_LOG" || fail 'running legacy app did not prevent build/install'
+test -f "$INSTALL_DIRECTORY/$LEGACY_APP_NAME/legacy.marker" || fail 'running legacy app was moved'
+unset GUARD_TOOLING_TEST_LEGACY_RUNNING
+
 export GUARD_TOOLING_TEST_BUILD_FAIL=1
 expect_failure "$FIXTURE_ROOT/scripts/install_app.sh" --destination "$INSTALL_DIRECTORY"
 test -s "$TEST_DIRECTORY/stderr" || fail 'build failure lost its diagnostic'
@@ -95,12 +108,16 @@ for QA_KEY in GuardPreviewKind GuardDiagnosticSupportDirectory; do
 done
 
 "$FIXTURE_ROOT/scripts/install_app.sh" --destination "$INSTALL_DIRECTORY" > "$TEST_DIRECTORY/stdout" 2> "$TEST_DIRECTORY/stderr"
-test -x "$INSTALL_DIRECTORY/$APP_NAME/Contents/MacOS/CodexWeeklyResetGuard" || fail 'new app missing'
+test -x "$INSTALL_DIRECTORY/$APP_NAME/Contents/MacOS/SecondWind" || fail 'new app missing'
 cmp -s "$PROJECT_ROOT/LICENSE" "$INSTALL_DIRECTORY/$APP_NAME/Contents/Resources/LICENSE" || fail 'license missing from bundle'
+cmp -s "$PROJECT_ROOT/Resources/AppIcon.icns" "$INSTALL_DIRECTORY/$APP_NAME/Contents/Resources/AppIcon.icns" || fail 'app icon missing from bundle'
 test ! -f "$INSTALL_DIRECTORY/$APP_NAME/preserved.marker" || fail 'new install merged with old app'
 test "$(cat "$TEST_DIRECTORY/stdout")" == "$INSTALL_DIRECTORY/$APP_NAME" || fail 'installer output is not one path'
-INSTALL_BACKUPS=("$INSTALL_DIRECTORY/.codex-weekly-reset-guard-backups/"install.*/"$APP_NAME/preserved.marker")
+INSTALL_BACKUPS=("$INSTALL_DIRECTORY/.second-wind-backups/"install.*/"$APP_NAME/preserved.marker")
 test "${#INSTALL_BACKUPS[@]}" -eq 1 && test -f "${INSTALL_BACKUPS[0]}" || fail 'previous installation not preserved'
+test ! -e "$INSTALL_DIRECTORY/$LEGACY_APP_NAME" || fail 'legacy app was not retired'
+LEGACY_BACKUPS=("$INSTALL_DIRECTORY/.second-wind-backups/"legacy.*/"$LEGACY_APP_NAME/legacy.marker")
+test "${#LEGACY_BACKUPS[@]}" -eq 1 && test -f "${LEGACY_BACKUPS[0]}" || fail 'legacy app was not preserved'
 BUILD_BACKUPS=("$FIXTURE_ROOT/dist/previous-builds/"build.*/"$APP_NAME/preserved.marker")
 test "${#BUILD_BACKUPS[@]}" -eq 1 && test -f "${BUILD_BACKUPS[0]}" || fail 'previous package not preserved'
 while IFS= read -r command_name; do

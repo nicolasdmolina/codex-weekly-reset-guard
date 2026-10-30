@@ -73,7 +73,7 @@ public enum SingleInstanceError: LocalizedError {
     public var errorDescription: String? {
         switch self {
         case .alreadyRunning:
-            "Codex Weekly Reset Guard is already running."
+            "Second Wind is already running."
         }
     }
 }

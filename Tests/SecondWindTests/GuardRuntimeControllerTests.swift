@@ -1,7 +1,7 @@
 import Foundation
 import Testing
-@testable import CodexWeeklyResetGuard
-@testable import CodexWeeklyResetGuardCore
+@testable import SecondWind
+@testable import SecondWindCore
 
 @Test func monitorPersistenceStartsEmptyWithoutExternalAccountDiscovery() async throws {
     let fixture = try RuntimeFixture(seedProfiles: false)

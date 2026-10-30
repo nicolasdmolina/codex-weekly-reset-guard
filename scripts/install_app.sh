@@ -2,7 +2,8 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="Codex Weekly Reset Guard"
+APP_NAME="Second Wind"
+LEGACY_APP_NAME="Codex Weekly Reset Guard"
 SOURCE_APP="$PROJECT_ROOT/dist/$APP_NAME.app"
 INSTALL_DIRECTORY="$HOME/Applications"
 SHOULD_LAUNCH=false
@@ -34,8 +35,12 @@ if [[ -L "$INSTALLED_APP" || ( -e "$INSTALLED_APP" && ! -d "$INSTALLED_APP" ) ]]
 fi
 
 require_stopped_app() {
+  if pgrep -f '[/]Second Wind[.]app/Contents/MacOS/SecondWind([[:space:]]|$)' >/dev/null; then
+    printf 'Quit Second Wind before installing or updating it.\n' >&2
+    exit 1
+  fi
   if pgrep -f '[/]Codex Weekly Reset Guard[.]app/Contents/MacOS/CodexWeeklyResetGuard([[:space:]]|$)' >/dev/null; then
-    printf 'Quit Codex Weekly Reset Guard before installing or updating it.\n' >&2
+    printf 'Quit Codex Weekly Reset Guard before installing Second Wind. Its profiles move over on first launch.\n' >&2
     exit 1
   fi
 }
@@ -43,7 +48,7 @@ require_stopped_app() {
 require_stopped_app
 "$PROJECT_ROOT/scripts/package_app.sh" >/dev/null
 mkdir -p "$INSTALL_DIRECTORY"
-STAGING_DIRECTORY="$(mktemp -d "$INSTALL_DIRECTORY/.weekly-reset-guard-install.XXXXXX")"
+STAGING_DIRECTORY="$(mktemp -d "$INSTALL_DIRECTORY/.second-wind-install.XXXXXX")"
 trap 'rm -rf "$STAGING_DIRECTORY"' EXIT
 STAGED_APP="$STAGING_DIRECTORY/$APP_NAME.app"
 ditto "$SOURCE_APP" "$STAGED_APP"
@@ -54,8 +59,8 @@ codesign --verify --deep --strict "$STAGED_APP" >&2
 require_stopped_app
 PREVIOUS_APP=""
 if [[ -e "$INSTALLED_APP" ]]; then
-  mkdir -p "$INSTALL_DIRECTORY/.codex-weekly-reset-guard-backups"
-  BACKUP_DIRECTORY="$(mktemp -d "$INSTALL_DIRECTORY/.codex-weekly-reset-guard-backups/install.XXXXXX")"
+  mkdir -p "$INSTALL_DIRECTORY/.second-wind-backups"
+  BACKUP_DIRECTORY="$(mktemp -d "$INSTALL_DIRECTORY/.second-wind-backups/install.XXXXXX")"
   PREVIOUS_APP="$BACKUP_DIRECTORY/$APP_NAME.app"
   mv "$INSTALLED_APP" "$PREVIOUS_APP"
 fi
@@ -68,6 +73,16 @@ fi
 
 if [[ -n "$PREVIOUS_APP" ]]; then
   printf 'Previous installation retained at: %s\n' "$PREVIOUS_APP" >&2
+fi
+
+# Retire the pre-rename app so its login item cannot relaunch it beside Second Wind.
+# It is moved, not deleted, and its runtime state is migrated by Second Wind itself.
+LEGACY_APP="$INSTALL_DIRECTORY/$LEGACY_APP_NAME.app"
+if [[ -d "$LEGACY_APP" && ! -L "$LEGACY_APP" ]]; then
+  mkdir -p "$INSTALL_DIRECTORY/.second-wind-backups"
+  LEGACY_BACKUP_DIRECTORY="$(mktemp -d "$INSTALL_DIRECTORY/.second-wind-backups/legacy.XXXXXX")"
+  mv "$LEGACY_APP" "$LEGACY_BACKUP_DIRECTORY/"
+  printf 'Moved %s to: %s\n' "$LEGACY_APP_NAME" "$LEGACY_BACKUP_DIRECTORY" >&2
 fi
 if [[ "$SHOULD_LAUNCH" == true ]]; then
   open "$INSTALLED_APP"

@@ -1,6 +1,6 @@
 import Foundation
 import Darwin
-import CodexWeeklyResetGuardCore
+import SecondWindCore
 
 enum GuardLaunchCommand: Equatable {
     case production

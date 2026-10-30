@@ -22,3 +22,6 @@ credentials.json
 /state.json
 /events.json
 *.log
+
+# Local progress dashboard for agent sessions.
+/.dashboard/

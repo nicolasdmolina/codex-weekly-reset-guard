@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CodexWeeklyResetGuardCore
+@testable import SecondWindCore
 
 @Suite struct RateLimitClassifierTests {
     private let now = Date(timeIntervalSince1970: 1_000_000)

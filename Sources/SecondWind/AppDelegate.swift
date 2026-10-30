@@ -6,6 +6,7 @@ import SwiftUI
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let model: GuardAppModel
     private let runtime: GuardRuntimeController?
+    private let claudeMonitor: ClaudeMonitorController?
     private var statusItem: NSStatusItem!
     private let popover = NSPopover()
     private var cancellables = Set<AnyCancellable>()
@@ -13,9 +14,10 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private var startupTask: Task<Void, Never>?
     private var inspectionWindow: NSWindow?
 
-    init(model: GuardAppModel, runtime: GuardRuntimeController? = nil) {
+    init(model: GuardAppModel, runtime: GuardRuntimeController? = nil, claudeMonitor: ClaudeMonitorController? = nil) {
         self.model = model
         self.runtime = runtime
+        self.claudeMonitor = claudeMonitor
         super.init()
     }
 
@@ -41,7 +43,16 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             startupTask = Task {
                 do {
                     let snapshot = try await runtime.start()
-                    if !model.isReadOnly, snapshot.profiles.isEmpty, !popover.isShown,
+                    var claudeCount = 0
+                    if let claudeMonitor {
+                        do {
+                            try await claudeMonitor.start()
+                            claudeCount = await claudeMonitor.snapshot().profiles.count
+                        } catch {
+                            model.banner = "Claude monitoring could not start: \(error.localizedDescription)"
+                        }
+                    }
+                    if !model.isReadOnly, snapshot.profiles.isEmpty, claudeCount == 0, !popover.isShown,
                        let button = statusItem.button {
                         popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
                         popover.contentViewController?.view.window?.makeKey()
@@ -49,7 +60,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
                 } catch {
                     guard !Task.isCancelled else { return }
                     await MainActor.run {
-                        model.banner = "Reset Guard could not start: \(error.localizedDescription)"
+                        model.banner = "Second Wind could not start: \(error.localizedDescription)"
                     }
                 }
             }
@@ -66,7 +77,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.behavior = .transient
         popover.animates = true
         popover.delegate = self
-        popover.contentSize = NSSize(width: 380, height: 560)
+        popover.contentSize = NSSize(width: SW.Size.popoverWidth, height: SW.Size.popoverHeight)
         popover.contentViewController = NSHostingController(rootView: GuardPopoverView(model: model))
 
         model.objectWillChange
@@ -89,7 +100,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             backing: .buffered,
             defer: false
         )
-        window.title = model.isPreview ? "Weekly Reset Guard — Preview" : "Weekly Reset Guard — Read-only diagnostic"
+        window.title = model.isPreview ? "Second Wind Preview" : "Second Wind Diagnostics"
         window.contentViewController = NSHostingController(rootView: GuardPopoverView(model: model))
         window.isReleasedWhenClosed = false
         window.center()
@@ -108,6 +119,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         isFinishingTermination = true
         startupTask?.cancel()
         Task {
+            await claudeMonitor?.stop()
             await runtime.stop()
             await startupTask?.value
             startupTask = nil
@@ -123,8 +135,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     @objc private func systemDidWake() {
-        guard let runtime else { return }
-        Task { _ = await runtime.checkNow() }
+        model.checkNow()
     }
 
     @objc private func togglePopover() {
@@ -138,17 +149,22 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     private func updateStatusItem() {
-        let symbol = model.hasAttention ? "exclamationmark.shield.fill" : "shield.lefthalf.filled"
-        statusItem.button?.image = NSImage(
-            systemSymbolName: symbol,
-            accessibilityDescription: "Codex Weekly Reset Guard"
+        guard let button = statusItem.button else { return }
+        let image = NSImage(
+            systemSymbolName: model.hasAttention ? "exclamationmark.triangle" : "wind",
+            accessibilityDescription: "Second Wind"
         )
+        image?.isTemplate = true
+        button.image = image
+        button.imagePosition = .imageLeading
         if let minimum = model.minimumRemainingPercent {
-            statusItem.button?.title = " \(Int(minimum.rounded()))%"
-            statusItem.button?.toolTip = "Lowest Codex weekly balance: \(Int(minimum.rounded()))%"
+            button.title = " \(Int(minimum.rounded(.down)))%"
+            button.toolTip = model.hasAttention
+                ? "Second Wind: an account needs attention"
+                : "Second Wind: lowest headroom \(Int(minimum.rounded(.down)))%"
         } else {
-            statusItem.button?.title = ""
-            statusItem.button?.toolTip = "Codex Weekly Reset Guard needs account setup"
+            button.title = ""
+            button.toolTip = model.hasAccounts ? "Second Wind: connecting accounts" : "Second Wind: add an account"
         }
     }
 }

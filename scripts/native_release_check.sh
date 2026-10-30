@@ -19,16 +19,16 @@ cd "$PROJECT_ROOT"
 swift build -Xswiftc -warnings-as-errors
 DEBUG_BIN_PATH="$(swift build --show-bin-path)"
 # These modes use synthetic fixtures; never substitute --doctor or a bare launch.
-"$DEBUG_BIN_PATH/CodexWeeklyResetGuard" --self-test
+"$DEBUG_BIN_PATH/SecondWind" --self-test
 if [[ "$SHOULD_RENDER_PREVIEWS" == true ]]; then
   mkdir -p "$ARTIFACTS"
-  "$DEBUG_BIN_PATH/CodexWeeklyResetGuard" --render-all-previews "$ARTIFACTS"
-  for preview in onboarding onboarding-error connect paused healthy near redeemed auth-error; do
+  "$DEBUG_BIN_PATH/SecondWind" --render-all-previews "$ARTIFACTS"
+  for preview in onboarding onboarding-error connect paused healthy near redeemed auth-error overview claude-low claude-signin; do
     test -s "$ARTIFACTS/$preview.png"
   done
 fi
 
 "$PROJECT_ROOT/scripts/package_app.sh"
-codesign --verify --deep --strict "$PROJECT_ROOT/dist/Codex Weekly Reset Guard.app"
+codesign --verify --deep --strict "$PROJECT_ROOT/dist/Second Wind.app"
 
 printf 'Offline native release checks passed (previews: %s).\n' "$SHOULD_RENDER_PREVIEWS"

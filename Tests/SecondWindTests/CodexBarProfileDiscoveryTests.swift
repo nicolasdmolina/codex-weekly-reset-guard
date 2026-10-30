@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CodexWeeklyResetGuardCore
+@testable import SecondWindCore
 
 @Test func discoversDistinctCodexBarIdentitiesWithoutAuthMaterial() throws {
     let directory = FileManager.default.temporaryDirectory

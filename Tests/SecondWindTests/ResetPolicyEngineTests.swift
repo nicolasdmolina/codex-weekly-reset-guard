@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CodexWeeklyResetGuardCore
+@testable import SecondWindCore
 
 @Suite struct ResetPolicyEngineTests {
     private let now = Date(timeIntervalSince1970: 2_000_000)

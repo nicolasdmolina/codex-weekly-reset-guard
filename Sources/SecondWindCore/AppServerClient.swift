@@ -300,8 +300,8 @@ public actor AppServerClient {
         self.restartDelays = restartDelays
         self.eventLog = eventLog
         self.clientInfo = .init(
-            name: "codex_weekly_reset_guard",
-            title: "Codex Weekly Reset Guard",
+            name: "second_wind",
+            title: "Second Wind",
             version: clientVersion
         )
     }
@@ -328,8 +328,8 @@ public actor AppServerClient {
         self.restartDelays = restartDelays
         self.eventLog = eventLog
         self.clientInfo = .init(
-            name: "codex_weekly_reset_guard",
-            title: "Codex Weekly Reset Guard",
+            name: "second_wind",
+            title: "Second Wind",
             version: clientVersion
         )
     }

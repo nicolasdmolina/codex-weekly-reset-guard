@@ -1,5 +1,5 @@
 import AppKit
-import CodexWeeklyResetGuardCore
+import SecondWindCore
 import Foundation
 
 do {
@@ -33,7 +33,7 @@ do {
     }
     if command == .selfTest {
         try MainActor.assumeIsolated { try PreviewFixtures.validate() }
-        print("Codex Weekly Reset Guard executable self-test passed.")
+        print("Second Wind executable self-test passed.")
         exit(0)
     }
 
@@ -89,6 +89,27 @@ do {
             GuardAppModel(profiles: [], isPreview: false, isReadOnly: runtimeConfiguration?.operationMode == .readOnly)
         }
     }
+    if command == .production {
+        switch try LegacyStateMigration.migrateIfNeeded(
+            legacyDirectory: ProfileConfiguration.legacyApplicationSupportDirectory,
+            currentDirectory: ProfileConfiguration.defaultApplicationSupportDirectory
+        ) {
+        case .legacyAppRunning:
+            MainActor.assumeIsolated {
+                let alert = NSAlert()
+                alert.messageText = "Quit Codex Weekly Reset Guard first"
+                alert.informativeText = "Second Wind replaces it. Quit the old app, then open Second Wind again to bring over your accounts."
+                alert.runModal()
+            }
+            exit(1)
+        case .migrated:
+            MainActor.assumeIsolated {
+                model.banner = "Your Codex accounts moved over from Codex Weekly Reset Guard. Turn launch at login back on from the ••• menu if you used it."
+            }
+        case .notNeeded:
+            break
+        }
+    }
     let instanceLock = try runtimeConfiguration.map {
         try SingleInstanceLock(
             url: $0.applicationSupportDirectory
@@ -99,13 +120,31 @@ do {
     let runtime = MainActor.assumeIsolated {
         runtimeConfiguration.map { makeGuardRuntimeController(model: model, configuration: $0) }
     }
+    let claudeMonitor = MainActor.assumeIsolated {
+        runtimeConfiguration.map { configuration in
+            makeClaudeMonitor(model: model, configuration: ClaudeMonitorConfiguration(
+                isReadOnly: configuration.operationMode == .readOnly,
+                executableURL: ProcessClaudeCommandRunner.defaultExecutableURL,
+                applicationSupportDirectory: configuration.applicationSupportDirectory
+            ))
+        }
+    }
+    MainActor.assumeIsolated {
+        guard let runtime else { return }
+        model.onCheckNow = { [weak runtime, weak claudeMonitor] in
+            Task { _ = await runtime?.checkNow() }
+            Task { await claudeMonitor?.checkNow() }
+        }
+    }
     let app = NSApplication.shared
-    let delegate = MainActor.assumeIsolated { AppDelegate(model: model, runtime: runtime) }
+    let delegate = MainActor.assumeIsolated {
+        AppDelegate(model: model, runtime: runtime, claudeMonitor: claudeMonitor)
+    }
     app.delegate = delegate
     withExtendedLifetime(instanceLock) {
         app.run()
     }
 } catch {
-    fputs("Codex Weekly Reset Guard failed: \(error.localizedDescription)\n", stderr)
+    fputs("Second Wind failed: \(error.localizedDescription)\n", stderr)
     exit(1)
 }

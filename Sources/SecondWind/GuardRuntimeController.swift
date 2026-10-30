@@ -1,5 +1,5 @@
 import AppKit
-import CodexWeeklyResetGuardCore
+import SecondWindCore
 import Foundation
 
 enum GuardOperationMode: String, Codable, Equatable, Sendable {
@@ -119,9 +119,9 @@ enum GuardRuntimeError: Error, Equatable, LocalizedError, Sendable {
         case let .rejectedWeeklyLimit(reason):
             "The Codex weekly limit could not be classified safely (\(reason))."
         case .runtimeNotInitialized:
-            "The reset guard has not been initialized."
+            "Second Wind has not finished starting."
         case .runtimeStopped:
-            "The reset guard is stopping or has stopped."
+            "Second Wind is stopping or has stopped."
         case .settingSuperseded:
             "A newer profile action replaced this setting change."
         }
@@ -407,7 +407,7 @@ actor GuardRuntimeController {
     @discardableResult
     func checkNow() async -> GuardRuntimeSnapshot {
         guard initialized else {
-            banner = "Reset Guard is still starting."
+            banner = "Second Wind is still starting."
             await publish()
             return latestSnapshot
         }
@@ -1231,7 +1231,7 @@ actor GuardRuntimeController {
             )
             await notificationHandler(
                 "Codex reset needs attention",
-                "Reset Guard stopped because the weekly recovery could not be verified."
+                "Second Wind stopped because the weekly recovery could not be verified."
             )
         }
     }
@@ -1572,7 +1572,7 @@ extension GuardAppModel {
             GuardHistoryEvent(
                 id: event.id,
                 occurredAt: event.occurredAt,
-                profileName: event.profileID.flatMap { names[$0] } ?? "Reset Guard",
+                profileName: event.profileID.flatMap { names[$0] } ?? "Second Wind",
                 summary: event.summary
             )
         }

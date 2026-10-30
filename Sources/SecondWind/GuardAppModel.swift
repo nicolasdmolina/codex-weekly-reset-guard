@@ -52,6 +52,78 @@ struct GuardProfilePresentation: Identifiable, Equatable, Sendable {
     var isConnected: Bool { identityVerified && status != .disconnected }
 }
 
+enum ProviderKind: String, CaseIterable, Identifiable, Sendable {
+    case codex
+    case claude
+
+    var id: String { rawValue }
+
+    var title: String {
+        switch self {
+        case .codex: "Codex"
+        case .claude: "Claude"
+        }
+    }
+}
+
+enum ClaudeProfileStatus: String, Equatable, Sendable {
+    case checking
+    case healthy
+    case low
+    case signedOut
+    case signingIn
+    case attention
+
+    var title: String {
+        switch self {
+        case .checking: "Checking"
+        case .healthy: "Monitoring"
+        case .low: "Running low"
+        case .signedOut: "Not signed in"
+        case .signingIn: "Signing in"
+        case .attention: "Attention required"
+        }
+    }
+
+    var symbolName: String {
+        switch self {
+        case .checking: "clock"
+        case .healthy: "checkmark.circle.fill"
+        case .low: "exclamationmark.triangle.fill"
+        case .signedOut: "person.crop.circle.badge.questionmark"
+        case .signingIn: "arrow.up.forward.app"
+        case .attention: "xmark.octagon.fill"
+        }
+    }
+}
+
+struct ClaudeWindowPresentation: Identifiable, Equatable, Sendable {
+    let id: String
+    var label: String
+    var remainingPercent: Double
+    var resetsAt: Date?
+}
+
+struct ClaudeProfilePresentation: Identifiable, Equatable, Sendable {
+    /// Claude windows at or below this much room left count as low.
+    static let lowThresholdPercent: Double = 10
+
+    let id: String
+    var displayName: String
+    var accountHint: String
+    var planName: String?
+    var windows: [ClaudeWindowPresentation]
+    var status: ClaudeProfileStatus
+    var detail: String
+    var signInURL: URL?
+
+    var tightestWindow: ClaudeWindowPresentation? {
+        windows.min { $0.remainingPercent < $1.remainingPercent }
+    }
+
+    var needsConnection: Bool { status == .signedOut || status == .signingIn }
+}
+
 struct GuardHistoryEvent: Identifiable, Equatable, Sendable {
     let id: UUID
     let occurredAt: Date
@@ -62,6 +134,9 @@ struct GuardHistoryEvent: Identifiable, Equatable, Sendable {
 @MainActor
 final class GuardAppModel: ObservableObject {
     @Published var profiles: [GuardProfilePresentation]
+    @Published var claudeProfiles: [ClaudeProfilePresentation]
+    @Published var isCheckingClaude = false
+    @Published var enrollmentProvider: ProviderKind = .codex
     @Published var history: [GuardHistoryEvent]
     @Published var isChecking = false
     @Published var lastCheckedAt: Date?
@@ -81,15 +156,20 @@ final class GuardAppModel: ObservableObject {
     var onToggleAutoReset: ((String, Bool) -> Void)?
     var onReconnect: ((String) -> Void)?
     var onAddProfile: ((String, String) -> Void)?
+    var onAddClaudeProfile: ((String, String) -> Void)?
+    var onConnectClaude: ((String) -> Void)?
+    var onCancelClaudeSignIn: ((String) -> Void)?
 
     init(
         profiles: [GuardProfilePresentation] = [],
+        claudeProfiles: [ClaudeProfilePresentation] = [],
         history: [GuardHistoryEvent] = [],
         isPreview: Bool = false,
         isReadOnly: Bool = false,
         referenceDate: Date? = nil
     ) {
         self.profiles = profiles
+        self.claudeProfiles = claudeProfiles
         self.history = history
         self.isPreview = isPreview
         self.isReadOnly = isReadOnly
@@ -97,16 +177,25 @@ final class GuardAppModel: ObservableObject {
         self.referenceDate = referenceDate
     }
 
+    var hasAccounts: Bool { !profiles.isEmpty || !claudeProfiles.isEmpty }
+
+    var isBusyChecking: Bool { isChecking || isCheckingClaude }
+
+    /// The least headroom across every account and window, shown in the menu bar.
     var minimumRemainingPercent: Double? {
-        profiles.compactMap(\.weeklyRemainingPercent).min()
+        (profiles.compactMap(\.weeklyRemainingPercent)
+            + claudeProfiles.compactMap { $0.tightestWindow?.remainingPercent }).min()
     }
 
-    var hasAttention: Bool {
-        profiles.contains { $0.status == .attention || $0.status == .disconnected }
+    var attentionCount: Int {
+        profiles.filter { $0.status == .attention || $0.status == .disconnected }.count
+            + claudeProfiles.filter { $0.status == .attention || $0.status == .signedOut }.count
     }
+
+    var hasAttention: Bool { attentionCount > 0 }
 
     func checkNow() {
-        guard !isChecking else { return }
+        guard !isBusyChecking else { return }
         if isPreview {
             lastCheckedAt = Date()
             banner = "Preview refreshed"
@@ -139,7 +228,9 @@ final class GuardAppModel: ObservableObject {
     func addProfile() {
         guard isReady, !isAddingProfile else { return }
         guard MonitorPersistence.isValidEmail(profileEmail) else {
-            enrollmentError = MonitorPersistenceError.invalidExpectedIdentity.localizedDescription
+            enrollmentError = enrollmentProvider == .codex
+                ? MonitorPersistenceError.invalidExpectedIdentity.localizedDescription
+                : ClaudeMonitorError.invalidEmail.localizedDescription
             return
         }
         guard !isPreview else {
@@ -148,6 +239,31 @@ final class GuardAppModel: ObservableObject {
         }
         enrollmentError = nil
         isAddingProfile = true
-        onAddProfile?(MonitorPersistence.normalizedEmail(profileEmail), profileDisplayName)
+        let email = MonitorPersistence.normalizedEmail(profileEmail)
+        switch enrollmentProvider {
+        case .codex: onAddProfile?(email, profileDisplayName)
+        case .claude: onAddClaudeProfile?(email, profileDisplayName)
+        }
+    }
+
+    func connectClaude(profileID: String) {
+        guard !isReadOnly else { return }
+        if isPreview {
+            banner = "Preview only. No sign-in was started."
+            return
+        }
+        onConnectClaude?(profileID)
+    }
+
+    func cancelClaudeSignIn(profileID: String) {
+        onCancelClaudeSignIn?(profileID)
+    }
+
+    func openClaudeUsage() {
+        guard !isPreview else {
+            banner = "Preview only. Claude usage settings open from the installed app."
+            return
+        }
+        NSWorkspace.shared.open(claudeUsageSettingsURL)
     }
 }

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CodexWeeklyResetGuardCore
+@testable import SecondWindCore
 
 @Test func consumeTransportFailureDoesNotRetryInsideClient() async throws {
     let ledger = ConsumeSendLedger()

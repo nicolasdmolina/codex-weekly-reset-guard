@@ -1,7 +1,7 @@
 import Testing
 import Foundation
-import CodexWeeklyResetGuardCore
-@testable import CodexWeeklyResetGuard
+import SecondWindCore
+@testable import SecondWind
 
 @Suite struct GuardCommandLineTests {
     @Test func noArgumentsSelectProduction() throws {

@@ -1,6 +1,6 @@
 import Foundation
 import Testing
-@testable import CodexWeeklyResetGuardCore
+@testable import SecondWindCore
 
 @Test func decodesCurrentRateLimitAndResetCreditFixture() throws {
     let fixture = #"""

@@ -2,7 +2,7 @@
 set -euo pipefail
 
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-APP_NAME="Codex Weekly Reset Guard"
+APP_NAME="Second Wind"
 APP_PATH="$PROJECT_ROOT/dist/$APP_NAME.app"
 
 if [[ $# -ne 0 ]]; then
@@ -30,9 +30,10 @@ STAGING_DIRECTORY="$(mktemp -d "$PROJECT_ROOT/dist/.package.XXXXXX")"
 trap 'rm -rf "$STAGING_DIRECTORY"' EXIT
 STAGED_APP="$STAGING_DIRECTORY/$APP_NAME.app"
 mkdir -p "$STAGED_APP/Contents/MacOS" "$STAGED_APP/Contents/Resources"
-cp "$BIN_PATH/CodexWeeklyResetGuard" "$STAGED_APP/Contents/MacOS/CodexWeeklyResetGuard"
+cp "$BIN_PATH/SecondWind" "$STAGED_APP/Contents/MacOS/SecondWind"
 cp "$PROJECT_ROOT/Resources/Info.plist" "$STAGED_APP/Contents/Info.plist"
 cp "$PROJECT_ROOT/LICENSE" "$STAGED_APP/Contents/Resources/LICENSE"
+cp "$PROJECT_ROOT/Resources/AppIcon.icns" "$STAGED_APP/Contents/Resources/AppIcon.icns"
 
 # This is a local, host-architecture build. Ad-hoc signing does not supply a
 # Developer ID identity or notarization and is not a signed public binary release.

@@ -25,6 +25,12 @@ public struct ProfileConfiguration: Codable, Equatable, Identifiable, Sendable {
 
     public static var defaultApplicationSupportDirectory: URL {
         FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
+            .appendingPathComponent("SecondWind", isDirectory: true)
+    }
+
+    /// Runtime directory used before the app was renamed. `LegacyStateMigration` moves it.
+    public static var legacyApplicationSupportDirectory: URL {
+        FileManager.default.urls(for: .applicationSupportDirectory, in: .userDomainMask)[0]
             .appendingPathComponent("CodexWeeklyResetGuard", isDirectory: true)
     }
 

@@ -1,7 +1,7 @@
 import Foundation
 import Darwin
 import Testing
-@testable import CodexWeeklyResetGuardCore
+@testable import SecondWindCore
 
 @Test func preventsTwoGuardsFromOwningTheSameLock() throws {
     let directory = FileManager.default.temporaryDirectory

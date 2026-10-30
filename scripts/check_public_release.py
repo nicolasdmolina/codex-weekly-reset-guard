@@ -14,6 +14,12 @@ ROOT_FILES = {
 DOC_FILES = {
     "ARCHITECTURE.md", "PRIVACY.md", "RELEASING.md", "RELEASE-RECEIPT.md", "VISUAL-QA.md",
 }
+PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
+# Image assets are checked by file signature instead of text scanning.
+IMAGE_ASSETS = {
+    "Resources/AppIcon.icns": b"icns",
+    "Resources/AppIcon.png": PNG_SIGNATURE,
+}
 PATTERNS = {
     "personal home path": re.compile(r"/(?:Users|home)/[A-Za-z0-9_.-]+"),
     "private key material": re.compile(r"-----BEGIN (?:RSA |EC |OPENSSH )?PRIVATE KEY-----"),
@@ -28,6 +34,15 @@ def git(*args):
     return subprocess.check_output(["git", *args], stderr=subprocess.PIPE)
 
 
+def image_signature(name):
+    if name in IMAGE_ASSETS:
+        return IMAGE_ASSETS[name]
+    path = PurePosixPath(name)
+    if path.parts[:2] == ("docs", "images") and len(path.parts) == 3 and path.suffix == ".png":
+        return PNG_SIGNATURE
+    return None
+
+
 def allowed_path(name):
     path = PurePosixPath(name)
     if name in ROOT_FILES:
@@ -36,14 +51,14 @@ def allowed_path(name):
         "auth.json", "credentials.json", "secrets", "profiles", "state.json", "events.json",
     } for part in path.parts):
         return False
-    if name == "Resources/Info.plist":
+    if name == "Resources/Info.plist" or image_signature(name) is not None:
         return True
     if len(path.parts) == 2 and path.parts[0] == "docs":
         return path.name in DOC_FILES
     if path.parts[0] in {"Sources", "Tests"}:
         return path.suffix == ".swift"
     if len(path.parts) == 2 and path.parts[0] == "scripts":
-        return path.suffix in {".sh", ".py"}
+        return path.suffix in {".sh", ".py", ".swift"}
     if path.parts[0] == ".github":
         return path.suffix in {".md", ".yml", ".yaml"}
     return False
@@ -67,13 +82,18 @@ def scan():
             issues.append(f"{origin}: non-regular file {path!r} (contents not read)")
             return
         checked_paths.add(path)
-        if oid in seen_blobs:
+        signature = image_signature(path)
+        if (oid, signature) in seen_blobs:
             return
-        seen_blobs.add(oid)
+        seen_blobs.add((oid, signature))
         if int(git("cat-file", "-s", oid)) > 1_000_000:
             issues.append(f"{origin}: oversized source artifact {path!r} (contents not read)")
             return
         data = git("cat-file", "blob", oid)
+        if signature is not None:
+            if not data.startswith(signature):
+                issues.append(f"{origin}: image asset {path!r} has an unexpected format")
+            return
         try:
             source = data.decode("utf-8")
         except UnicodeDecodeError:

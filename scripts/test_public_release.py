@@ -144,6 +144,18 @@ def main():
             git(root, "add", "Sources/Synthetic.swift")
         run(label, add_invalid, diagnostic=diagnostic)
 
+    png = b"\x89PNG\r\n\x1a\n" + bytes(range(256))
+    for label, name, data, diagnostic in (
+        ("screenshot asset", "docs/images/synthetic.png", png, None),
+        ("app icon asset", "Resources/AppIcon.icns", b"icns" + b"\xff" * 64, None),
+        ("mislabeled image asset", "docs/images/synthetic.png", b"not an image", "unexpected format"),
+        ("nested image path", "docs/images/extra/synthetic.png", png, "unexpected publish path"),
+    ):
+        def add_asset(root, name=name, data=data):
+            write(root, name, data)
+            git(root, "add", name)
+        run(label, add_asset, expect_ok=diagnostic is None, diagnostic=diagnostic)
+
     print(f"All {count} synthetic publication checks passed; temporary repositories removed.")
 
 

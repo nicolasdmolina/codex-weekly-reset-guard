@@ -4,7 +4,7 @@ Use macOS 14 or later and Swift 6.0 or later. The app uses Apple system
 frameworks and has no third-party Swift package dependencies.
 
 1. Make a focused branch from the default branch.
-2. Keep policy and protocol code in `CodexWeeklyResetGuardCore` independent of UI.
+2. Keep policy and protocol code in `SecondWindCore` independent of UI.
 3. Use synthetic accounts and isolated temporary directories in tests.
 4. Run `./scripts/test.sh`, `./scripts/test_tooling.sh`, and
    `python3 scripts/test_public_release.py`.
@@ -17,7 +17,7 @@ Describe the problem, behavior after the change, and verification in your pull
 request. Include synthetic screenshots for UI changes. CI runs on macOS without
 an account or Codex installation. It must never run the production app or `--doctor`.
 
-`swift run CodexWeeklyResetGuard --preview onboarding` opens a focusable native
+`swift run SecondWind --preview overview` opens a focusable native
 window for safe keyboard and accessibility testing. Preview mode never creates a
 runtime. Dedicated QA bundles can carry a `GuardPreviewKind` marker so reopening
 them stays synthetic. A separate `GuardDiagnosticSupportDirectory` marker enables

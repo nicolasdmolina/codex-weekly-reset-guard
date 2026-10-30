@@ -12,8 +12,10 @@ assignees: ''
 
 **Versions**
 - macOS:
-- Guard revision/version:
+- Second Wind version or commit:
+- Service (Codex, Claude or both):
 - Codex version and install location:
+- Claude Code version (`claude --version`):
 
 **Sanitized error or synthetic screenshot**
 

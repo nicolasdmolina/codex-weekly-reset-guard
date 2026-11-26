@@ -59,6 +59,7 @@ struct GuardPopoverView: View {
                         .lineLimit(1)
                         .minimumScaleFactor(0.85)
                 }
+                .frame(height: 16)
             }
             Spacer(minLength: SW.Space.sm)
             if model.isPreview || model.isReadOnly {
@@ -1063,6 +1064,7 @@ private struct InventoryLine: View {
                     .font(.system(size: 8.5, weight: .bold))
                     .foregroundStyle(SW.Palette.textTertiary)
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .baselineOffset(0.5)
             }
             Spacer(minLength: 0)
         }
@@ -1105,7 +1107,7 @@ private struct InventoryLine: View {
         switch inventory {
         case let .unknown(lastCount, checkedAt):
             guard let lastCount, let checkedAt else { return "Saved resets unknown" }
-            return "Saved resets not reported · \(lastCount) at last check, \(QuotaTimeFormat.age(of: checkedAt, reference: now))"
+            return "Saved resets not reported · \(lastCount) when checked \(QuotaTimeFormat.age(of: checkedAt, reference: now))"
         case let .known(count, listed, datesReported, checkedAt, isCurrent):
             var parts: [String] = []
             if count == 0 {
@@ -1337,9 +1339,9 @@ private struct EnrollmentPanel: View {
     private var providerExplanation: String {
         switch model.enrollmentProvider {
         case .codex:
-            "Signs in to Codex in its own private folder. Auto-redeem starts off; turn it on per account."
+            "Signs in to Codex in its own private folder."
         case .claude:
-            "Signs in to Claude Code in its own private folder and reads /usage. Alerts you at 10% left."
+            "Signs in to Claude Code in its own private folder."
         }
     }
 
@@ -1437,6 +1439,8 @@ private struct ActivityList: View {
                         Text(event.summary)
                             .font(.system(size: 12))
                             .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .layoutPriority(1)
                         Spacer(minLength: SW.Space.xs)
                         Text("\(event.profileName) · \(event.occurredAt.formatted(date: .omitted, time: .shortened))")
                             .font(.system(size: 11))
@@ -1484,8 +1488,16 @@ struct StatusLine: View {
 
     var body: some View {
         Label {
-            message
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(text)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let age {
+                    Text(age.prefix(1).uppercased() + age.dropFirst())
+                        .font(.system(size: 11))
+                        .foregroundStyle(SW.Palette.textTertiary)
+                        .lineLimit(1)
+                }
+            }
         } icon: {
             Image(systemName: symbol)
                 .foregroundStyle(tone.color)
@@ -1495,14 +1507,6 @@ struct StatusLine: View {
         .labelStyle(TightLabelStyle())
     }
 
-    /// The message, then the reading's age in quieter text: "… · updated 3 min ago". Non-breaking
-    /// spaces keep the age in one piece when the message wraps.
-    private var message: Text {
-        guard let age else { return Text(text) }
-        let trimmed = text.hasSuffix(".") ? String(text.dropLast()) : text
-        let unbroken = "· \(age)".replacingOccurrences(of: " ", with: "\u{00A0}")
-        return Text(trimmed) + Text("\u{00A0}\(unbroken)").foregroundColor(SW.Palette.textTertiary)
-    }
 }
 
 private struct DismissButton: View {

@@ -340,7 +340,7 @@ enum PreviewFixtures {
         record.recordFailure(.signInRequired, at: reference.addingTimeInterval(-2 * 3_600))
         return codex(
             ID.work, "Work", hint: "w•••@example.com", status: .disconnected,
-            detail: "Sign-in expired. Sign in again to keep monitoring.",
+            detail: "Sign-in expired. Sign in again.",
             identityVerified: false, record: record
         )
     }

@@ -1,9 +1,9 @@
 import { defineConfig, type Plugin } from 'vite';
 import react from '@vitejs/plugin-react';
-import manifest from './src/release.json';
-import qaApp from './scripts/qa-release-app.json';
-import qaSource from './scripts/qa-release-source.json';
-import { installNoscriptHtml, parseReleaseManifest, planInstall, type InstallPlan } from './src/release';
+import manifest from './src/release.json' with { type: 'json' };
+import qaApp from './scripts/qa-release-app.json' with { type: 'json' };
+import qaSource from './scripts/qa-release-source.json' with { type: 'json' };
+import { installNoscriptHtml, parseReleaseManifest, planInstall, type InstallPlan } from './src/release.ts';
 
 // `vite build --mode qa-source` or `--mode qa-app` renders a synthetic verified
 // release so QA covers every install state. Other modes use src/release.json.

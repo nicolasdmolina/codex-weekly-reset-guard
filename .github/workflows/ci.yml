@@ -33,3 +33,7 @@ jobs:
       - name: Test and package without an account
         # No account, login, diagnostic, installed app, or reset is used by this job.
         run: ./scripts/native_release_check.sh --skip-previews
+      - name: Install and run the app on a clean Mac
+        run: |
+          ./scripts/install_app.sh --destination "$RUNNER_TEMP/Applications"
+          "$RUNNER_TEMP/Applications/Second Wind.app/Contents/MacOS/SecondWind" --self-test

@@ -1,0 +1,68 @@
+import { useReducedMotion } from 'motion/react';
+import { Button } from '@astryxdesign/core/Button';
+import { Heading } from '@astryxdesign/core/Heading';
+import { Text } from '@astryxdesign/core/Text';
+import { AnimatedGroup } from '../components/motion-primitives/animated-group';
+import { ScreenShowcase } from '../components/ScreenShowcase';
+import { ArrowDown, ArrowUpRight } from '../components/icons';
+import { REPO_URL } from '../config';
+
+// Key poses: hidden (12px low, transparent) -> rest. Expo ease-out, 70 ms stagger,
+// so the icon and name lead and the actions arrive last.
+const textVariants = {
+  container: { visible: { transition: { staggerChildren: 0.07 } } },
+  item: {
+    hidden: { opacity: 0, y: 12 },
+    visible: { opacity: 1, y: 0, transition: { duration: 0.6, ease: [0.16, 1, 0.3, 1] } },
+  },
+};
+
+// With reduced motion the copy is simply there at first paint.
+const stillVariants = { container: {}, item: {} };
+
+export function Hero() {
+  const reduceMotion = useReducedMotion();
+  return (
+    <section className="hero" id="top" aria-labelledby="hero-title">
+      <div className="container">
+        <AnimatedGroup className="hero__copy" variants={reduceMotion ? stillVariants : textVariants}>
+          <img
+            className="hero__icon"
+            src="./app-icon.png"
+            width={88}
+            height={88}
+            alt=""
+            decoding="async"
+          />
+          <Heading level={1} type="display-1" className="hero__title">
+            <span id="hero-title">Second Wind</span>
+          </Heading>
+          <Text as="p" size="lg" color="secondary" className="hero__lede" textWrap="pretty">
+            See your Codex and Claude usage limits for every account in the Mac menu bar. When a
+            limit runs low, it helps you use a reset before you run out.
+          </Text>
+          <div className="hero__actions">
+            <Button
+              href="#install"
+              label="Install from source"
+              variant="primary"
+              size="lg"
+              endContent={<ArrowDown />}
+            />
+            <Button
+              href={REPO_URL}
+              label="View on GitHub"
+              variant="secondary"
+              size="lg"
+              endContent={<ArrowUpRight />}
+            />
+          </div>
+          <Text as="p" size="sm" color="secondary" className="hero__note">
+            Free and open source. Not affiliated with OpenAI or Anthropic.
+          </Text>
+        </AnimatedGroup>
+        <ScreenShowcase />
+      </div>
+    </section>
+  );
+}

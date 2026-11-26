@@ -1,0 +1,21 @@
+{
+  "release": {
+    "repository": "nicolasdmolina/codex-weekly-reset-guard",
+    "tag": "v0.3.0",
+    "source": {
+      "file": "Second-Wind-0.3.0-source.zip",
+      "folder": "Second-Wind-0.3.0",
+      "sha256": "1111111111111111111111111111111111111111111111111111111111111111"
+    },
+    "app": {
+      "file": "Second-Wind-0.3.0.dmg",
+      "sha256": "2222222222222222222222222222222222222222222222222222222222222222",
+      "architectures": [
+        "arm64",
+        "x86_64"
+      ],
+      "minimumSystemVersion": "14.0",
+      "teamId": "ABCDE12345"
+    }
+  }
+}

@@ -155,6 +155,8 @@ def main():
         ("site screenshot", "site/public/screens/overview.png", png, None),
         ("mislabeled site screenshot", "site/public/screens/near.png", b"not an image", "unexpected format"),
         ("site section", "site/src/sections/Install.tsx", "export const install = true;\n", None),
+        ("public release manifest", "site/src/release.json", '{"release":null}', None),
+        ("unlisted site data", "site/src/local-state.json", '{}', "unexpected publish path"),
     ):
         def add_asset(root, name=name, data=data):
             write(root, name, data)

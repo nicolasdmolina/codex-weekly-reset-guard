@@ -5,23 +5,36 @@ import SwiftUI
 @MainActor
 final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let model: GuardAppModel
+    /// Popover UI state and the user actions the app wires to the runtimes.
+    let interface: GuardInterfaceModel
+    var finishQuotaUpdates: (() async -> Void)?
     private let runtime: GuardRuntimeController?
     private let claudeMonitor: ClaudeMonitorController?
-    private var statusItem: NSStatusItem!
+    private var statusItem: NSStatusItem?
     private let popover = NSPopover()
     private var cancellables = Set<AnyCancellable>()
     private var isFinishingTermination = false
     private var startupTask: Task<Void, Never>?
     private var inspectionWindow: NSWindow?
+    /// A request to open the popover that arrived before the status item existed.
+    private var wantsPopover = false
 
-    init(model: GuardAppModel, runtime: GuardRuntimeController? = nil, claudeMonitor: ClaudeMonitorController? = nil) {
+    init(
+        model: GuardAppModel,
+        runtime: GuardRuntimeController? = nil,
+        claudeMonitor: ClaudeMonitorController? = nil,
+        interface: GuardInterfaceModel? = nil
+    ) {
         self.model = model
         self.runtime = runtime
         self.claudeMonitor = claudeMonitor
+        self.interface = interface
+            ?? (model.isPreview ? PreviewFixtures.interface(for: model) : .live(isReadOnly: model.isReadOnly))
         super.init()
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
+        interface.attach(model)
         if model.isPreview {
             showInspectionWindow()
             return
@@ -38,56 +51,89 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             name: NSWorkspace.didWakeNotification,
             object: nil
         )
+        startProviders()
+    }
 
-        if let runtime {
-            startupTask = Task {
-                do {
-                    let snapshot = try await runtime.start()
-                    var claudeCount = 0
-                    if let claudeMonitor {
-                        do {
-                            try await claudeMonitor.start()
-                            claudeCount = await claudeMonitor.snapshot().profiles.count
-                        } catch {
-                            model.banner = "Claude monitoring could not start: \(error.localizedDescription)"
-                        }
-                    }
-                    if !model.isReadOnly, snapshot.profiles.isEmpty, claudeCount == 0, !popover.isShown,
-                       let button = statusItem.button {
-                        popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-                        popover.contentViewController?.view.window?.makeKey()
-                    }
-                } catch {
-                    guard !Task.isCancelled else { return }
-                    await MainActor.run {
-                        model.banner = "Second Wind could not start: \(error.localizedDescription)"
-                    }
-                }
+    /// Codex and Claude start independently: one provider's unreadable store or failed start
+    /// never keeps the other from loading, and the failure stays on screen with its reason.
+    private func startProviders() {
+        startupTask = Task { @MainActor [weak self] in
+            guard let self else { return }
+            async let codexCount = startCodex()
+            async let claudeCount = startClaude()
+            let counts = await (codexCount, claudeCount)
+            guard !Task.isCancelled else { return }
+            if !model.isReadOnly, interface.allProvidersLoaded, counts.0 == 0, counts.1 == 0, !popover.isShown {
+                showPopover()
             }
+        }
+    }
+
+    private func startCodex() async -> Int? {
+        guard let runtime else {
+            interface.providerDidLoad(.codex)
+            return 0
+        }
+        do {
+            let snapshot = try await runtime.start()
+            interface.providerDidLoad(.codex)
+            return snapshot.profiles.count
+        } catch {
+            guard !Task.isCancelled else { return nil }
+            interface.providerDidFail(.codex, reason: error.localizedDescription)
+            return nil
+        }
+    }
+
+    private func startClaude() async -> Int? {
+        guard let claudeMonitor else {
+            interface.providerDidLoad(.claude)
+            return 0
+        }
+        do {
+            try await claudeMonitor.start()
+            interface.providerDidLoad(.claude)
+            return await claudeMonitor.snapshot().profiles.count
+        } catch {
+            guard !Task.isCancelled else { return nil }
+            interface.providerDidFail(.claude, reason: error.localizedDescription)
+            return nil
         }
     }
 
     private func configureStatusItem() {
         NSApp.setActivationPolicy(.accessory)
-        statusItem = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
-        statusItem.button?.target = self
-        statusItem.button?.action = #selector(togglePopover)
-        statusItem.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
+        let item = NSStatusBar.system.statusItem(withLength: NSStatusItem.variableLength)
+        statusItem = item
+        item.button?.target = self
+        item.button?.action = #selector(togglePopover)
+        item.button?.sendAction(on: [.leftMouseUp, .rightMouseUp])
 
         popover.behavior = .transient
         popover.animates = true
         popover.delegate = self
         popover.contentSize = NSSize(width: SW.Size.popoverWidth, height: SW.Size.popoverHeight)
-        popover.contentViewController = NSHostingController(rootView: GuardPopoverView(model: model))
+        popover.contentViewController = NSHostingController(
+            rootView: GuardPopoverView(model: model, interface: interface)
+        )
 
-        model.objectWillChange
+        Publishers.Merge(model.objectWillChange, interface.objectWillChange)
             .receive(on: RunLoop.main)
             .sink { [weak self] _ in
                 DispatchQueue.main.async { self?.updateStatusItem() }
             }
             .store(in: &cancellables)
+        // Ages and passed reset times change with the clock, not only with new snapshots.
+        Timer.publish(every: 30, on: .main, in: .common)
+            .autoconnect()
+            .sink { [weak self] _ in self?.updateStatusItem() }
+            .store(in: &cancellables)
         updateStatusItem()
 
+        if wantsPopover {
+            wantsPopover = false
+            showPopover()
+        }
     }
 
     private func showInspectionWindow() {
@@ -95,19 +141,52 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         // separately configured read-only diagnostic starts account services; previews do not.
         NSApp.setActivationPolicy(.regular)
         let window = NSWindow(
-            contentRect: NSRect(x: 0, y: 0, width: 380, height: 560),
+            contentRect: NSRect(x: 0, y: 0, width: SW.Size.popoverWidth, height: SW.Size.popoverHeight),
             styleMask: [.titled, .closable, .miniaturizable],
             backing: .buffered,
             defer: false
         )
         window.title = model.isPreview ? "Second Wind Preview" : "Second Wind Diagnostics"
-        window.contentViewController = NSHostingController(rootView: GuardPopoverView(model: model))
+        window.contentViewController = NSHostingController(
+            rootView: GuardPopoverView(model: model, interface: interface)
+        )
         window.isReleasedWhenClosed = false
         window.center()
         inspectionWindow = window
         window.makeKeyAndOrderFront(nil)
         NSApp.activate(ignoringOtherApps: true)
     }
+
+    // MARK: Navigation
+
+    /// Opens the popover on one account. Safe on a cold start from a notification:
+    /// the popover opens once the status item exists, and the account is scrolled to and
+    /// highlighted once its provider has loaded. A removed account or an unloaded provider
+    /// shows a notice instead.
+    func reveal(_ target: AccountRef) {
+        interface.reveal(target)
+        showPopover()
+    }
+
+    /// Opens the popover without choosing an account, for notices about the app itself.
+    func showPopover() {
+        if let inspectionWindow {
+            inspectionWindow.makeKeyAndOrderFront(nil)
+            NSApp.activate(ignoringOtherApps: true)
+            return
+        }
+        guard let button = statusItem?.button else {
+            wantsPopover = true
+            return
+        }
+        NSApp.activate(ignoringOtherApps: true)
+        if !popover.isShown {
+            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+        }
+        popover.contentViewController?.view.window?.makeKey()
+    }
+
+    // MARK: Lifecycle
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {
         model.isPreview || model.isReadOnly
@@ -123,6 +202,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             await runtime.stop()
             await startupTask?.value
             startupTask = nil
+            await finishQuotaUpdates?()
             await MainActor.run {
                 sender.reply(toApplicationShouldTerminate: true)
             }
@@ -139,32 +219,38 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     }
 
     @objc private func togglePopover() {
-        guard let button = statusItem.button else { return }
         if popover.isShown {
             popover.performClose(nil)
         } else {
-            popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
-            popover.contentViewController?.view.window?.makeKey()
+            showPopover()
         }
     }
 
     private func updateStatusItem() {
-        guard let button = statusItem.button else { return }
+        guard let button = statusItem?.button else { return }
+        let summary = PopoverSummary.make(model: model, interface: interface, now: Date())
         let image = NSImage(
-            systemSymbolName: model.hasAttention ? "exclamationmark.triangle" : "wind",
+            systemSymbolName: summary.showsAttentionIcon ? "exclamationmark.triangle" : "wind",
             accessibilityDescription: "Second Wind"
         )
         image?.isTemplate = true
         button.image = image
         button.imagePosition = .imageLeading
-        if let minimum = model.minimumRemainingPercent {
-            button.title = " \(Int(minimum.rounded(.down)))%"
-            button.toolTip = model.hasAttention
-                ? "Second Wind: an account needs attention"
-                : "Second Wind: lowest headroom \(Int(minimum.rounded(.down)))%"
+        if let title = summary.menuBarTitle {
+            // An unconfirmed figure is dimmed rather than hidden: it is still the best number
+            // available, but it does not claim to be current.
+            button.attributedTitle = NSAttributedString(
+                string: " \(title)",
+                attributes: [
+                    .font: NSFont.menuBarFont(ofSize: 0),
+                    .foregroundColor: summary.isConfident ? NSColor.labelColor : NSColor.secondaryLabelColor,
+                ]
+            )
         } else {
-            button.title = ""
-            button.toolTip = model.hasAccounts ? "Second Wind: connecting accounts" : "Second Wind: add an account"
+            button.attributedTitle = NSAttributedString(string: "")
         }
+        button.toolTip = summary.tooltip
+        button.setAccessibilityLabel("Second Wind")
+        button.setAccessibilityValue(summary.accessibilityValue)
     }
 }

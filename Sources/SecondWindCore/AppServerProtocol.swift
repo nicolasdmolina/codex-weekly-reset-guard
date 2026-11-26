@@ -267,14 +267,28 @@ public struct RPCRateLimitSnapshot: Codable, Equatable, Sendable {
     }
 }
 
+/// `expiresAt` is optional on the wire: an explicit null means the credit does not expire, an
+/// absent key says nothing.
+public enum RPCResetCreditExpiry: Equatable, Sendable {
+    case at(Int64)
+    case never
+    case unspecified
+}
+
 public struct RPCResetCredit: Codable, Equatable, Sendable {
     public let id: String
     public let resetType: String
     public let status: String
     public let grantedAt: Int64
-    public let expiresAt: Int64?
+    public let expiry: RPCResetCreditExpiry
     public let title: String?
     public let detail: String?
+
+    /// The policy's view: nil for both "never" and "unspecified", exactly as before.
+    public var expiresAt: Int64? {
+        if case let .at(value) = expiry { return value }
+        return nil
+    }
 
     enum CodingKeys: String, CodingKey {
         case id
@@ -295,13 +309,65 @@ public struct RPCResetCredit: Codable, Equatable, Sendable {
         title: String?,
         detail: String?
     ) {
+        self.init(
+            id: id,
+            resetType: resetType,
+            status: status,
+            grantedAt: grantedAt,
+            expiry: expiresAt.map { .at($0) } ?? .never,
+            title: title,
+            detail: detail
+        )
+    }
+
+    public init(
+        id: String,
+        resetType: String,
+        status: String,
+        grantedAt: Int64,
+        expiry: RPCResetCreditExpiry,
+        title: String?,
+        detail: String?
+    ) {
         self.id = id
         self.resetType = resetType
         self.status = status
         self.grantedAt = grantedAt
-        self.expiresAt = expiresAt
+        self.expiry = expiry
         self.title = title
         self.detail = detail
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        id = try container.decode(String.self, forKey: .id)
+        resetType = try container.decode(String.self, forKey: .resetType)
+        status = try container.decode(String.self, forKey: .status)
+        grantedAt = try container.decode(Int64.self, forKey: .grantedAt)
+        if !container.contains(.expiresAt) {
+            expiry = .unspecified
+        } else if let value = try container.decodeIfPresent(Int64.self, forKey: .expiresAt) {
+            expiry = .at(value)
+        } else {
+            expiry = .never
+        }
+        title = try container.decodeIfPresent(String.self, forKey: .title)
+        detail = try container.decodeIfPresent(String.self, forKey: .detail)
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(id, forKey: .id)
+        try container.encode(resetType, forKey: .resetType)
+        try container.encode(status, forKey: .status)
+        try container.encode(grantedAt, forKey: .grantedAt)
+        switch expiry {
+        case let .at(value): try container.encode(value, forKey: .expiresAt)
+        case .never: try container.encodeNil(forKey: .expiresAt)
+        case .unspecified: break
+        }
+        try container.encodeIfPresent(title, forKey: .title)
+        try container.encodeIfPresent(detail, forKey: .detail)
     }
 }
 
@@ -319,21 +385,62 @@ public struct RPCRateLimitsReadResponse: Codable, Equatable, Sendable {
     public let rateLimits: RPCRateLimitSnapshot
     public let rateLimitsByLimitID: [String: RPCRateLimitSnapshot]?
     public let rateLimitResetCredits: RPCResetCreditsSummary?
+    /// From `ordinaryUsageAllowed`. Display only; never part of redemption.
+    public let includedUsageAccess: IncludedUsageAccess
 
     enum CodingKeys: String, CodingKey {
         case rateLimits
         case rateLimitsByLimitID = "rateLimitsByLimitId"
         case rateLimitResetCredits
+        case ordinaryUsageAllowed
     }
 
     public init(
         rateLimits: RPCRateLimitSnapshot,
         rateLimitsByLimitID: [String: RPCRateLimitSnapshot]? = nil,
-        rateLimitResetCredits: RPCResetCreditsSummary? = nil
+        rateLimitResetCredits: RPCResetCreditsSummary? = nil,
+        includedUsageAccess: IncludedUsageAccess = .unreported
     ) {
         self.rateLimits = rateLimits
         self.rateLimitsByLimitID = rateLimitsByLimitID
         self.rateLimitResetCredits = rateLimitResetCredits
+        self.includedUsageAccess = includedUsageAccess
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        rateLimits = try container.decode(RPCRateLimitSnapshot.self, forKey: .rateLimits)
+        rateLimitsByLimitID = try container.decodeIfPresent(
+            [String: RPCRateLimitSnapshot].self,
+            forKey: .rateLimitsByLimitID
+        )
+        rateLimitResetCredits = try container.decodeIfPresent(
+            RPCResetCreditsSummary.self,
+            forKey: .rateLimitResetCredits
+        )
+        // A malformed value is treated like null: unavailable, not a reason to drop the read.
+        if !container.contains(.ordinaryUsageAllowed) {
+            includedUsageAccess = .unreported
+        } else {
+            includedUsageAccess = switch try? container.decodeIfPresent(Bool.self, forKey: .ordinaryUsageAllowed) {
+            case true?: .allowed
+            case false?: .blocked
+            case nil: .unknown
+            }
+        }
+    }
+
+    public func encode(to encoder: any Encoder) throws {
+        var container = encoder.container(keyedBy: CodingKeys.self)
+        try container.encode(rateLimits, forKey: .rateLimits)
+        try container.encodeIfPresent(rateLimitsByLimitID, forKey: .rateLimitsByLimitID)
+        try container.encodeIfPresent(rateLimitResetCredits, forKey: .rateLimitResetCredits)
+        switch includedUsageAccess {
+        case .unreported: break
+        case .unknown: try container.encodeNil(forKey: .ordinaryUsageAllowed)
+        case .blocked: try container.encode(false, forKey: .ordinaryUsageAllowed)
+        case .allowed: try container.encode(true, forKey: .ordinaryUsageAllowed)
+        }
     }
 
     /// The canonical Codex bucket. A present multi-bucket map is authoritative and must contain
@@ -457,10 +564,67 @@ extension RPCResetCredit {
 }
 
 extension RPCResetCreditsSummary {
+    /// Display-only summary of saved Codex resets. Expired, non-Codex and unavailable rows are
+    /// dropped; a missing expiry stays unspecified rather than becoming "never".
+    public func inventorySnapshot(fetchedAt: Date) -> ResetInventorySnapshot {
+        let expiries: ResetCreditExpiries
+        if let credits {
+            let fetchedSeconds = Int64(fetchedAt.timeIntervalSince1970.rounded(.down))
+            let entries = credits
+                .filter { credit in
+                    credit.resetType == "codexRateLimits" && credit.status == "available"
+                }
+                .compactMap { credit -> ResetCreditExpiry? in
+                    switch credit.expiry {
+                    case let .at(seconds):
+                        seconds > fetchedSeconds
+                            ? .on(Date(timeIntervalSince1970: TimeInterval(seconds)))
+                            : nil
+                    case .never: .never
+                    case .unspecified: .unspecified
+                    }
+                }
+                .sorted { lhs, rhs in
+                    switch (lhs, rhs) {
+                    case let (.on(left), .on(right)): left < right
+                    case (.on, _): true
+                    case (.never, .unspecified): true
+                    default: false
+                    }
+                }
+            expiries = .listed(entries)
+        } else {
+            expiries = .unlisted
+        }
+        return ResetInventorySnapshot(
+            availableCount: Int(max(0, availableCount)),
+            expiries: expiries,
+            fetchedAt: fetchedAt
+        )
+    }
+
     public func domainValue() -> ResetCreditInventory {
         ResetCreditInventory(
             availableCount: Int(availableCount),
             credits: credits?.map { $0.domainValue() }
+        )
+    }
+}
+
+extension RPCRateLimitsReadResponse {
+    /// The one wire-to-display adapter: labelled windows, saved-reset inventory and included-usage
+    /// access from the canonical `codex` bucket. Nil when that bucket is missing or not canonical.
+    /// Never an input to redemption.
+    public func quotaObservation(
+        observedAt: Date,
+        classifier: RateLimitClassifier
+    ) -> QuotaObservation? {
+        guard let bucket = canonicalCodexRateLimits else { return nil }
+        return classifier.quotaObservation(
+            bucket.domainValue(observedAt: observedAt),
+            inventory: rateLimitResetCredits.map { .reported($0.inventorySnapshot(fetchedAt: observedAt)) }
+                ?? .omitted,
+            includedUsageAccess: includedUsageAccess
         )
     }
 }

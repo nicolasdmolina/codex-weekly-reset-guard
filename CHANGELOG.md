@@ -1,5 +1,23 @@
 # Changelog
 
+## 0.3.0
+
+- See the five-hour and weekly Codex limits together. Monitor-only accounts
+  warn when either limit is low. Each account shows the age of its reading
+  and waits for provider confirmation after the displayed reset time passes.
+- See saved-reset expiries separately from the next weekly renewal. Choose
+  optional expiry and confirmed-refill notifications, test them in Settings,
+  and open the affected account directly from a notice.
+- Switch between used and remaining percentages, and between countdowns and
+  local clock times.
+- Rename or remove individual accounts. An unresolved Codex redemption can
+  still be reconciled after re-enrolling the same account.
+- Copy an account's read-only pre-job command to check session and weekly
+  minimums from a terminal or script.
+- Versioned release archives carry SHA-256 checksums and GitHub build
+  provenance. The release workflow also supports Developer ID signing and
+  Apple notarization when configured.
+
 ## 0.2.0 — Second Wind
 
 - Renamed from Codex Weekly Reset Guard. Accounts, pending redemptions and

@@ -4,9 +4,30 @@ set -euo pipefail
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="Second Wind"
 APP_PATH="$PROJECT_ROOT/dist/$APP_NAME.app"
+BUILD_FLAGS=(-c release)
+SIGN_IDENTITY=""
+KEYCHAIN=""
 
-if [[ $# -ne 0 ]]; then
-    printf 'Usage: %s\n' "$0" >&2
+usage() {
+    printf 'Usage: %s [--universal] [--sign-identity SHA1 [--keychain PATH]]\n' "$0"
+}
+
+while [[ $# -gt 0 ]]; do
+    case "$1" in
+        --universal) BUILD_FLAGS+=(--arch arm64 --arch x86_64); shift ;;
+        --sign-identity|--keychain)
+            if [[ $# -lt 2 || -z "$2" ]]; then
+                usage >&2
+                exit 2
+            fi
+            if [[ "$1" == --sign-identity ]]; then SIGN_IDENTITY="$2"; else KEYCHAIN="$2"; fi
+            shift 2
+            ;;
+        *) usage >&2; exit 2 ;;
+    esac
+done
+if [[ -n "$KEYCHAIN" && -z "$SIGN_IDENTITY" ]]; then
+    usage >&2
     exit 2
 fi
 if [[ "$(uname -s)" != Darwin ]]; then
@@ -15,8 +36,8 @@ if [[ "$(uname -s)" != Darwin ]]; then
 fi
 
 cd "$PROJECT_ROOT"
-swift build -c release -Xswiftc -warnings-as-errors >&2
-BIN_PATH="$(swift build -c release --show-bin-path)"
+swift build "${BUILD_FLAGS[@]}" -Xswiftc -warnings-as-errors >&2
+BIN_PATH="$(swift build "${BUILD_FLAGS[@]}" --show-bin-path)"
 plutil -lint "$PROJECT_ROOT/Resources/Info.plist" >&2
 for QA_KEY in GuardPreviewKind GuardDiagnosticSupportDirectory; do
     if plutil -extract "$QA_KEY" raw -o - "$PROJECT_ROOT/Resources/Info.plist" >/dev/null 2>&1; then
@@ -35,9 +56,17 @@ cp "$PROJECT_ROOT/Resources/Info.plist" "$STAGED_APP/Contents/Info.plist"
 cp "$PROJECT_ROOT/LICENSE" "$STAGED_APP/Contents/Resources/LICENSE"
 cp "$PROJECT_ROOT/Resources/AppIcon.icns" "$STAGED_APP/Contents/Resources/AppIcon.icns"
 
-# This is a local, host-architecture build. Ad-hoc signing does not supply a
-# Developer ID identity or notarization and is not a signed public binary release.
-codesign --force --sign - --timestamp=none "$STAGED_APP" >&2
+if [[ -n "$SIGN_IDENTITY" ]]; then
+    # Release signing: hardened runtime and a secure timestamp, both required for notarization.
+    SIGN_FLAGS=(--force --options runtime --timestamp --sign "$SIGN_IDENTITY")
+    if [[ -n "$KEYCHAIN" ]]; then SIGN_FLAGS+=(--keychain "$KEYCHAIN"); fi
+    codesign "${SIGN_FLAGS[@]}" "$STAGED_APP" >&2
+    SIGNATURE_KIND="a signed, not yet notarized"
+else
+    # Ad-hoc signing checks bundle integrity only. It is not a public binary release.
+    codesign --force --sign - --timestamp=none "$STAGED_APP" >&2
+    SIGNATURE_KIND="an ad-hoc signed, unnotarized"
+fi
 codesign --verify --deep --strict "$STAGED_APP" >&2
 
 PREVIOUS_APP=""
@@ -53,5 +82,5 @@ if ! mv "$STAGED_APP" "$APP_PATH"; then
     fi
     exit 1
 fi
-printf 'Built an ad-hoc signed, unnotarized app for %s.\n' "$(uname -m)" >&2
+printf 'Built %s app for %s.\n' "$SIGNATURE_KIND" "$(lipo -archs "$APP_PATH/Contents/MacOS/SecondWind" 2>/dev/null || uname -m)" >&2
 printf '%s\n' "$APP_PATH"

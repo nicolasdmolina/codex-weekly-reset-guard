@@ -37,18 +37,40 @@ public struct ClaudeUsageReport: Codable, Sendable, Equatable {
     public var session: ClaudeUsageWindow?
     public var weekly: ClaudeUsageWindow?
     public var modelWeekly: [ClaudeUsageWindow]
+    /// Limits Claude Code named but did not report readably, such as "unavailable". They are
+    /// unknown, never dropped.
+    public var unreadableScopes: [ClaudeUsageWindow.Scope]
     public var observedAt: Date
 
     public init(
         session: ClaudeUsageWindow?,
         weekly: ClaudeUsageWindow?,
         modelWeekly: [ClaudeUsageWindow] = [],
+        unreadableScopes: [ClaudeUsageWindow.Scope] = [],
         observedAt: Date
     ) {
         self.session = session
         self.weekly = weekly
         self.modelWeekly = modelWeekly
+        self.unreadableScopes = unreadableScopes
         self.observedAt = observedAt
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case session, weekly, modelWeekly, unreadableScopes, observedAt
+    }
+
+    /// Reports saved before `unreadableScopes` existed decode with none.
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        session = try container.decodeIfPresent(ClaudeUsageWindow.self, forKey: .session)
+        weekly = try container.decodeIfPresent(ClaudeUsageWindow.self, forKey: .weekly)
+        modelWeekly = try container.decode([ClaudeUsageWindow].self, forKey: .modelWeekly)
+        unreadableScopes = try container.decodeIfPresent(
+            [ClaudeUsageWindow.Scope].self,
+            forKey: .unreadableScopes
+        ) ?? []
+        observedAt = try container.decode(Date.self, forKey: .observedAt)
     }
 
     public var allWindows: [ClaudeUsageWindow] {
@@ -125,10 +147,17 @@ public enum ClaudeUsageParser {
         var session: ClaudeUsageWindow?
         var weekly: ClaudeUsageWindow?
         var models: [ClaudeUsageWindow] = []
+        var unreadable: [ClaudeUsageWindow.Scope] = []
 
         for rawLine in text.split(whereSeparator: \.isNewline) {
             let line = rawLine.trimmingCharacters(in: .whitespaces)
-            guard let window = parseLine(line, now: observedAt, calendar: calendar) else { continue }
+            guard let window = parseLine(line, now: observedAt, calendar: calendar) else {
+                if let scope = recognizedScope(line) {
+                    guard !unreadable.contains(scope) else { throw ClaudeUsageParseError.malformedOutput }
+                    unreadable.append(scope)
+                }
+                continue
+            }
             switch window.scope {
             case .session:
                 guard session == nil else { throw ClaudeUsageParseError.malformedOutput }
@@ -143,27 +172,39 @@ public enum ClaudeUsageParser {
                 models.append(window)
             }
         }
-        guard session != nil || weekly != nil || !models.isEmpty else {
-            throw ClaudeUsageParseError.noPlanLimits
+        let parsed = [session, weekly].compactMap { $0 } + models
+        guard !unreadable.contains(where: { scope in parsed.contains { $0.scope == scope } }) else {
+            throw ClaudeUsageParseError.malformedOutput
         }
-        return ClaudeUsageReport(session: session, weekly: weekly, modelWeekly: models, observedAt: observedAt)
+        guard !parsed.isEmpty else {
+            // Limits were named but none could be read: a failed read, not a plan without limits.
+            throw unreadable.isEmpty ? ClaudeUsageParseError.noPlanLimits : ClaudeUsageParseError.malformedOutput
+        }
+        return ClaudeUsageReport(
+            session: session,
+            weekly: weekly,
+            modelWeekly: models,
+            unreadableScopes: unreadable,
+            observedAt: observedAt
+        )
+    }
+
+    /// The limit a line names, whether or not its value can be read. The title ends at the first
+    /// colon, so an empty value ("Current week (Sonnet only):") still names its limit.
+    static func recognizedScope(_ line: String) -> ClaudeUsageWindow.Scope? {
+        guard let colon = line.firstIndex(of: ":") else { return nil }
+        let title = String(line[..<colon])
+        if title == "Current session" { return .session }
+        if title == "Current week (all models)" { return .weekly }
+        if title.hasPrefix("Current week ("), title.hasSuffix(")") {
+            let name = title.dropFirst("Current week (".count).dropLast()
+            return name.isEmpty ? nil : .modelWeekly(String(name))
+        }
+        return nil
     }
 
     static func parseLine(_ line: String, now: Date, calendar: Calendar) -> ClaudeUsageWindow? {
-        guard let colon = line.range(of: ": ") else { return nil }
-        let title = String(line[..<colon.lowerBound])
-        let scope: ClaudeUsageWindow.Scope
-        if title == "Current session" {
-            scope = .session
-        } else if title == "Current week (all models)" {
-            scope = .weekly
-        } else if title.hasPrefix("Current week ("), title.hasSuffix(")") {
-            let name = title.dropFirst("Current week (".count).dropLast()
-            guard !name.isEmpty else { return nil }
-            scope = .modelWeekly(String(name))
-        } else {
-            return nil
-        }
+        guard let colon = line.range(of: ": "), let scope = recognizedScope(line) else { return nil }
 
         let rest = line[colon.upperBound...]
         let parts = rest.components(separatedBy: " \u{B7} ")

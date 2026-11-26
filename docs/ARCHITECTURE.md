@@ -15,8 +15,9 @@ SwiftUI popover → GuardAppModel ─┬─ GuardRuntimeController (actor, Codex
                                      └─ ClaudeCLI → isolated claude executable
 ```
 
-The Codex and Claude sides share nothing but the app model and the single-instance
-lock. The Codex redemption path is unchanged by Claude support.
+Each provider owns its sign-in and polling. The menu, notifications and preflight
+use account readings from those monitors. Only the Codex controller can request a
+saved weekly reset.
 
 Each Codex profile has a UUID-derived application-owned `CODEX_HOME`. A
 single-instance lock prevents two Second Wind processes using the same runtime
@@ -24,10 +25,12 @@ directory. An expected
 email is checked against `account/read` before interpreting a profile's usage and
 again before a consume request.
 
-The classifier accepts one unambiguous canonical `codex` weekly window of
+For redemption, the classifier accepts one unambiguous canonical `codex` weekly window of
 10,080 minutes, with a 5% duration tolerance. Short windows, model-specific buckets,
 missing values, stale observations and ambiguous classifications fail closed.
-The runtime requires authoritative reset inventory as well as weekly usage.
+The runtime requires authoritative reset inventory as well as weekly usage to
+redeem. A five-hour reading can warn someone that work will stop even if plenty
+of weekly quota remains.
 
 For a new redemption, the policy requires two readings no more than 120 seconds old at or below 3%
 remaining, at least five seconds apart, and at least five minutes before the natural reset. It persists
@@ -56,7 +59,7 @@ read from Claude Code's `Mon d[, yyyy] at h[:mm]am (Zone)` format, inferring the
 year nearest to now when it is omitted.
 
 `ClaudeAlertPolicy` notifies when any window is at or below 10% remaining, keyed
-by window and reset time so each cycle alerts once. The app never redeems a
+by account, window and reset time so each cycle alerts once. The app never redeems a
 Claude reset; it opens `https://claude.ai/settings/usage`.
 
 ## Protocol boundary

@@ -15,6 +15,7 @@ cp "$PROJECT_ROOT/scripts/package_app.sh" "$PROJECT_ROOT/scripts/install_app.sh"
 cp "$PROJECT_ROOT/Resources/Info.plist" "$PROJECT_ROOT/Resources/AppIcon.icns" "$FIXTURE_ROOT/Resources/"
 cp "$PROJECT_ROOT/LICENSE" "$FIXTURE_ROOT/LICENSE"
 
+ORIGINAL_PATH="$PATH"
 export GUARD_TOOLING_TEST_LOG="$TEST_DIRECTORY/commands.log"
 cat > "$TEST_DIRECTORY/bin/swift" <<'SH'
 #!/bin/bash
@@ -127,3 +128,4 @@ done < "$GUARD_TOOLING_TEST_LOG"
 "$FIXTURE_ROOT/scripts/install_app.sh" --launch --destination "$INSTALL_DIRECTORY" > "$TEST_DIRECTORY/stdout" 2> "$TEST_DIRECTORY/stderr"
 test "$(tail -n 1 "$GUARD_TOOLING_TEST_LOG")" == open || fail '--launch did not request open'
 printf 'Offline packaging/installation checks passed.\n'
+PATH="$ORIGINAL_PATH" "$PROJECT_ROOT/scripts/test_release_tooling.sh"

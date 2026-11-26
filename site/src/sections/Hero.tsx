@@ -4,8 +4,9 @@ import { Heading } from '@astryxdesign/core/Heading';
 import { Text } from '@astryxdesign/core/Text';
 import { AnimatedGroup } from '../components/motion-primitives/animated-group';
 import { ScreenShowcase } from '../components/ScreenShowcase';
-import { ArrowDown, ArrowUpRight } from '../components/icons';
+import { ArrowDown, ArrowUpRight, Download } from '../components/icons';
 import { REPO_URL } from '../config';
+import { INSTALL } from '../install';
 
 // Key poses: hidden (12px low, transparent) -> rest. Expo ease-out, 70 ms stagger,
 // so the icon and name lead and the actions arrive last.
@@ -19,6 +20,17 @@ const textVariants = {
 
 // With reduced motion the copy is simply there at first paint.
 const stillVariants = { container: {}, item: {} };
+
+// A verified app downloads straight from the hero; otherwise the source steps are below.
+const primaryAction =
+  INSTALL.kind === 'app'
+    ? { href: INSTALL.app.url, label: 'Download for Mac', endContent: <Download /> }
+    : { href: '#install', label: 'Install from source', endContent: <ArrowDown /> };
+
+const note =
+  INSTALL.kind === 'app'
+    ? `Version ${INSTALL.release.version}. Free and open source. Not affiliated with OpenAI or Anthropic.`
+    : 'Free and open source. Not affiliated with OpenAI or Anthropic.';
 
 export function Hero() {
   const reduceMotion = useReducedMotion();
@@ -43,11 +55,11 @@ export function Hero() {
           </Text>
           <div className="hero__actions">
             <Button
-              href="#install"
-              label="Install from source"
+              href={primaryAction.href}
+              label={primaryAction.label}
               variant="primary"
               size="lg"
-              endContent={<ArrowDown />}
+              endContent={primaryAction.endContent}
             />
             <Button
               href={REPO_URL}
@@ -58,7 +70,7 @@ export function Hero() {
             />
           </div>
           <Text as="p" size="sm" color="secondary" className="hero__note">
-            Free and open source. Not affiliated with OpenAI or Anthropic.
+            {note}
           </Text>
         </AnimatedGroup>
         <ScreenShowcase />

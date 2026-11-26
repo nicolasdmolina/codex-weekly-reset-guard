@@ -31,8 +31,8 @@ p { margin-top: 28px; font-size: 24px; line-height: 1.4; color: #d4d4d4; }
       <path d="M262 420H640A71 71 0 1 0 586 302"/><path d="M262 536H742" opacity=".85"/><path d="M262 652H562A70 70 0 1 1 508 767" opacity=".7"/>
     </svg>Second Wind
   </div>
-  <h1>Every Codex and Claude limit, in your menu bar</h1>
-  <p>Open-source macOS menu-bar app. MIT licensed.</p>
+  <h1>Codex and Claude usage limits in your menu bar</h1>
+  <p>Free and open source. For macOS 14 and later.</p>
 </div>
 <div class="shot"><img src="${asset('public/screens/overview.png')}" alt=""></div>
 </body></html>`;

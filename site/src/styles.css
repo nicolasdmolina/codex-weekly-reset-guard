@@ -638,6 +638,18 @@ p.astryx-text {
   overflow-wrap: anywhere;
 }
 
+.noscript code {
+  white-space: normal;
+  overflow-wrap: anywhere;
+}
+
+.noscript pre code {
+  padding: 0;
+  border: 0;
+  background: none;
+  white-space: inherit;
+}
+
 .noscript a {
   color: inherit;
   text-decoration: underline;

@@ -29,6 +29,10 @@ async function page(name, { width, height, colorScheme, reducedMotion = 'no-pref
   p.on('console', (message) => message.type() === 'error' && errors.push(message.text()));
   const response = await p.goto(url, { waitUntil: 'networkidle' });
   assert.equal(response?.status(), 200, `Page response at ${url}`);
+  const externalScripts = await p.locator('script[src]').evaluateAll((scripts) =>
+    scripts.filter((script) => new URL(script.src).origin !== location.origin).map((script) => script.src),
+  );
+  assert.deepEqual(externalScripts, [], 'The website loads scripts only from its own origin');
   const headerFilter = await p.locator('.site-header').evaluate((header) => getComputedStyle(header).backdropFilter);
   assert.match(headerFilter, /blur\(/, 'The sticky header blurs text underneath it');
   await p.waitForTimeout(reducedMotion === 'reduce' ? 300 : 1800);

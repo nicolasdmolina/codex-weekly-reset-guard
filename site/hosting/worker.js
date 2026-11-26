@@ -20,6 +20,12 @@ export default {
         headers: { 'Cache-Control': 'no-store' },
       });
     }
+    if (response.headers.get('Content-Type')?.startsWith('text/html')) {
+      const page = new Response(response.body, response);
+      // Cloudflare otherwise adds its analytics script to pages in this zone.
+      page.headers.append('Cache-Control', 'public, no-transform');
+      return page;
+    }
     return response;
   },
 };

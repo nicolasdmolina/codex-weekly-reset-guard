@@ -45,7 +45,7 @@ a {
   text-decoration-thickness: 1px;
 }
 
-:is(p, li) code {
+:is(p, li) code:not(pre code) {
   font-family: var(--font-family-code);
   font-size: 0.9em;
   padding: 0.1em 0.35em;
@@ -505,7 +505,7 @@ p.astryx-text {
 }
 
 /* The folder name and commands are long single words; let them wrap at phone width. */
-.install__main code {
+.install__main code:not(pre code) {
   white-space: normal;
   overflow-wrap: anywhere;
 }

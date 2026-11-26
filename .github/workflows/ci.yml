@@ -31,7 +31,6 @@ jobs:
       - name: Validate shell scripts
         run: for script in scripts/*.sh; do bash -n "$script"; done
       - name: Test and package without an account
-        # No account, login, diagnostic, installed app, or reset is used by this job.
         run: ./scripts/native_release_check.sh --skip-previews
       - name: Install and run the app on a clean Mac
         run: |

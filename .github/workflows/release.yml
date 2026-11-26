@@ -34,11 +34,15 @@ jobs:
         with:
           persist-credentials: false
           fetch-depth: 0
-      - name: Match the tag to the app version and commit
+      - name: Match the tag to the app version, changelog and commit
         run: |
           version="$(plutil -extract CFBundleShortVersionString raw -o - Resources/Info.plist)"
           if [[ "$GITHUB_REF_NAME" != "v$version" ]]; then
             printf '::error::Tag %s does not match Resources/Info.plist version %s.\n' "$GITHUB_REF_NAME" "$version"
+            exit 1
+          fi
+          if ! grep -Eq "^## ${version//./\\.}( |$)" CHANGELOG.md; then
+            printf '::error::CHANGELOG.md has no "## %s" section for the release notes.\n' "$version"
             exit 1
           fi
           # Provenance records GITHUB_SHA as the source digest; it must be the tagged commit.

@@ -654,7 +654,11 @@ private func laterPauseSupersedesEnableWaitingForIdentity(action: FailedPauseAct
         now: { clock.value }
     )
     _ = try await controller.start()
-    #expect(await eventually { !(await controller.snapshot()).isChecking })
+    #expect(await eventually {
+        let snapshot = await controller.snapshot()
+        return !snapshot.isChecking && snapshot.profiles.count == sessions.count
+            && snapshot.profiles.allSatisfy { $0.connectionStatus == .verified }
+    })
     for _ in 0..<3 {
         clock.advance(by: 10)
         _ = await controller.checkNow()

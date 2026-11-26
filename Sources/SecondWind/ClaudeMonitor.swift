@@ -530,7 +530,7 @@ actor ClaudeMonitorController {
 
     /// Serializes every read-modify-write of `state` that spans `store.save`, so a rename or
     /// removal can never be overwritten by a check that copied the state before it.
-    private func withStateWrite<T>(_ body: () async throws -> T) async rethrows -> T {
+    private func withStateWrite<T: Sendable>(_ body: @isolated(any) () async throws -> T) async rethrows -> T {
         while stateWriteLocked {
             await withCheckedContinuation { stateWriteWaiters.append($0) }
         }

@@ -37,8 +37,8 @@ draft GitHub release; nothing becomes public until the maintainer publishes it.
    `Resources/Info.plist` and `CHANGELOG.md` must name the version.
 2. Tag the merged commit with a lightweight tag and push it:
    `git tag v0.3.0 <commit> && git push origin v0.3.0`.
-3. The workflow's **source** job checks that the tag matches the app version and
-   that `GITHUB_SHA` is the tagged commit, runs the publication checks and
+3. The workflow's **source** job checks that the tag matches the app version, that
+   `CHANGELOG.md` has a section for it, and that `GITHUB_SHA` is the tagged commit, runs the publication checks and
    `native_release_check.sh --skip-previews`, archives the tagged commit with
    `scripts/package_source.sh` as `Second-Wind-X.Y.Z-source.zip`, records GitHub
    build provenance, and verifies the archive against that provenance and commit.
@@ -128,7 +128,9 @@ Prerequisites, all owned by the maintainer:
 5. The repository variable `SECOND_WIND_SIGNED_DMG` set to `true`.
 
 The job imports the certificate into a temporary keychain and deletes it and the
-API key at the end, whatever the outcome. Secret values are never printed.
+API key at the end, whatever the outcome. Secret values are never printed. The
+first hosted run of this job has not happened yet. If a GitHub runner reports
+Gatekeeper assessments as disabled, verification fails closed and no image ships.
 
 `release_dmg.sh` also runs locally with `SECOND_WIND_TEAM_ID`, an identity in the
 login keychain and `SECOND_WIND_NOTARY_PROFILE` (a `notarytool store-credentials`

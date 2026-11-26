@@ -771,7 +771,8 @@ private actor QuotaSession: GuardAppServerSession {
         useHostedLoginSuccessPage: Bool,
         appBrand: String
     ) async throws -> RPCChatGPTLoginStartResponse {
-        RPCChatGPTLoginStartResponse(
+        #expect(!notificationStreams.isEmpty, "Subscribe before requesting a sign-in that can complete immediately.")
+        return RPCChatGPTLoginStartResponse(
             loginID: "quota-fixture-login",
             authURL: URL(string: "https://example.com/login")!
         )

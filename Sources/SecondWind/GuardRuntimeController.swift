@@ -395,7 +395,10 @@ actor GuardRuntimeController {
             }
             monitoring = true
             lifecycle = .running
-            startNotificationListeners()
+            await startNotificationListeners()
+            guard lifecycle == .running, !Task.isCancelled else {
+                throw GuardRuntimeError.runtimeStopped
+            }
             startPollingLoops()
             await publish()
             guard lifecycle == .running, !Task.isCancelled else {
@@ -551,8 +554,12 @@ actor GuardRuntimeController {
         guard profileControlIntents[profileID] == controlIntent else {
             throw GuardRuntimeError.settingSuperseded
         }
-        if notificationTasks[profileID] == nil {
-            startNotificationListener(profileID: profileID, session: session)
+        await startNotificationListener(profileID: profileID, session: session)
+        guard lifecycle == .running, !Task.isCancelled else {
+            throw GuardRuntimeError.runtimeStopped
+        }
+        guard profileControlIntents[profileID] == controlIntent else {
+            throw GuardRuntimeError.settingSuperseded
         }
         let login = try await session.startChatGPTLogin(
             useHostedLoginSuccessPage: true,
@@ -878,18 +885,22 @@ actor GuardRuntimeController {
         configuration.operationMode == .production
     }
 
-    private func startNotificationListeners() {
+    private func startNotificationListeners() async {
         for (profileID, session) in sessions where notificationTasks[profileID] == nil {
-            startNotificationListener(profileID: profileID, session: session)
+            await startNotificationListener(profileID: profileID, session: session)
         }
     }
 
     private func startNotificationListener(
         profileID: UUID,
         session: any GuardAppServerSession
-    ) {
+    ) async {
+        guard notificationTasks[profileID] == nil else { return }
+        // The provider may complete sign-in as soon as login starts. Register the stream first.
+        let notifications = await session.notifications()
+        guard lifecycle == .running, sessions[profileID] != nil,
+              !profilesBeingRemoved.contains(profileID), notificationTasks[profileID] == nil else { return }
         notificationTasks[profileID] = Task { [weak self] in
-            let notifications = await session.notifications()
             for await notification in notifications {
                 guard !Task.isCancelled else { return }
                 await self?.handle(notification, profileID: profileID)

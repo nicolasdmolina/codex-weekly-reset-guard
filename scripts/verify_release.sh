@@ -1,14 +1,8 @@
 #!/bin/bash
 set -euo pipefail
 
-# Independently verify Second Wind release assets. Every listed asset must match
-# SHA256SUMS and carry GitHub build provenance from the release workflow, pinned
-# to the commit the public tag points to; the source archive must also name that
-# commit. The app disk image must also be Developer ID signed with hardened runtime,
-# notarized, stapled and accepted by Gatekeeper. Nothing is installed; the only
-# write outside a temporary directory is the optional website manifest, written
-# after every check has passed.
-
+# Verify the two downloadable archives against their tag, GitHub provenance and
+# contents before updating the website. No Apple identity is needed.
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 REPOSITORY="nicolasdmolina/codex-weekly-reset-guard"
 APP_NAME="Second Wind"
@@ -16,40 +10,23 @@ BUNDLE_ID="com.nickymolina.second-wind"
 EXECUTABLE="SecondWind"
 SITE_MANIFEST="$PROJECT_ROOT/site/src/release.json"
 SUM_LINE='^([0-9a-f]{64})  (.+)$'
-# Apple's Developer ID requirement: Apple-anchored chain, Developer ID intermediate,
-# Developer ID Application leaf, and the expected team.
-DEVELOPER_ID_REQUIREMENT='anchor apple generic and certificate 1[field.1.2.840.113635.100.6.2.6] and certificate leaf[field.1.2.840.113635.100.6.1.13]'
-DANGEROUS_ENTITLEMENTS=(
-  com.apple.security.get-task-allow
-  com.apple.security.cs.debugger
-  com.apple.security.cs.disable-library-validation
-  com.apple.security.cs.allow-dyld-environment-variables
-  com.apple.security.cs.allow-unsigned-executable-memory
-  com.apple.security.cs.disable-executable-page-protection
-  com.apple.security.cs.allow-jit
-)
 
 usage() {
   cat <<'EOF'
 Usage:
-  verify_release.sh --tag vX.Y.Z --published [--team-id TEAMID] [--self-test] [--write-site-manifest]
-  verify_release.sh --tag vX.Y.Z --dir DIRECTORY [--team-id TEAMID] [--source-commit SHA] [--self-test]
-                    [--skip-provenance]
+  verify_release.sh --tag vX.Y.Z --published [--source-commit SHA] [--self-test] [--write-site-manifest]
+  verify_release.sh --tag vX.Y.Z --dir DIRECTORY [--source-commit SHA] [--self-test] [--skip-provenance]
 
---published downloads SHA256SUMS and every file it lists from the public GitHub
-release without signing in. --dir checks files already on disk. --team-id is
-required when the release includes the app disk image. Provenance checks need
-the GitHub CLI signed in (gh auth login). The expected source commit is read
-from the public tag with git ls-remote; --source-commit must agree with it.
---skip-provenance skips GitHub checks and pins the commit only if --source-commit
-is given. --repo OWNER/NAME checks a fork.
+--published downloads the files over anonymous HTTPS. --dir checks local files.
+The GitHub CLI verifies provenance against the public tag and its exact commit.
+--self-test runs the checked app from a temporary folder on macOS.
+--skip-provenance is for local builds and cannot write the website manifest.
 EOF
 }
 
 TAG=""
 DIRECTORY=""
 PUBLISHED=false
-TEAM_ID=""
 SOURCE_COMMIT=""
 SELF_TEST=false
 SKIP_PROVENANCE=false
@@ -57,12 +34,11 @@ WRITE_MANIFEST=false
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --tag|--dir|--team-id|--repo|--source-commit)
+    --tag|--dir|--repo|--source-commit)
       if [[ $# -lt 2 ]]; then usage >&2; exit 2; fi
       case "$1" in
         --tag) TAG="$2" ;;
         --dir) DIRECTORY="$2" ;;
-        --team-id) TEAM_ID="$2" ;;
         --repo) REPOSITORY="$2" ;;
         --source-commit) SOURCE_COMMIT="$2" ;;
       esac
@@ -89,7 +65,6 @@ pass() {
 [[ "$TAG" =~ ^v([0-9]+\.[0-9]+\.[0-9]+)$ ]] || { usage >&2; exit 2; }
 VERSION="${BASH_REMATCH[1]}"
 [[ "$REPOSITORY" =~ ^[A-Za-z0-9_.-]+/[A-Za-z0-9_.-]+$ ]] || fail 'the repository must look like owner/name'
-[[ -z "$TEAM_ID" || "$TEAM_ID" =~ ^[A-Z0-9]{10}$ ]] || fail 'a team ID is ten capital letters or digits'
 [[ -z "$SOURCE_COMMIT" || "$SOURCE_COMMIT" =~ ^[0-9a-f]{40}$ ]] || fail 'a source commit is 40 lowercase hexadecimal characters'
 if [[ "$PUBLISHED" == true && -n "$DIRECTORY" ]] || [[ "$PUBLISHED" == false && -z "$DIRECTORY" ]]; then
   usage >&2
@@ -101,22 +76,11 @@ fi
 
 SOURCE_FILE="Second-Wind-$VERSION-source.zip"
 SOURCE_FOLDER="Second-Wind-$VERSION"
-APP_FILE="Second-Wind-$VERSION.dmg"
+APP_FILE="Second-Wind-$VERSION-mac.zip"
 RELEASE_URL="https://github.com/$REPOSITORY/releases/download/$TAG"
 
 WORK="$(mktemp -d "${TMPDIR:-/tmp}/second-wind-verify.XXXXXX")"
-MOUNT="$WORK/mount"
-MOUNTED=false
-cleanup() {
-  if [[ "$MOUNTED" == true ]]; then
-    if ! hdiutil detach "$MOUNT" -quiet >/dev/null 2>&1 && ! hdiutil detach "$MOUNT" -force -quiet >/dev/null 2>&1; then
-      printf 'Could not detach %s. Eject it in Finder.\n' "$MOUNT" >&2
-      return
-    fi
-  fi
-  rm -rf "$WORK"
-}
-trap cleanup EXIT
+trap 'rm -rf "$WORK"' EXIT
 
 if [[ "$PUBLISHED" == true ]]; then
   DIRECTORY="$WORK/download"
@@ -188,25 +152,6 @@ check_release_plist() {
   done
 }
 
-check_gatekeeper() {
-  local type="$1" target="$2" label="$3" output
-  if [[ "$type" == open ]]; then
-    output="$(spctl --assess --type open --context context:primary-signature -vv "$target" 2>&1)" \
-      || fail "Gatekeeper rejects $label"
-  else
-    output="$(spctl --assess --type execute -vv "$target" 2>&1)" || fail "Gatekeeper rejects $label"
-  fi
-  grep -qx 'source=Notarized Developer ID' <<<"$output" || fail "Gatekeeper does not report $label as notarized Developer ID"
-  pass "Gatekeeper accepts $label as notarized Developer ID"
-}
-
-check_stapled() {
-  local output
-  output="$(xcrun stapler validate "$1" 2>&1)" || fail "$2 has no valid stapled notarization ticket"
-  grep -q 'The validate action worked!' <<<"$output" || fail "$2 has no valid stapled notarization ticket"
-  pass "$2 has a stapled notarization ticket"
-}
-
 verify_source() {
   local zip="$DIRECTORY/$SOURCE_FILE" listing entry required details
   check_digest "$SOURCE_FILE" "$1"
@@ -243,89 +188,50 @@ verify_source() {
   check_provenance "$SOURCE_FILE"
 }
 
-APP_ARCHITECTURES=""
 APP_MINIMUM_SYSTEM=""
 
 verify_app() {
-  local dmg="$DIRECTORY/$APP_FILE" app="$MOUNT/$APP_NAME.app" requirement details entitlements key entries archs
-  [[ "$(uname -s)" == Darwin ]] || fail 'checking the app disk image needs macOS'
-  [[ -n "$TEAM_ID" ]] || fail "$APP_FILE is listed, so pass the expected Apple team with --team-id"
-  requirement="$DEVELOPER_ID_REQUIREMENT and certificate leaf[subject.OU] = \"$TEAM_ID\""
+  local file="$DIRECTORY/$APP_FILE" app="$WORK/$APP_NAME.app" executable arch archs details entitlements target
+  [[ "$(uname -s)" == Darwin ]] || fail 'checking the Mac app needs macOS'
   check_digest "$APP_FILE" "$1"
-  [[ "$(spctl --status 2>&1)" == 'assessments enabled' ]] || fail 'Gatekeeper assessments are disabled on this Mac, so they prove nothing'
-
-  codesign --verify --strict --verbose=2 "$dmg" >/dev/null 2>&1 || fail "$APP_FILE has an invalid code signature"
-  codesign --verify --strict -R "=$requirement" "$dmg" >/dev/null 2>&1 \
-    || fail "$APP_FILE is not signed with a Developer ID Application certificate for team $TEAM_ID"
-  pass "$APP_FILE is signed with Developer ID for team $TEAM_ID"
-  check_stapled "$dmg" "$APP_FILE"
-  check_gatekeeper open "$dmg" "$APP_FILE"
-
-  mkdir "$MOUNT"
-  hdiutil attach "$dmg" -readonly -nobrowse -noautoopen -mountpoint "$MOUNT" -quiet >/dev/null 2>&1 \
-    || fail "$APP_FILE could not be mounted read-only"
-  MOUNTED=true
-  entries="$(cd "$MOUNT" && ls -A)"
-  [[ "$entries" == "$(printf 'Applications\n%s.app' "$APP_NAME")" ]] \
-    || fail "$APP_FILE should hold only $APP_NAME.app and an Applications shortcut"
-  [[ -L "$MOUNT/Applications" && "$(readlink "$MOUNT/Applications")" == /Applications ]] \
-    || fail "the Applications shortcut in $APP_FILE does not point to /Applications"
-  [[ -d "$app" && ! -L "$app" ]] || fail "$APP_NAME.app in $APP_FILE is not a real app bundle"
-  pass "$APP_FILE holds $APP_NAME.app and an Applications shortcut"
-
-  codesign --verify --deep --strict --verbose=2 "$app" >/dev/null 2>&1 || fail "$APP_NAME.app has an invalid code signature"
-  codesign --verify --strict -R "=$requirement and identifier \"$BUNDLE_ID\"" "$app" >/dev/null 2>&1 \
-    || fail "$APP_NAME.app is not signed as $BUNDLE_ID with Developer ID for team $TEAM_ID"
-  details="$(codesign -dv --verbose=4 "$app" 2>&1)" || fail "$APP_NAME.app signature details are unreadable"
-  grep -Eq '^CodeDirectory .*flags=0x[0-9a-f]+\([^)]*runtime[^)]*\)' <<<"$details" \
-    || fail "$APP_NAME.app is not signed with the hardened runtime"
-  grep -q '^Timestamp=' <<<"$details" || fail "$APP_NAME.app has no secure signing timestamp"
-  ! grep -q '^Signature=adhoc' <<<"$details" || fail "$APP_NAME.app is ad-hoc signed"
-  entitlements="$(codesign -d --entitlements - --xml "$app" 2>/dev/null || true)"
-  for key in "${DANGEROUS_ENTITLEMENTS[@]}"; do
-    if grep -qF "<key>$key</key>" <<<"$entitlements"; then
-      fail "$APP_NAME.app requests the $key entitlement"
-    fi
-  done
-  pass "$APP_NAME.app is signed as $BUNDLE_ID with hardened runtime, a secure timestamp and no debugging entitlements"
-  check_stapled "$app" "$APP_NAME.app"
-  check_gatekeeper execute "$app" "$APP_NAME.app"
-
-  check_release_plist "$app/Contents/Info.plist" "$APP_NAME.app"
-  [[ "$(plist_value "$app/Contents/Info.plist" CFBundleExecutable)" == "$EXECUTABLE" ]] \
-    || fail "$APP_NAME.app names the wrong executable"
-  APP_MINIMUM_SYSTEM="$(plist_value "$app/Contents/Info.plist" LSMinimumSystemVersion)"
-  [[ "$APP_MINIMUM_SYSTEM" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || fail "$APP_NAME.app has no minimum macOS version"
-  archs="$(lipo -archs "$app/Contents/MacOS/$EXECUTABLE" 2>/dev/null)" || fail "$APP_NAME.app has no readable executable"
-  archs="$(tr ' ' '\n' <<<"$archs" | sort | tr '\n' ' ')"
-  [[ "$archs" == 'arm64 x86_64 ' ]] || fail "$APP_NAME.app is not universal (found: ${archs% })"
-  APP_ARCHITECTURES='"arm64", "x86_64"'
-  pass "$APP_NAME.app $VERSION is universal (arm64, x86_64) for macOS $APP_MINIMUM_SYSTEM or later"
-
-  if [[ "$SELF_TEST" == true ]]; then
-    run_self_test "$app"
-  fi
+  # Authenticate public artifacts before extracting or running code from them.
   check_provenance "$APP_FILE"
-}
+  python3 -I "$PROJECT_ROOT/scripts/check_app_zip.py" "$file" || fail 'invalid app archive'
+  ditto -x -k "$file" "$WORK" || fail 'could not unpack the Mac app'
+  check_release_plist "$app/Contents/Info.plist" "$APP_NAME.app"
+  [[ "$(plist_value "$app/Contents/Info.plist" CFBundleExecutable)" == "$EXECUTABLE" ]] || fail 'incorrect bundle executable'
+  APP_MINIMUM_SYSTEM="$(plist_value "$app/Contents/Info.plist" LSMinimumSystemVersion)"
+  [[ "$APP_MINIMUM_SYSTEM" =~ ^[0-9]+(\.[0-9]+){0,2}$ ]] || fail 'invalid minimum macOS version'
 
-run_self_test() {
-  local copy="$WORK/installed/$APP_NAME.app" binary
-  mkdir -p "$WORK/installed"
-  ditto "$1" "$copy"
-  xattr -w com.apple.quarantine "0081;$(printf '%x' "$(date +%s)");Safari;" "$copy"
-  check_gatekeeper execute "$copy" "a quarantined copy of $APP_NAME.app"
-  binary="$copy/Contents/MacOS/$EXECUTABLE"
-  "$binary" --self-test >/dev/null 2>&1 || fail "$APP_NAME.app failed its self-test on $(uname -m)"
-  pass "$APP_NAME.app passed its self-test on $(uname -m)"
-  if [[ "$(uname -m)" == arm64 ]]; then
-    if arch -x86_64 /usr/bin/true >/dev/null 2>&1; then
-      arch -x86_64 "$binary" --self-test >/dev/null 2>&1 || fail "$APP_NAME.app failed its self-test on x86_64"
-      pass "$APP_NAME.app passed its self-test on x86_64 (Rosetta)"
-    else
-      printf 'SKIP  x86_64 self-test: Rosetta is not installed on this Mac\n' >&2
+  executable="$app/Contents/MacOS/$EXECUTABLE"
+  archs="$(lipo -archs "$executable" | tr ' ' '\n' | sort | tr '\n' ' ')" || fail 'cannot read Mac executable architectures'
+  [[ "$archs" == 'arm64 x86_64 ' ]] || fail "expected a universal Mac app (found: ${archs% })"
+  codesign --verify --all-architectures --deep --strict "$app" || fail 'invalid app code signature'
+  for arch in arm64 x86_64; do
+    details="$(codesign -d --arch "$arch" --verbose=4 "$app" 2>&1)" || fail "unreadable $arch signature"
+    grep -qxF "Identifier=$BUNDLE_ID" <<<"$details" || fail "incorrect $arch signing identifier"
+    grep -qx 'Signature=adhoc' <<<"$details" || fail "expected an ad-hoc signature for $arch"
+    grep -Eq '^CodeDirectory .*flags=0x[0-9a-f]+\([^)]*runtime[^)]*\)' <<<"$details" || fail "missing hardened runtime on $arch"
+    entitlements="$(codesign -d --arch "$arch" --entitlements - --xml "$app" 2>/dev/null)" || fail "unreadable $arch entitlements"
+    if [[ -n "$entitlements" ]]; then
+      python3 -I -c 'import plistlib, sys; sys.exit(plistlib.load(sys.stdin.buffer) != {})' \
+        <<<"$entitlements" || fail "unexpected entitlements on $arch"
     fi
-  else
-    printf 'SKIP  arm64 self-test: this Mac cannot run arm64 code\n' >&2
+    target="$(xcrun vtool -arch "$arch" -show-build "$executable" |
+      awk '$1 == "platform" { platform = $2 } $1 == "minos" && platform == "MACOS" { print $2 }')"
+    [[ "$target" == "$APP_MINIMUM_SYSTEM" ]] || fail "the $arch deployment target differs from the app metadata"
+  done
+  pass "$APP_NAME.app $VERSION has valid ad-hoc signatures for Apple silicon and Intel on macOS $APP_MINIMUM_SYSTEM or later"
+  if [[ "$SELF_TEST" == true ]]; then
+    "$executable" --self-test >&2 || fail 'the native app self-test failed'
+    if [[ "$(uname -m)" == arm64 ]]; then
+      if arch -x86_64 /usr/bin/true >/dev/null 2>&1; then
+        arch -x86_64 "$executable" --self-test >&2 || fail 'the Intel app self-test failed'
+        pass 'both the Apple silicon and Intel app self-tests passed'
+      else
+        printf 'SKIP  Intel self-test: Rosetta is not installed on this Mac\n' >&2
+      fi
+    fi
   fi
 }
 
@@ -338,8 +244,8 @@ write_site_manifest() {
       "$SOURCE_FILE" "$SOURCE_FOLDER" "$SOURCE_SHA"
     if [[ -n "$APP_SHA" ]]; then
       printf '    "app": {\n      "file": "%s",\n      "sha256": "%s",\n' "$APP_FILE" "$APP_SHA"
-      printf '      "architectures": [%s],\n      "minimumSystemVersion": "%s",\n      "teamId": "%s"\n    }\n' \
-        "$APP_ARCHITECTURES" "$APP_MINIMUM_SYSTEM" "$TEAM_ID"
+      printf '      "architectures": ["arm64", "x86_64"],\n      "minimumSystemVersion": "%s",\n      "signing": "ad-hoc"\n    }\n' \
+        "$APP_MINIMUM_SYSTEM"
     else
       printf '    "app": null\n'
     fi
@@ -377,15 +283,13 @@ while IFS= read -r line || [[ -n "$line" ]]; do
     *) fail "SHA256SUMS lists a file that is not part of the $TAG release" ;;
   esac
 done < "$DIRECTORY/SHA256SUMS"
-[[ -n "$SOURCE_SHA" || -n "$APP_SHA" ]] || fail 'SHA256SUMS lists no release files'
-if [[ "$WRITE_MANIFEST" == true && -z "$SOURCE_SHA" ]]; then
-  fail "the website needs $SOURCE_FILE in the release"
+[[ -n "$SOURCE_SHA" ]] || fail "the release needs $SOURCE_FILE"
+# v0.3.0 is the previously published source-only release.
+if [[ "$TAG" != v0.3.0 && -z "$APP_SHA" ]]; then
+  fail "the release needs $APP_FILE"
 fi
-
-if [[ -n "$SOURCE_SHA" ]]; then
-  [[ "$PUBLISHED" == false ]] || download "$SOURCE_FILE"
-  verify_source "$SOURCE_SHA"
-fi
+[[ "$PUBLISHED" == false ]] || download "$SOURCE_FILE"
+verify_source "$SOURCE_SHA"
 if [[ -n "$APP_SHA" ]]; then
   [[ "$PUBLISHED" == false ]] || download "$APP_FILE"
   verify_app "$APP_SHA"
@@ -394,13 +298,8 @@ fi
 if [[ "$WRITE_MANIFEST" == true ]]; then
   write_site_manifest
 fi
-if [[ -n "$SOURCE_SHA" && -n "$APP_SHA" ]]; then
-  SUMMARY="Verified Second Wind $TAG: source, notarized universal app"
-elif [[ -n "$SOURCE_SHA" ]]; then
-  SUMMARY="Verified Second Wind $TAG: source"
-else
-  SUMMARY="Verified Second Wind $TAG: notarized universal app"
-fi
+SUMMARY="Verified Second Wind $TAG: source"
+if [[ -n "$APP_SHA" ]]; then SUMMARY="$SUMMARY, universal ad-hoc signed Mac app"; fi
 [[ -z "$EXPECTED_COMMIT" ]] || SUMMARY="$SUMMARY from commit $EXPECTED_COMMIT"
 [[ "$SKIP_PROVENANCE" == false ]] || SUMMARY="$SUMMARY (provenance NOT checked)"
 printf '%s\n' "$SUMMARY"

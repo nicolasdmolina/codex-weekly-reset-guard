@@ -5,29 +5,10 @@ PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
 APP_NAME="Second Wind"
 APP_PATH="$PROJECT_ROOT/dist/$APP_NAME.app"
 BUILD_FLAGS=(-c release)
-SIGN_IDENTITY=""
-KEYCHAIN=""
-
-usage() {
-    printf 'Usage: %s [--universal] [--sign-identity SHA1 [--keychain PATH]]\n' "$0"
-}
-
-while [[ $# -gt 0 ]]; do
-    case "$1" in
-        --universal) BUILD_FLAGS+=(--arch arm64 --arch x86_64); shift ;;
-        --sign-identity|--keychain)
-            if [[ $# -lt 2 || -z "$2" ]]; then
-                usage >&2
-                exit 2
-            fi
-            if [[ "$1" == --sign-identity ]]; then SIGN_IDENTITY="$2"; else KEYCHAIN="$2"; fi
-            shift 2
-            ;;
-        *) usage >&2; exit 2 ;;
-    esac
-done
-if [[ -n "$KEYCHAIN" && -z "$SIGN_IDENTITY" ]]; then
-    usage >&2
+if [[ $# -eq 1 && "$1" == --universal ]]; then
+    BUILD_FLAGS+=(--arch arm64 --arch x86_64)
+elif [[ $# -ne 0 ]]; then
+    printf 'Usage: %s [--universal]\n' "$0" >&2
     exit 2
 fi
 if [[ "$(uname -s)" != Darwin ]]; then
@@ -56,18 +37,9 @@ cp "$PROJECT_ROOT/Resources/Info.plist" "$STAGED_APP/Contents/Info.plist"
 cp "$PROJECT_ROOT/LICENSE" "$STAGED_APP/Contents/Resources/LICENSE"
 cp "$PROJECT_ROOT/Resources/AppIcon.icns" "$STAGED_APP/Contents/Resources/AppIcon.icns"
 
-if [[ -n "$SIGN_IDENTITY" ]]; then
-    # Release signing: hardened runtime and a secure timestamp, both required for notarization.
-    SIGN_FLAGS=(--force --options runtime --timestamp --sign "$SIGN_IDENTITY")
-    if [[ -n "$KEYCHAIN" ]]; then SIGN_FLAGS+=(--keychain "$KEYCHAIN"); fi
-    codesign "${SIGN_FLAGS[@]}" "$STAGED_APP" >&2
-    SIGNATURE_KIND="a signed, not yet notarized"
-else
-    # Ad-hoc signing checks bundle integrity only. It is not a public binary release.
-    codesign --force --sign - --timestamp=none "$STAGED_APP" >&2
-    SIGNATURE_KIND="an ad-hoc signed, unnotarized"
-fi
-codesign --verify --deep --strict "$STAGED_APP" >&2
+# The ad-hoc signature seals each slice and its resources. GitHub attests the distributed ZIP.
+codesign --force --options runtime --sign - --timestamp=none "$STAGED_APP" >&2
+codesign --verify --all-architectures --deep --strict "$STAGED_APP" >&2
 
 PREVIOUS_APP=""
 if [[ -e "$APP_PATH" || -L "$APP_PATH" ]]; then
@@ -82,5 +54,5 @@ if ! mv "$STAGED_APP" "$APP_PATH"; then
     fi
     exit 1
 fi
-printf 'Built %s app for %s.\n' "$SIGNATURE_KIND" "$(lipo -archs "$APP_PATH/Contents/MacOS/SecondWind" 2>/dev/null || uname -m)" >&2
+printf 'Built an ad-hoc signed, unnotarized app for %s.\n' "$(lipo -archs "$APP_PATH/Contents/MacOS/SecondWind" 2>/dev/null || uname -m)" >&2
 printf '%s\n' "$APP_PATH"

@@ -13,7 +13,8 @@ const sourceFixture = await fixture('qa-release-source.json');
 const shipped = JSON.parse(await readFile(here('../src/release.json'), 'utf8'));
 
 const plan = (manifest) => release.planInstall(release.parseReleaseManifest(manifest));
-const downloads = 'https://github.com/nicolasdmolina/codex-weekly-reset-guard/releases/download/v0.3.0';
+const downloads = (manifest) =>
+  `https://github.com/nicolasdmolina/codex-weekly-reset-guard/releases/download/${manifest.release.tag}`;
 let count = 0;
 const check = (label, run) => {
   run();
@@ -30,29 +31,34 @@ check('no release keeps the main source flow', () => {
 check('a source-only release offers the verified archive', () => {
   const source = plan(sourceFixture);
   assert.equal(source.kind, 'source');
-  assert.equal(source.release.source.url, `${downloads}/Second-Wind-0.3.0-source.zip`);
+  assert.equal(source.release.source.url, `${downloads(sourceFixture)}/Second-Wind-0.3.0-source.zip`);
   assert.equal(source.release.source.folder, 'Second-Wind-0.3.0');
 });
-check('an app release offers the disk image', () => {
+check('an app release offers the universal ZIP', () => {
   const app = plan(appFixture);
   assert.equal(app.kind, 'app');
-  assert.equal(app.app.url, `${downloads}/Second-Wind-0.3.0.dmg`);
+  assert.equal(app.app.url, `${downloads(appFixture)}/Second-Wind-0.3.1-mac.zip`);
+  assert.equal(app.app.signing, 'ad-hoc');
+  assert.deepEqual(app.app.architectures, ['arm64', 'x86_64']);
   assert.equal(release.macRequirement(app.app), 'any Mac with macOS 14 or later');
   assert.equal(
     release.checkCommands(app.app),
-    'shasum -a 256 ~/Downloads/Second-Wind-0.3.0.dmg\n' +
-      'gh attestation verify ~/Downloads/Second-Wind-0.3.0.dmg --repo nicolasdmolina/codex-weekly-reset-guard',
+    'shasum -a 256 ~/Downloads/Second-Wind-0.3.1-mac.zip\n' +
+      'gh attestation verify ~/Downloads/Second-Wind-0.3.1-mac.zip --repo nicolasdmolina/codex-weekly-reset-guard',
   );
-});
-check('an Apple silicon build is labelled as such', () => {
-  const manifest = structuredClone(appFixture);
-  manifest.release.app.architectures = ['arm64'];
-  assert.equal(release.macRequirement(plan(manifest).app), 'a Mac with Apple silicon and macOS 14 or later');
 });
 check('the fallback page follows each state', () => {
   assert.match(release.installNoscriptHtml(plan({ release: null })), /main\.zip/);
   assert.match(release.installNoscriptHtml(plan(sourceFixture)), /Second-Wind-0\.3\.0-source\.zip.*\n[\s\S]*1{64}/);
-  assert.match(release.installNoscriptHtml(plan(appFixture)), /Second-Wind-0\.3\.0\.dmg[\s\S]*2{64}/);
+  const appHtml = release.installNoscriptHtml(plan(appFixture));
+  assert.match(appHtml, /Second-Wind-0\.3\.1-mac\.zip[\s\S]*Open Anyway[\s\S]*2{64}/);
+  assert.match(appHtml, /damaged[\s\S]*don’t open it/);
+  assert.doesNotMatch(appHtml, /Apple has checked|notarized by Apple\./);
+});
+check('a source-only release never links an app', () => {
+  for (const manifest of [{ release: null }, sourceFixture]) {
+    assert.doesNotMatch(release.installNoscriptHtml(plan(manifest)), /-mac\.zip|\.dmg/);
+  }
 });
 
 const mutations = {
@@ -60,17 +66,21 @@ const mutations = {
   'an extra field': (m) => (m.release.notes = 'unexpected'),
   'another repository': (m) => (m.release.repository = 'someone/else'),
   'a malformed tag': (m) => (m.release.tag = '0.2.0'),
-  'a source file for another version': (m) => (m.release.source.file = 'Second-Wind-0.2.1-source.zip'),
+  'a source file for another version': (m) => (m.release.source.file = 'Second-Wind-0.3.0-source.zip'),
   'a source folder for another version': (m) => (m.release.source.folder = 'second-wind-main'),
   'an uppercase checksum': (m) => (m.release.source.sha256 = 'A'.repeat(64)),
   'a short checksum': (m) => (m.release.app.sha256 = 'a'.repeat(63)),
-  'an app file for another version': (m) => (m.release.app.file = 'Second-Wind-0.1.0.dmg'),
+  'an app file for another version': (m) => (m.release.app.file = 'Second-Wind-0.3.0-mac.zip'),
+  'a disk image': (m) => (m.release.app.file = 'Second-Wind-0.3.1.dmg'),
   'no architectures': (m) => (m.release.app.architectures = []),
+  'a single architecture': (m) => (m.release.app.architectures = ['arm64']),
   'a repeated architecture': (m) => (m.release.app.architectures = ['arm64', 'arm64']),
-  'an unknown architecture': (m) => (m.release.app.architectures = ['ppc']),
+  'an unknown architecture': (m) => (m.release.app.architectures = ['arm64', 'ppc']),
   'a malformed minimum macOS': (m) => (m.release.app.minimumSystemVersion = 'Sonoma'),
-  'a malformed team ID': (m) => (m.release.app.teamId = 'abcde12345'),
-  'a missing app field': (m) => delete m.release.app.teamId,
+  'another minimum macOS': (m) => (m.release.app.minimumSystemVersion = '13.0'),
+  'Developer ID signing': (m) => (m.release.app.signing = 'developer-id'),
+  'a team ID': (m) => (m.release.app.teamId = 'ABCDE12345'),
+  'a missing app field': (m) => delete m.release.app.signing,
 };
 for (const [label, mutate] of Object.entries(mutations)) {
   check(`rejects ${label}`, () => {

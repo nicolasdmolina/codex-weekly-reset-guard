@@ -23,8 +23,13 @@ const expected =
           steps: new RegExp(`cd ~/Downloads/${release.source.folder}\n\\./scripts/install_app\\.sh --launch`),
           checksum: release.source.sha256 }
       : { state: 'app', hero: `${downloads}/${release.app.file}`, download: /download for mac/i,
-          href: `${downloads}/${release.app.file}`, steps: /drag second wind onto the applications folder/i,
+          href: `${downloads}/${release.app.file}`,
+          steps: /drag second wind from downloads onto the applications folder[\s\S]*choose replace[\s\S]*privacy & security[\s\S]*open anyway/i,
           checksum: release.app.sha256, source: `${downloads}/${release.source.file}` };
+// Never on the page in any state: ways around Gatekeeper, or claims Apple reviewed the app.
+const BANNED = /disable gatekeeper|turn off gatekeeper|spctl|xattr|sudo|developer id|certificate|apple has (checked|notarized|approved)|(?<!(isn’t|isn't|not) )notarized by apple|is notarized/i;
+// Before a verified app exists, nothing may link to one.
+const APP_LINK = /-mac\.zip|\.dmg/;
 const out = fileURLToPath(new URL(`../.qa/${expected.state}/`, import.meta.url));
 await mkdir(out, { recursive: true });
 
@@ -105,8 +110,17 @@ for (const colorScheme of ['dark', 'light']) {
   const install = run.p.locator('#install');
   assert.equal(await install.getByRole('link', { name: expected.download }).getAttribute('href'), expected.href);
   assert.match(await install.innerText(), expected.steps);
+  const installText = await install.innerText();
+  const pageText = await run.p.locator('body').innerText();
+  assert.doesNotMatch(pageText, BANNED, 'No Gatekeeper workarounds or Apple-approval claims');
+  const hrefs = await run.p.locator('a[href]').evaluateAll((links) => links.map((link) => link.getAttribute('href')));
   if (expected.source) {
-    assert.equal(await install.getByRole('link', { name: /download the source/i }).getAttribute('href'), expected.source);
+    assert.equal(await install.getByRole('link', { name: /source code/i }).getAttribute('href'), expected.source);
+    assert.match(installText, /damaged, will damage your computer or contains malware, don’t open it/i);
+    assert.match(installText, /Apple hasn’t notarized Second Wind/i);
+  } else {
+    assert.deepEqual(hrefs.filter((href) => APP_LINK.test(href)), [], 'No app link before a verified app');
+    assert.doesNotMatch(installText, /open anyway/i, 'Gatekeeper steps only for the downloaded app');
   }
   const check = install.getByRole('button', { name: /check the download/i });
   if (expected.checksum) {
@@ -122,6 +136,13 @@ for (const colorScheme of ['dark', 'light']) {
   const noscript = html.slice(html.indexOf('<noscript>'), html.indexOf('</noscript>'));
   assert.ok(noscript.includes(`href="${expected.href}"`), 'No-JavaScript install link matches');
   assert.equal(noscript.includes(expected.checksum ?? 'no checksum expected'), Boolean(expected.checksum));
+  assert.doesNotMatch(noscript, BANNED, 'No-JavaScript page makes no Apple claims or workarounds');
+  if (expected.source) {
+    assert.ok(noscript.includes(`href="${expected.source}"`), 'No-JavaScript source link matches');
+    assert.match(noscript, /Open Anyway/);
+  } else {
+    assert.doesNotMatch(noscript, APP_LINK, 'No-JavaScript page has no app link before a verified app');
+  }
   await audit(run);
 }
 

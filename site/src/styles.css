@@ -571,6 +571,35 @@ p.astryx-text {
 
 .flow__action {
   margin-bottom: 14px;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+}
+
+/* System Settings clicks, in order, under "Open it". */
+.substeps {
+  margin: 12px 0 0;
+  padding-inline-start: 1.25em;
+  list-style: decimal;
+  display: grid;
+  gap: 6px;
+  max-width: 62ch;
+  line-height: 1.55;
+  color: var(--color-text-secondary);
+}
+
+.substeps li::marker {
+  color: var(--color-text-accent);
+}
+
+/* The one line that says when not to continue, in full-strength text. */
+.substeps + .prose {
+  margin-top: 14px;
+}
+
+.install__warning {
+  color: var(--color-text-primary);
+  font-weight: 500;
 }
 
 .flow__code {

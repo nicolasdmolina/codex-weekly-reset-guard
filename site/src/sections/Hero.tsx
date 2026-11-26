@@ -1,6 +1,7 @@
 import { useReducedMotion } from 'motion/react';
 import { Button } from '@astryxdesign/core/Button';
 import { Heading } from '@astryxdesign/core/Heading';
+import { Link } from '@astryxdesign/core/Link';
 import { Text } from '@astryxdesign/core/Text';
 import { AnimatedGroup } from '../components/motion-primitives/animated-group';
 import { ScreenShowcase } from '../components/ScreenShowcase';
@@ -27,10 +28,8 @@ const primaryAction =
     ? { href: INSTALL.app.url, label: 'Download for Mac', endContent: <Download /> }
     : { href: '#install', label: 'Install from source', endContent: <ArrowDown /> };
 
-const note =
-  INSTALL.kind === 'app'
-    ? `Version ${INSTALL.release.version}. Free and open source. Not affiliated with OpenAI or Anthropic.`
-    : 'Free and open source. Not affiliated with OpenAI or Anthropic.';
+const version = INSTALL.kind === 'app' ? `Version ${INSTALL.release.version}. ` : '';
+const note = `${version}Free and open source. Not affiliated with OpenAI or Anthropic.`;
 
 export function Hero() {
   const reduceMotion = useReducedMotion();
@@ -71,6 +70,15 @@ export function Hero() {
           </div>
           <Text as="p" size="sm" color="secondary" className="hero__note">
             {note}
+            {INSTALL.kind === 'app' && (
+              <>
+                {' '}
+                <Link href="#install" size="sm">
+                  First open takes one extra step
+                </Link>
+                .
+              </>
+            )}
           </Text>
         </AnimatedGroup>
         <ScreenShowcase />

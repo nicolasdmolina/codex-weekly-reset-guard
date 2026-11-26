@@ -5,7 +5,7 @@ helps you use a reset before you hit the wall. For Codex it can redeem a saved
 weekly reset for you. For Claude it warns you early and takes you straight to the
 page where you redeem one.
 
-**Source preview · macOS 14+ · Swift 6+ · MIT**
+**macOS 14+ · Apple silicon and Intel · MIT**
 
 [![CI](https://github.com/nicolasdmolina/codex-weekly-reset-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/nicolasdmolina/codex-weekly-reset-guard/actions/workflows/ci.yml)
 
@@ -24,9 +24,9 @@ it moves your existing accounts over on first launch.
 
 ## Website
 
-[secondwind.nickymolina.com](https://secondwind.nickymolina.com/) has screenshots, requirements and the source download.
+[secondwind.nickymolina.com](https://secondwind.nickymolina.com/) has screenshots, requirements and downloads.
 
-Versioned source downloads include a SHA-256 checksum and GitHub build
+The Mac app and source downloads include SHA-256 checksums and GitHub build
 provenance. See [releases](https://github.com/nicolasdmolina/codex-weekly-reset-guard/releases)
 and the [verification instructions](docs/RELEASING.md#what-verify_releasesh-checks).
 
@@ -77,6 +77,21 @@ The Codex trigger uses the canonical weekly `codex` allowance only; short-window
 and model-specific exhaustion cannot trigger it. Turning on auto-redeem lets the
 app spend a saved reset at the threshold, so up to 3% of a week may go unused.
 
+## Install the Mac app
+
+Download the Mac app ZIP from the [installation page](https://secondwind.nickymolina.com/#install).
+Open the ZIP in Finder, move **Second Wind.app** to Applications, and open it
+there. If you already have Second Wind, quit it and replace the existing copy
+in its current folder. Your accounts and preferences are stored separately.
+
+Apple has not notarized this build. If macOS says the developer cannot be
+verified, check that you used the official download. After the first attempt
+to open it, select **System Settings → Privacy & Security → Open Anyway** to
+approve this copy. A managed Mac may require its administrator. A damaged-app
+or malware alert means you should stop. [Apple’s first-open guide](https://support.apple.com/en-us/102445).
+
+Install the official Codex or Claude tools for whichever service you use.
+
 ## Build and install
 
 You need macOS 14 or later and a Swift 6+ toolchain (Xcode or Command Line Tools),
@@ -100,9 +115,9 @@ wind symbol in the menu bar. The installer keeps a backup when replacing an
 existing install and retires a Codex Weekly Reset Guard bundle if it finds one.
 Quit any running copy first.
 
-Builds target the host architecture and are **ad-hoc signed, not notarized**.
-There is no Developer ID signed download yet; building locally is the supported
-path. Do not disable macOS security protections to run an untrusted download.
+Source builds target your Mac's processor. The prebuilt ZIP contains both
+architectures. Each app carries an ad-hoc signature that macOS can check for
+changes to its contents.
 
 ## First run
 

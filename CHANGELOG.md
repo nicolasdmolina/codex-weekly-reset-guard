@@ -1,5 +1,13 @@
 # Changelog
 
+## 0.3.1
+
+- Download a prebuilt Mac app for Apple silicon and Intel. Unzip it and move
+  Second Wind to Applications. The download page explains macOS's first-open
+  approval for this unnotarized app.
+- Both the Mac app ZIP and the source ZIP have a SHA-256 checksum and a GitHub
+  attestation linking the download to the tagged source.
+
 ## 0.3.0
 
 - See the five-hour and weekly Codex limits together. Monitor-only accounts

@@ -6,7 +6,7 @@ import { Link } from '@astryxdesign/core/Link';
 import { Text } from '@astryxdesign/core/Text';
 import { Download } from '../components/icons';
 import { SCREEN_HEIGHT, SCREEN_WIDTH, onboardingScreen } from '../components/screens';
-import { CLAUDE_CODE_SETUP_URL, CODEX_SETUP_URL, README_INSTALL_URL } from '../config';
+import { APPLE_OPEN_APPS_URL, CLAUDE_CODE_SETUP_URL, CODEX_SETUP_URL, README_INSTALL_URL } from '../config';
 import { INSTALL } from '../install';
 import { checkCommands, macRequirement, type InstallPlan, type VerifiedDownload } from '../release';
 
@@ -61,7 +61,7 @@ function AccountStep({ opening }: { opening: string }) {
   );
 }
 
-function CheckDownload({ download }: { download: VerifiedDownload }) {
+function CheckDownload({ download, isApp }: { download: VerifiedDownload; isApp: boolean }) {
   return (
     <Collapsible
       className="check"
@@ -80,9 +80,17 @@ function CheckDownload({ download }: { download: VerifiedDownload }) {
         />
         <Text as="p" color="secondary" className="prose">
           In Terminal, the first line below prints the same checksum. The second needs the GitHub
-          CLI and confirms GitHub built this file from the project&rsquo;s source.
+          CLI and confirms GitHub built this file from the project&rsquo;s public source.
+          {isApp &&
+            ' Together they show you have the right file. They aren’t a review by Apple, which hasn’t notarized Second Wind.'}
         </Text>
         <CodeBlock code={checkCommands(download)} language="bash" title="Terminal" hasCopyButton isWrapped />
+        {isApp && (
+          <Text as="p" color="secondary" className="prose">
+            If Safari unzipped it for you, the ZIP may be in the Trash. Drag it back to Downloads
+            first.
+          </Text>
+        )}
       </div>
     </Collapsible>
   );
@@ -101,8 +109,8 @@ function SourceInstall({ plan }: { plan: SourcePlan }) {
       <Title>Install from source</Title>
       <Text as="p" color="secondary" className="prose">
         {release
-          ? `There’s no ready-made app yet. Download the source for version ${release.version} and your Mac builds the app with one command.`
-          : 'There’s no signed, ready-made download yet. You get the source and your Mac builds the app with one command.'}
+          ? `There’s no ready-made app for version ${release.version}. Download its source and your Mac builds the app with one command.`
+          : 'There’s no ready-made download yet. You get the source and your Mac builds the app with one command.'}
       </Text>
 
       <Heading level={3} className="install__subtitle">
@@ -150,12 +158,12 @@ function SourceInstall({ plan }: { plan: SourcePlan }) {
         <AccountStep opening="The app opens as a wind symbol in your menu bar." />
       </ol>
 
-      {release && <CheckDownload download={release.source} />}
+      {release && <CheckDownload download={release.source} isApp={false} />}
 
       <Text as="p" color="secondary" size="sm" className="install__foot">
         The app goes in the Applications folder inside your home folder. It isn&rsquo;t
         notarized by Apple. Prefer <code>git clone</code>? The{' '}
-        <Link href={README_INSTALL_URL} isExternalLink>
+        <Link href={README_INSTALL_URL} isExternalLink size="sm">
           README
         </Link>{' '}
         has the full steps.
@@ -170,8 +178,8 @@ function AppInstall({ plan }: { plan: AppPlan }) {
     <>
       <Title>Install</Title>
       <Text as="p" color="secondary" className="prose">
-        Version {release.version}. Apple has checked it for malware, so it opens like any other
-        app.
+        Version {release.version}. Apple hasn&rsquo;t notarized Second Wind, so macOS may ask
+        you to approve it the first time you open it.
       </Text>
 
       <Heading level={3} className="install__subtitle">
@@ -190,30 +198,64 @@ function AppInstall({ plan }: { plan: AppPlan }) {
             Download the app
           </Heading>
           <div className="flow__action">
-            <Button href={app.url} label="Download for Mac (.dmg)" variant="primary" icon={<Download />} />
+            <Button href={app.url} label="Download for Mac (.zip)" variant="primary" icon={<Download />} />
+            <Button href={release.source.url} label="Source code (.zip)" variant="secondary" />
           </div>
+          <Text as="p" color="secondary" className="prose">
+            If Safari doesn&rsquo;t unzip it, double-click the ZIP in Finder.
+          </Text>
         </li>
         <li className="flow__step">
           <Heading level={3} className="flow__title">
-            Drag it into Applications
+            Move it to Applications
           </Heading>
           <Text as="p" color="secondary" className="prose">
-            Open the downloaded file and drag Second Wind onto the Applications folder.
+            In Finder, drag Second Wind from Downloads onto the Applications folder.
           </Text>
           <Text as="p" color="secondary" className="prose">
-            Built Second Wind from source before? Quit it, then move that copy from the
-            Applications folder inside your home folder to the Trash. Your accounts stay.
+            Updating? Choose Quit Second Wind from the &bull;&bull;&bull; menu, then drag the new
+            copy into the folder holding your existing app and choose Replace. If you built it
+            from source, that folder is usually Applications inside your home folder. Your accounts stay.
           </Text>
         </li>
-        <AccountStep opening="Open Second Wind from Applications. A wind symbol appears in your menu bar." />
+        <li className="flow__step">
+          <Heading level={3} className="flow__title">
+            Open it
+          </Heading>
+          <Text as="p" color="secondary" className="prose">
+            Double-click Second Wind in Applications. If macOS says it can&rsquo;t verify the
+            developer or check the app for malware, close that message and follow these steps.
+          </Text>
+          <ol className="substeps">
+            <li>Open System Settings and click Privacy &amp; Security.</li>
+            <li>Scroll down and click Open Anyway next to the note about Second Wind.</li>
+            <li>Click Open. Your Mac may ask for your password.</li>
+          </ol>
+          <Text as="p" color="secondary" className="prose">
+            This is{' '}
+            <Link href={APPLE_OPEN_APPS_URL} isExternalLink>
+              Apple&rsquo;s own way
+            </Link>{' '}
+            to open one app you trust. On a Mac managed by a school or company, Open Anyway may be
+            blocked.
+          </Text>
+          <Text as="p" className="prose install__warning">
+            If macOS says Second Wind is damaged, will damage your computer or contains malware,
+            don&rsquo;t open it. Move that copy to the Trash.
+          </Text>
+        </li>
+        <AccountStep opening="A wind symbol appears in your menu bar." />
       </ol>
 
-      <CheckDownload download={app} />
+      <CheckDownload download={app} isApp />
 
       <Text as="p" color="secondary" size="sm" className="install__foot">
-        Prefer to build it yourself?{' '}
-        <Link href={release.source.url}>Download the source (.zip)</Link>, open Terminal in its
-        folder and run <code>./scripts/install_app.sh --launch</code>. You need Swift 6.
+        Prefer to build it yourself? Open Terminal in the source folder and run{' '}
+        <code>./scripts/install_app.sh --launch</code>. You need Swift 6. The{' '}
+        <Link href={README_INSTALL_URL} isExternalLink size="sm">
+          README
+        </Link>{' '}
+        has the full steps.
       </Text>
     </>
   );

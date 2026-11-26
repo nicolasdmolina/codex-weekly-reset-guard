@@ -20,9 +20,17 @@ const questions = [
     q: 'I use Codex Weekly Reset Guard. What happens?',
     a:
       INSTALL.kind === 'app'
-        ? 'That was this app’s old name. Quit it and move it to the Trash, then install Second Wind. Your accounts and any pending reset move over the first time Second Wind opens.'
+        ? 'That was this app’s old name. Quit it and move it to the Trash, then install Second Wind as above. Your accounts and any pending reset move over the first time Second Wind opens.'
         : 'That was this app’s old name. Quit it, then install Second Wind. The installer moves the old app aside, and your accounts and any pending reset move over the first time Second Wind opens.',
   },
+  ...(INSTALL.kind === 'app'
+    ? [
+        {
+          q: 'Why does macOS warn me the first time I open it?',
+          a: 'Apple hasn’t notarized Second Wind, so macOS may ask you to approve it in System Settings under Privacy & Security. The checksum and GitHub’s build record let you confirm the download came from the public source.',
+        },
+      ]
+    : []),
   {
     q: 'Which Codex versions work?',
     a: 'It was tested with Codex CLI 0.145.0 and 0.153.4. If a version is missing something it needs, it won’t redeem.',

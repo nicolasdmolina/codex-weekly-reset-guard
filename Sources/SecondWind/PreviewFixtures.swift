@@ -67,6 +67,7 @@ enum PreviewFixtures {
 
     static func model(for kind: PreviewKind) -> GuardAppModel {
         let (model, interface) = scene(for: kind)
+        if model.hasAccounts { model.lastCheckedAt = reference }
         interfaces[ObjectIdentifier(model)] = interface
         return model
     }
@@ -107,7 +108,7 @@ enum PreviewFixtures {
             model = GuardAppModel(profiles: [
                 codex(
                     ID.personal, "Personal", hint: "Account 1",
-                    status: .confirming, detail: "Reading 1 of 2 · checking again in 5 seconds",
+                    status: .confirming, detail: "Reading 1 of 2, next check in 5 seconds",
                     record: codexRecord(ID.personal, session: 44, weekly: 2.6, weeklyResetHours: 48, saved: 2, expiresInDays: 14)
                 ),
                 workHealthy(),
@@ -249,7 +250,7 @@ enum PreviewFixtures {
             stage = { interface in
                 interface.showSettings()
                 interface.stagePreview(settingsFeedback: .failure(
-                    "Alert saved, but notifications are off for Second Wind. Turn them on in System Settings."
+                    "Alert saved. Turn on notifications for Second Wind in System Settings to get it."
                 ))
             }
         case .rename:
@@ -259,7 +260,7 @@ enum PreviewFixtures {
                 interface.beginRename(work, currentName: "Work")
                 interface.draftName = "Client work"
                 interface.reportFailure(
-                    "Could not rename this account. This account is busy checking or signing in. Try again in a moment.",
+                    "Could not rename this account. It is busy checking or signing in. Try again in a moment.",
                     for: work
                 )
             }
@@ -270,7 +271,7 @@ enum PreviewFixtures {
                 interface.removalKeepsResetRecord = { $0 == personal }
                 interface.confirmRemoval(personal)
                 interface.reportFailure(
-                    "Could not remove Personal. This account is busy checking or signing in. Try again in a moment.",
+                    "Could not remove Personal. It is busy checking or signing in. Try again in a moment.",
                     for: personal
                 )
             }

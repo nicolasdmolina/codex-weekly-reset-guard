@@ -16,7 +16,7 @@ spacing scale, radii 8/12/16 and motion at 175/280/410 ms. Tokens live in
 
 ## Colour
 
-- Teal (`#0E9F8E` light, `#3FD9C3` dark) is the only accent: primary buttons,
+- Teal (`#0A8274` light, `#3FD9C3` dark) is the only accent: primary buttons,
   healthy meters, the brand mark.
 - Amber means near a limit. Coral means the user must act. Neither is decorative.
 - Every status pairs its colour with an SF Symbol and text.

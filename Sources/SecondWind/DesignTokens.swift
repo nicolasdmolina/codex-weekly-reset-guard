@@ -20,6 +20,9 @@ enum SW {
         static let textSecondary = adaptive(light: 0x5C5C5C, dark: 0xB4B4B4)
         static let textTertiary = adaptive(light: 0x6E6E6E, dark: 0x8F8F8F)
         static let onAccent = adaptive(light: 0xFFFFFF, dark: 0x0B1F1C)
+        /// Segmented controls: a recessed track with a raised thumb, as in native AppKit.
+        static let controlTrack = adaptive(light: 0xEDEDEA, dark: 0x1B1B1B)
+        static let controlThumb = adaptive(light: 0xFFFFFF, dark: 0x3A3A3A)
 
         private static func adaptive(
             light: UInt32,

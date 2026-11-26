@@ -123,7 +123,7 @@ private func presentation(_ account: AccountRef, name: String, record: QuotaAcco
     #expect(plain(QuotaTimeFormat.expiry(at(20 * 86_400), reference: reference, calendar: utc, locale: posix)) == "Aug 18")
     #expect(QuotaTimeFormat.age(of: at(-20), reference: reference) == "just now")
     #expect(QuotaTimeFormat.age(of: at(-14 * 60), reference: reference) == "14 min ago")
-    #expect(QuotaTimeFormat.age(of: at(-3 * 3_600), reference: reference) == "3 h ago")
+    #expect(QuotaTimeFormat.age(of: at(-3 * 3_600), reference: reference) == "3h ago")
     #expect(QuotaTimeFormat.age(of: at(-3 * 86_400), reference: reference) == "3 days ago")
 }
 
@@ -331,7 +331,7 @@ private func codexRecordWithAccess(_ account: AccountRef, access: IncludedUsageA
         calls.append((account, name))
         if failNext {
             failNext = false
-            throw Failure(errorDescription: "This account is busy checking or signing in. Try again in a moment.")
+            throw Failure(errorDescription: "It is busy checking or signing in. Try again in a moment.")
         }
     }
 
@@ -355,7 +355,7 @@ private func codexRecordWithAccess(_ account: AccountRef, access: IncludedUsageA
     #expect(calls.first?.1 == "Client work")
     #expect(interface.editor == .renaming(codexA), "A failed save keeps the draft open")
     #expect(interface.accountFeedback[codexA] == .failure(
-        "Could not rename this account. This account is busy checking or signing in. Try again in a moment."
+        "Could not rename this account. It is busy checking or signing in. Try again in a moment."
     ))
 
     interface.commitRename(currentName: "Work")
@@ -484,7 +484,7 @@ private func codexRecordWithAccess(_ account: AccountRef, access: IncludedUsageA
     #expect(interface.permission == .denied)
     #expect(interface.alertPreferences.savedResetExpiry)
     #expect(interface.settingsFeedback == .failure(
-        "Alert saved, but notifications are off for Second Wind. Turn them on in System Settings."
+        "Alert saved. Turn on notifications for Second Wind in System Settings to get it."
     ))
 }
 

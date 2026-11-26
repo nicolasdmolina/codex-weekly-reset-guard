@@ -559,7 +559,7 @@ final class GuardInterfaceModel: ObservableObject {
                 try await setAlertPreferences(next)
                 alertPreferences = next
                 if enabled, permission == .denied {
-                    settingsFeedback = .failure("Alert saved, but notifications are off for Second Wind. Turn them on in System Settings.")
+                    settingsFeedback = .failure("Alert saved. Turn on notifications for Second Wind in System Settings to get it.")
                 }
             } catch {
                 settingsFeedback = .failure("Could not save the alert setting. \(Self.recovery(error))")

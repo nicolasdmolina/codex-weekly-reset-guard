@@ -6,19 +6,19 @@ import SwiftUI
 enum SW {
     enum Palette {
         /// Brand teal. Primary actions, healthy headroom and the menu bar mark.
-        static let accent = adaptive(light: 0x0E9F8E, dark: 0x3FD9C3)
+        static let accent = adaptive(light: 0x0A8274, dark: 0x3FD9C3)
         /// Near a limit. Never decorative.
-        static let caution = adaptive(light: 0xB7791F, dark: 0xE0A53B)
+        static let caution = adaptive(light: 0x9A6410, dark: 0xE0A53B)
         /// Needs the user: signed out, mismatched account, failed check.
-        static let critical = adaptive(light: 0xD4553F, dark: 0xF0715F)
+        static let critical = adaptive(light: 0xC0442F, dark: 0xF0715F)
         static let canvas = adaptive(light: 0xF4F4F2, dark: 0x1B1B1B)
         static let surface = adaptive(light: 0xFFFFFF, dark: 0x262626)
         static let surfaceRaised = adaptive(light: 0xEDEDEA, dark: 0x303030)
         static let hairline = adaptive(light: 0x000000, dark: 0xFFFFFF, lightAlpha: 0.08, darkAlpha: 0.08)
-        static let track = adaptive(light: 0x000000, dark: 0xFFFFFF, lightAlpha: 0.08, darkAlpha: 0.10)
+        static let track = adaptive(light: 0x000000, dark: 0xFFFFFF, lightAlpha: 0.11, darkAlpha: 0.10)
         static let textPrimary = adaptive(light: 0x171717, dark: 0xFAFAFA)
         static let textSecondary = adaptive(light: 0x5C5C5C, dark: 0xB4B4B4)
-        static let textTertiary = adaptive(light: 0x7A7A7A, dark: 0x8F8F8F)
+        static let textTertiary = adaptive(light: 0x6E6E6E, dark: 0x8F8F8F)
         static let onAccent = adaptive(light: 0xFFFFFF, dark: 0x0B1F1C)
 
         private static func adaptive(

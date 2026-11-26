@@ -446,7 +446,7 @@ private struct AccountRow<Details: View, Actions: View>: View {
                 }
                 details
                 HStack(alignment: .center, spacing: SW.Space.sm) {
-                    StatusLine(symbol: status.symbol, text: status.text, tone: status.tone)
+                    StatusLine(symbol: status.symbol, text: status.text, tone: status.tone, age: status.age)
                     Spacer(minLength: SW.Space.xs)
                     actions
                 }
@@ -582,6 +582,8 @@ struct StatusPresentation {
     let title: String
     let text: String
     let tone: SWTone
+    /// How old the reading is, drawn quieter than the message so it never dangles on its own line.
+    var age: String? = nil
 }
 
 private struct CodexAccountRow: View {
@@ -788,13 +790,14 @@ enum StatusComposer {
         providerName: String,
         now: Date
     ) -> StatusPresentation {
-        let updated = quota.age.lastSuccess.map { " Updated \(QuotaTimeFormat.age(of: $0, reference: now))." } ?? ""
+        let updated = quota.age.lastSuccess.map { "Updated \(QuotaTimeFormat.age(of: $0, reference: now))" }
         if tone != .critical, quota.isBlocked {
             return StatusPresentation(
                 symbol: "hand.raised.fill",
                 title: "Usage blocked",
-                text: "\(providerName) says usage is blocked.\(updated)",
-                tone: .caution
+                text: "\(providerName) says usage is blocked.",
+                tone: .caution,
+                age: updated
             )
         }
         if tone != .critical, quota.awaitingRefill {
@@ -812,15 +815,17 @@ enum StatusComposer {
                 return StatusPresentation(
                     symbol: "questionmark.circle",
                     title: "Usage not confirmed",
-                    text: "\(providerName) did not say whether usage is allowed. Updated \(age).",
-                    tone: .neutral
+                    text: "\(providerName) did not say whether usage is allowed.",
+                    tone: .neutral,
+                    age: "Updated \(age)"
                 )
             }
             return StatusPresentation(
                 symbol: symbol,
                 title: title,
-                text: isRoutine ? "\(title) · updated \(age)" : "\(sentence(base)) Updated \(age).",
-                tone: tone
+                text: isRoutine ? "\(title) · updated \(age)" : sentence(base),
+                tone: tone,
+                age: isRoutine ? nil : "Updated \(age)"
             )
         case let .stale(date):
             guard tone != .critical else { break }
@@ -843,8 +848,9 @@ enum StatusComposer {
                 return StatusPresentation(
                     symbol: symbol,
                     title: title,
-                    text: "\(sentence(base)) Last good reading \(QuotaTimeFormat.age(of: lastSuccess, reference: now)).",
-                    tone: tone
+                    text: sentence(base),
+                    tone: tone,
+                    age: "Last good reading \(QuotaTimeFormat.age(of: lastSuccess, reference: now))"
                 )
             }
         case .never:
@@ -1125,20 +1131,35 @@ private struct HeadroomMeter: View {
             let tick = (convention == .remaining ? threshold : 100 - threshold) / 100
             ZStack(alignment: .leading) {
                 Capsule().fill(SW.Palette.track)
+                    .frame(height: SW.Size.meterHeight)
                 Capsule()
                     .fill(fillColor)
-                    .frame(width: max(fraction > 0 ? SW.Size.meterHeight : 0, width * fraction))
-                Rectangle()
-                    .fill(SW.Palette.textTertiary.opacity(0.7))
-                    .frame(width: 1, height: SW.Size.meterHeight + 4)
-                    .offset(x: width * tick)
+                    .frame(width: fillWidth(width, fraction), height: SW.Size.meterHeight)
+                // Inside the fill the line is cut through, so it reads as a notch on any row tint;
+                // past the fill it stands slightly proud of the empty track.
+                if width * tick < fillWidth(width, fraction) - 1 {
+                    Rectangle()
+                        .frame(width: 1, height: SW.Size.meterHeight)
+                        .offset(x: width * tick)
+                        .blendMode(.destinationOut)
+                } else {
+                    Rectangle()
+                        .fill(SW.Palette.textTertiary)
+                        .frame(width: 1, height: SW.Size.meterHeight + 4)
+                        .offset(x: width * tick)
+                }
             }
+            .compositingGroup()
             .frame(height: geometry.size.height)
         }
         .frame(height: SW.Size.meterHeight + 4)
         .animation(animate ? SW.Motion.easeOut(SW.Motion.slow, reduceMotion: reduceMotion) : nil, value: remaining)
         .animation(animate ? SW.Motion.easeOut(SW.Motion.standard, reduceMotion: reduceMotion) : nil, value: convention)
         .accessibilityHidden(true)
+    }
+
+    private func fillWidth(_ width: CGFloat, _ fraction: Double) -> CGFloat {
+        max(fraction > 0 ? SW.Size.meterHeight : 0, width * fraction)
     }
 
     private var fillColor: Color {
@@ -1184,12 +1205,12 @@ private struct RemovalConfirmation: View {
         VStack(alignment: .leading, spacing: SW.Space.sm) {
             Text("Remove \(name) from Second Wind?")
                 .font(.system(size: 12.5, weight: .semibold))
-            Text("Second Wind stops watching this account and deletes its own copy of the sign-in. Your \(provider == .codex ? "Codex" : "Claude Code") sign-in elsewhere is not touched. You can add the account again later.")
+            Text("Second Wind deletes only its own copy of the sign-in. Your \(provider == .codex ? "Codex" : "Claude Code") sign-in elsewhere stays, and you can add the account again.")
                 .font(.system(size: 11.5))
                 .foregroundStyle(SW.Palette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
             if keepsResetRecord {
-                Text("A reset for this account is still being confirmed. Second Wind keeps that record so the same reset is never sent twice if you add the account again.")
+                Text("A reset is still being confirmed. Second Wind keeps that record so it is never sent twice.")
                     .font(.system(size: 11.5))
                     .foregroundStyle(SW.Palette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1441,10 +1462,11 @@ struct StatusLine: View {
     let symbol: String
     let text: String
     let tone: SWTone
+    var age: String? = nil
 
     var body: some View {
         Label {
-            Text(text)
+            message
                 .fixedSize(horizontal: false, vertical: true)
         } icon: {
             Image(systemName: symbol)
@@ -1453,6 +1475,13 @@ struct StatusLine: View {
         .font(.system(size: 11.5))
         .foregroundStyle(tone == .neutral || tone == .good ? SW.Palette.textSecondary : tone.color)
         .labelStyle(TightLabelStyle())
+    }
+
+    private var message: Text {
+        guard let age else { return Text(text) }
+        // Non-breaking spaces keep the age together when the message wraps.
+        let unbroken = age.replacingOccurrences(of: " ", with: "\u{00A0}")
+        return Text(text) + Text("  \(unbroken)").foregroundColor(SW.Palette.textTertiary)
     }
 }
 
@@ -1482,6 +1511,7 @@ struct StaticToggle: View {
         Capsule()
             .fill(isOn ? SW.Palette.accent : SW.Palette.track)
             .frame(width: 26, height: 15)
+            .overlay(Capsule().strokeBorder(isOn ? Color.clear : SW.Palette.hairline))
             .overlay(alignment: isOn ? .trailing : .leading) {
                 Circle()
                     .fill(.white)

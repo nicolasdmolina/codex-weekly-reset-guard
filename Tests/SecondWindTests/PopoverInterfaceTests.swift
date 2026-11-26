@@ -331,7 +331,7 @@ private func codexRecordWithAccess(_ account: AccountRef, access: IncludedUsageA
         calls.append((account, name))
         if failNext {
             failNext = false
-            throw Failure(errorDescription: "Second Wind is checking or signing in to this account. Try again in a moment.")
+            throw Failure(errorDescription: "This account is busy checking or signing in. Try again in a moment.")
         }
     }
 
@@ -355,7 +355,7 @@ private func codexRecordWithAccess(_ account: AccountRef, access: IncludedUsageA
     #expect(calls.first?.1 == "Client work")
     #expect(interface.editor == .renaming(codexA), "A failed save keeps the draft open")
     #expect(interface.accountFeedback[codexA] == .failure(
-        "Could not rename this account. Second Wind is checking or signing in to this account. Try again in a moment."
+        "Could not rename this account. This account is busy checking or signing in. Try again in a moment."
     ))
 
     interface.commitRename(currentName: "Work")

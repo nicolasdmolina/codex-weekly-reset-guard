@@ -84,7 +84,9 @@ def main():
         run(label, add_sample, diagnostic=label, withheld=(sample,))
 
     for name in (".env.example", "profiles/demo/auth.json", "qa-artifacts/private.log",
-                 "docs/foundry-planning/brief.md"):
+                 "docs/foundry-planning/brief.md", "site/PRODUCT.md", "site/dist/index.html",
+                 "site/node_modules/module/index.ts", "site/.qa/preview.png",
+                 "site/public/screens/private.png", "site/src/sections/.env.ts"):
         sample = "FORBIDDEN_CONTENT_SENTINEL_" + "Z" * 24
 
         def add_forbidden(root, name=name, sample=sample):
@@ -150,6 +152,9 @@ def main():
         ("app icon asset", "Resources/AppIcon.icns", b"icns" + b"\xff" * 64, None),
         ("mislabeled image asset", "docs/images/synthetic.png", b"not an image", "unexpected format"),
         ("nested image path", "docs/images/extra/synthetic.png", png, "unexpected publish path"),
+        ("site screenshot", "site/public/screens/overview.png", png, None),
+        ("mislabeled site screenshot", "site/public/screens/near.png", b"not an image", "unexpected format"),
+        ("site section", "site/src/sections/Install.tsx", "export const install = true;\n", None),
     ):
         def add_asset(root, name=name, data=data):
             write(root, name, data)

@@ -19,6 +19,22 @@ PNG_SIGNATURE = b"\x89PNG\r\n\x1a\n"
 IMAGE_ASSETS = {
     "Resources/AppIcon.icns": b"icns",
     "Resources/AppIcon.png": PNG_SIGNATURE,
+    "site/public/app-icon.png": PNG_SIGNATURE,
+    "site/public/og.png": PNG_SIGNATURE,
+    **{f"site/public/screens/{name}.png": PNG_SIGNATURE
+       for name in ("overview", "near", "claude-low", "onboarding")},
+}
+SITE_FILES = {
+    "site/.gitignore", "site/index.html", "site/package.json", "site/package-lock.json",
+    "site/tsconfig.json", "site/ui-stack.lock.json", "site/vite.config.ts",
+    "site/public/favicon.svg", "site/public/motion-primitives-license.txt",
+    "site/public/schibsted-grotesk-license.txt",
+    "site/scripts/qa.mjs", "site/scripts/render-og.mjs",
+    "site/hosting/worker.js", "site/hosting/wrangler.jsonc",
+}
+SITE_SOURCE_DIRS = {
+    "site/src", "site/src/components", "site/src/components/motion-primitives",
+    "site/src/hooks", "site/src/sections",
 }
 PATTERNS = {
     "personal home path": re.compile(r"/(?:Users|home)/[A-Za-z0-9_.-]+"),
@@ -53,6 +69,10 @@ def allowed_path(name):
         return False
     if name == "Resources/Info.plist" or image_signature(name) is not None:
         return True
+    if name in SITE_FILES:
+        return True
+    if str(path.parent) in SITE_SOURCE_DIRS:
+        return path.suffix in {".ts", ".tsx", ".css"} and not path.name.startswith(".")
     if len(path.parts) == 2 and path.parts[0] == "docs":
         return path.name in DOC_FILES
     if path.parts[0] in {"Sources", "Tests"}:

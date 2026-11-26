@@ -10,6 +10,16 @@ export default {
     if (request.method !== 'GET' && request.method !== 'HEAD') {
       return new Response(null, { status: 405, headers: { Allow: 'GET, HEAD' } });
     }
-    return fetch(pages + url.pathname, { method: request.method, redirect: 'manual' });
+    const response = await fetch(pages + url.pathname + url.search, {
+      method: request.method,
+      redirect: 'manual',
+    });
+    if (response.headers.has('Location')) {
+      return new Response('Second Wind is temporarily unavailable.', {
+        status: 502,
+        headers: { 'Cache-Control': 'no-store' },
+      });
+    }
+    return response;
   },
 };

@@ -21,7 +21,7 @@ body { width: 1200px; height: 630px; overflow: hidden; background: #1b1b1b; colo
 .brand svg { fill: none; stroke: #3fd9c3; stroke-linecap: round; stroke-width: 58; }
 h1 { margin-top: 64px; font-size: 64px; line-height: 1.04; letter-spacing: -0.035em; font-weight: 750; }
 p { margin-top: 28px; font-size: 24px; line-height: 1.4; color: #d4d4d4; }
-.shot { position: absolute; right: 64px; top: 64px; width: 400px; border-radius: 18px; overflow: hidden;
+.shot { position: absolute; right: 64px; top: 52px; width: 356px; border-radius: 18px; overflow: hidden;
   box-shadow: 0 0 0 1px rgb(255 255 255 / 0.08), 0 30px 60px -20px rgb(0 0 0 / 0.7); }
 .shot img { display: block; width: 100%; }
 </style></head><body>

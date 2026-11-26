@@ -2,7 +2,7 @@ import { useId, useRef, useState, type KeyboardEvent } from 'react';
 import { motion, useReducedMotion, type Variants } from 'motion/react';
 import { TransitionPanel } from './motion-primitives/transition-panel';
 import { useMediaQuery } from '../hooks/useMediaQuery';
-import { SCREEN_HEIGHT, SCREEN_WIDTH, screens } from './screens';
+import { SCREEN_HEIGHT, SCREEN_WIDTH, desktopScreens, screens } from './screens';
 
 export function ScreenShowcase() {
   const wide = useMediaQuery('(min-width: 900px)');
@@ -36,11 +36,9 @@ const captionVariants: Variants = {
 
 function ScreenRow() {
   const reduceMotion = useReducedMotion();
-  const order = [1, 0, 2]; // near on the left, overview centred, Claude on the right
   return (
     <div className="showcase" role="list" aria-label="Second Wind in three states">
-      {order.map((index, position) => {
-        const screen = screens[index];
+      {desktopScreens.map((screen, position) => {
         const side = position - 1;
         return (
           <motion.figure

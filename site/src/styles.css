@@ -119,7 +119,6 @@ p.astryx-text {
   height: var(--header-height);
   background: color-mix(in srgb, var(--color-background-body) 86%, transparent);
   backdrop-filter: saturate(1.4) blur(14px);
-  -webkit-backdrop-filter: saturate(1.4) blur(14px);
   border-bottom: 1px solid transparent;
   transition: border-color 200ms ease;
 }
@@ -504,7 +503,6 @@ p.astryx-text {
   min-width: 0;
 }
 
-/* The folder name and commands are long single words; let them wrap at phone width. */
 .install__main code:not(pre code) {
   white-space: normal;
   overflow-wrap: anywhere;

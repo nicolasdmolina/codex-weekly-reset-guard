@@ -1,5 +1,14 @@
 # Changelog
 
+## Unreleased
+
+- Clearer popover: warnings keep their message on its own and show the
+  reading's age underneath, every header status has an icon, and the limit
+  marker on each meter reads as a notch instead of a stray line.
+- Light mode is easier to read: stronger teal, amber and red text, and
+  visible off switches, banners and segmented controls.
+- Shorter messages for sign-in, low limits, busy accounts and removal.
+
 ## 0.3.0
 
 - See the five-hour and weekly Codex limits together. Monitor-only accounts

@@ -22,6 +22,27 @@ availability depends on your account, plan and app versions.
 Second Wind was called Codex Weekly Reset Guard before version 0.2.0. Installing
 it moves your existing accounts over on first launch.
 
+## Website
+
+[secondwind.nickymolina.com](https://secondwind.nickymolina.com/) has screenshots, requirements and the source download.
+
+Second Wind shows Codex and Claude usage in your Mac menu bar and can use a saved Codex weekly reset when you run low.
+
+The hero screenshot is [docs/images/website-hero.png](docs/images/website-hero.png).
+
+GitHub Pages publishes the built website after changes merge to `main`. Keep the
+**Custom domain** field empty in the repository's Pages settings. Cloudflare handles
+`secondwind.nickymolina.com`.
+
+To update the Cloudflare route, run this from the repository root after Pages publishes.
+The first command checks that the Pages URL serves the site directly.
+
+```sh
+pages_url=https://nicolasdmolina.github.io/codex-weekly-reset-guard/
+test "$(curl -sS -o /dev/null -w '%{http_code}' "$pages_url")" = 200 &&
+  npx wrangler@4 deploy --config site/hosting/wrangler.jsonc
+```
+
 ## What it does
 
 **Codex**

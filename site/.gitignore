@@ -1,0 +1,10 @@
+node_modules/
+dist/
+.qa/
+.impeccable/
+PRODUCT.md
+*.log
+.DS_Store
+.env*
+.astro/
+.wrangler/

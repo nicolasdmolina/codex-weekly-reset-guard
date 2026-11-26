@@ -1,0 +1,49 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1" />
+    <title>Second Wind: Codex and Claude limits in your Mac menu bar</title>
+    <meta name="description" content="A free, open-source Mac menu-bar app that shows your Codex and Claude usage limits for every account and helps you use a reset before you run out. Not affiliated with OpenAI or Anthropic." />
+    <link rel="canonical" href="https://secondwind.nickymolina.com/" />
+    <meta name="color-scheme" content="dark light" />
+    <meta name="theme-color" content="#1B1B1B" media="(prefers-color-scheme: dark)" />
+    <meta name="theme-color" content="#FAFAF9" media="(prefers-color-scheme: light)" />
+    <link rel="icon" href="./favicon.svg" type="image/svg+xml" />
+    <meta property="og:type" content="website" />
+    <meta property="og:site_name" content="Second Wind" />
+    <meta property="og:url" content="https://secondwind.nickymolina.com/" />
+    <meta property="og:title" content="Second Wind" />
+    <meta property="og:description" content="Codex and Claude usage limits for every account, in your Mac menu bar. Free and open source." />
+    <meta property="og:image" content="https://secondwind.nickymolina.com/og.png" />
+    <meta property="og:image:width" content="1200" />
+    <meta property="og:image:height" content="630" />
+    <meta property="og:image:alt" content="Second Wind. Codex and Claude usage limits in your Mac menu bar, beside the app's popover showing a Codex account and a Claude account." />
+    <meta name="twitter:card" content="summary_large_image" />
+    <meta name="twitter:title" content="Second Wind" />
+    <meta name="twitter:description" content="Codex and Claude usage limits for every account, in your Mac menu bar. Free and open source." />
+    <meta name="twitter:image" content="https://secondwind.nickymolina.com/og.png" />
+  </head>
+  <body>
+    <div id="root"></div>
+    <noscript>
+      <div class="noscript">
+        <h1>Second Wind</h1>
+        <p>A free, open-source Mac menu-bar app that shows your Codex and Claude usage limits for every account and helps you use a reset before you run out.</p>
+        <h2>Install from source</h2>
+        <p>There is no signed, ready-made download yet. You need macOS 14 or later, Swift 6 or later (from Xcode or Apple's Command Line Tools), and the official Codex CLI or app, Claude Code, or both.</p>
+        <ol>
+          <li><a href="https://github.com/nicolasdmolina/codex-weekly-reset-guard/archive/refs/heads/main.zip">Download the source (.zip)</a> and open it. You get a folder named <code>codex-weekly-reset-guard-main</code>.</li>
+          <li>Open Terminal and run:
+            <pre><code>cd ~/Downloads/codex-weekly-reset-guard-main
+./scripts/install_app.sh --launch</code></pre>
+          </li>
+          <li>The app opens as a wind symbol in your menu bar. Pick Codex or Claude and sign in.</li>
+        </ol>
+        <p>Full steps are in the <a href="https://github.com/nicolasdmolina/codex-weekly-reset-guard#build-and-install">README</a>. Read the <a href="https://github.com/nicolasdmolina/codex-weekly-reset-guard/blob/main/docs/PRIVACY.md">privacy notes</a>.</p>
+        <p>Second Wind is independent, open-source software. It is not made by, affiliated with or endorsed by OpenAI or Anthropic.</p>
+      </div>
+    </noscript>
+    <script type="module" src="/src/main.tsx"></script>
+  </body>
+</html>

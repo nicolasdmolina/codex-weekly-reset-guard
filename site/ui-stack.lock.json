@@ -1,0 +1,90 @@
+{
+  "created_at": "2026-10-30T00:28:12Z",
+  "features": [
+    "marketing-motion"
+  ],
+  "framework_version": "19.2.3",
+  "license_policy": "permissive-only",
+  "lock_binding_sha256": "efecf1297b4004a052d7e690177c7ee8e9948e79c6c7d14b35c5d4f8a89d82ab",
+  "lock_sha256": "0c84177291496de19af9bab322d43964b827a2e6c653885ed5ee16ec1da5eef3",
+  "platform": "react-web",
+  "project_id": "second-wind-site",
+  "recipe_id": "react-product",
+  "recipe_sha256": "39a6a3d7b0c573cabc9c211822479d3297939b28ab6bffd817699247410a0e95",
+  "recipes_sha256": "ca35de1afb1436807352bc56d21f5cbe06a12946500756e05800b5fd246550b8",
+  "schema_version": 1,
+  "selections": [
+    {
+      "candidate_id": "astryx",
+      "candidate_name": "Astryx",
+      "candidate_revision": "ac4a27e50ef7ac1aa6c1ea1b44b88f54c0630b8a",
+      "capability_slots": [
+        "react-product-system"
+      ],
+      "commit": "ac4a27e50ef7ac1aa6c1ea1b44b88f54c0630b8a",
+      "constraint_snapshot": {
+        "framework": {
+          "max_major": 19,
+          "min_major": 19,
+          "name": "react"
+        },
+        "license_gate": "permissive",
+        "paid_features_included": false,
+        "selected_tier": "open-source-core"
+      },
+      "integration_model": "package",
+      "package": "@astryxdesign/core",
+      "platforms": [
+        "react-web"
+      ],
+      "preview_set_sha256": "061a32b2294824d73e3da45d26a73455553678aa41c46262f183cea5b5031dd4",
+      "repository": "https://github.com/facebook/astryx",
+      "slot": "react-product-system",
+      "version": "0.1.9"
+    },
+    {
+      "candidate_id": "motion-primitives",
+      "candidate_name": "Motion Primitives",
+      "candidate_revision": "92586e62a951eb9b6bfd1cc7c8a4e6e2ab6ba17d",
+      "capability_slots": [
+        "marketing-motion-components"
+      ],
+      "commit": "92586e62a951eb9b6bfd1cc7c8a4e6e2ab6ba17d",
+      "constraint_snapshot": {
+        "framework": {
+          "max_major": 19,
+          "min_major": 18,
+          "name": "react"
+        },
+        "license_gate": "permissive",
+        "paid_features_included": false,
+        "selected_tier": "open-source-core"
+      },
+      "integration_model": "open-code",
+      "package": "motion-primitives",
+      "platforms": [
+        "react-web"
+      ],
+      "preview_set_sha256": "50fc7a6f0c80a3561ac65a89768c56be07ead07aaef8a53308243e54211f78aa",
+      "repository": "https://github.com/ibelick/motion-primitives",
+      "slot": "marketing-motion-components",
+      "version": "0.1.0"
+    }
+  ],
+  "source_constraints_sha256": "aef1a7a214eff8e11c7114f99eea14972ab15901bd6754cf597efdcf55103ad4",
+  "source_registry_sha256": "bf87b41cc8e80906b16043dbb9d2f9cff917e51a58ac03504517fc3b871bc9dd",
+  "source_request": {
+    "features": [
+      "marketing-motion"
+    ],
+    "framework": {
+      "name": "react",
+      "version": "19.2.3"
+    },
+    "license_policy": "permissive-only",
+    "overrides": {},
+    "platform": "react-web",
+    "recipe_id": "react-product"
+  },
+  "source_route_sha256": "7ac643f860450652e1de6b81e5c5ace3066ba307bbaf7f6915bd6a44fc3942cf"
+}

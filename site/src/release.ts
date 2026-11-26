@@ -1,8 +1,9 @@
 import { REPO_URL, REPOSITORY, SOURCE_FOLDER, SOURCE_ZIP_URL } from './config.ts';
 
-// src/release.json is written only by scripts/verify_release.sh --published --write-site-manifest,
-// after the public files pass their checksum, provenance and (for the app) Apple checks.
-// It holds the facts that script observed; names and URLs are derived and must agree.
+// src/release.json is written only by the release verifier, after the public files pass their
+// checksum and GitHub build-provenance checks. The app is a universal ZIP with an ad-hoc code
+// signature and no Apple notarization; nothing here may claim Apple reviewed it.
+// The file holds the facts the verifier observed; names and URLs are derived and must agree.
 
 export type Sha256 = string & { readonly __brand: 'Sha256' };
 export type Architecture = 'arm64' | 'x86_64';
@@ -20,7 +21,7 @@ export interface VerifiedSource extends VerifiedDownload {
 export interface VerifiedApp extends VerifiedDownload {
   readonly architectures: readonly Architecture[];
   readonly minimumSystemVersion: string;
-  readonly teamId: string;
+  readonly signing: 'ad-hoc';
 }
 
 export interface VerifiedRelease {
@@ -37,8 +38,8 @@ export type InstallPlan =
 
 const TAG = /^v(\d+\.\d+\.\d+)$/;
 const SHA256 = /^[0-9a-f]{64}$/;
-const SYSTEM_VERSION = /^\d+(\.\d+){0,2}$/;
-const TEAM_ID = /^[A-Z0-9]{10}$/;
+// The install copy is written for exactly this build: universal, macOS 14 or later, ad-hoc signed.
+const MINIMUM_SYSTEM_VERSION = '14.0';
 const ARCHITECTURES: readonly Architecture[] = ['arm64', 'x86_64'];
 
 function invalid(path: string, problem: string): Error {
@@ -70,7 +71,7 @@ function matching(value: unknown, path: string, pattern: RegExp): string {
   return value;
 }
 
-function exactly(value: unknown, path: string, expected: string): string {
+function exactly<T extends string>(value: unknown, path: string, expected: T): T {
   if (value !== expected) throw invalid(path, `must be "${expected}"`);
   return expected;
 }
@@ -80,14 +81,16 @@ function digest(value: unknown, path: string): Sha256 {
   return value;
 }
 
+// Universal only: both architectures, once each, in any order.
 function architectures(value: unknown, path: string): readonly Architecture[] {
-  if (!Array.isArray(value) || value.length === 0) throw invalid(path, 'must list at least one architecture');
+  const problem = 'must list arm64 and x86_64 once each';
+  if (!Array.isArray(value) || value.length !== ARCHITECTURES.length) throw invalid(path, problem);
   const found = new Set<Architecture>();
   for (const item of value) {
-    if (!isArchitecture(item) || found.has(item)) throw invalid(path, 'must list arm64 and/or x86_64 once each');
+    if (!isArchitecture(item) || found.has(item)) throw invalid(path, problem);
     found.add(item);
   }
-  return ARCHITECTURES.filter((architecture) => found.has(architecture));
+  return ARCHITECTURES;
 }
 
 export function parseReleaseManifest(raw: unknown): VerifiedRelease | null {
@@ -105,16 +108,18 @@ export function parseReleaseManifest(raw: unknown): VerifiedRelease | null {
   let app: VerifiedApp | null = null;
   if (release.app !== null) {
     const fieldsOfApp = fields(release.app, 'release.app', [
-      'file', 'sha256', 'architectures', 'minimumSystemVersion', 'teamId',
+      'file', 'sha256', 'architectures', 'minimumSystemVersion', 'signing',
     ]);
-    const appFile = exactly(fieldsOfApp.file, 'release.app.file', `Second-Wind-${version}.dmg`);
+    const appFile = exactly(fieldsOfApp.file, 'release.app.file', `Second-Wind-${version}-mac.zip`);
     app = {
       file: appFile,
       url: `${downloads}/${appFile}`,
       sha256: digest(fieldsOfApp.sha256, 'release.app.sha256'),
       architectures: architectures(fieldsOfApp.architectures, 'release.app.architectures'),
-      minimumSystemVersion: matching(fieldsOfApp.minimumSystemVersion, 'release.app.minimumSystemVersion', SYSTEM_VERSION),
-      teamId: matching(fieldsOfApp.teamId, 'release.app.teamId', TEAM_ID),
+      minimumSystemVersion: exactly(
+        fieldsOfApp.minimumSystemVersion, 'release.app.minimumSystemVersion', MINIMUM_SYSTEM_VERSION,
+      ),
+      signing: exactly(fieldsOfApp.signing, 'release.app.signing', 'ad-hoc'),
     };
   }
 
@@ -168,8 +173,8 @@ export function installNoscriptHtml(plan: InstallPlan): string {
       const url = plan.kind === 'main' ? plan.sourceUrl : plan.release.source.url;
       const folder = plan.kind === 'main' ? plan.folder : plan.release.source.folder;
       const intro = plan.kind === 'main'
-        ? 'There is no signed, ready-made download yet.'
-        : `There is no ready-made app yet. This is the source for version ${e(plan.release.version)}.`;
+        ? 'There is no ready-made download yet.'
+        : `There is no ready-made app for version ${e(plan.release.version)}. This is its source.`;
       const checksum = plan.kind === 'main'
         ? ''
         : `<p>SHA-256 of the download: <code>${e(plan.release.source.sha256)}</code></p>`;
@@ -187,13 +192,15 @@ export function installNoscriptHtml(plan: InstallPlan): string {
     case 'app':
       return [
         '<h2>Install</h2>',
-        `<p>Version ${e(plan.release.version)}. Apple has checked it for malware. You need ${e(macRequirement(plan.app))} and ${SERVICES}.</p>`,
+        `<p>Version ${e(plan.release.version)}, free for ${e(macRequirement(plan.app))}. You also need ${SERVICES}. Apple hasn’t notarized Second Wind, so macOS may ask you to approve it the first time you open it.</p>`,
         '<ol>',
-        `<li><a href="${e(plan.app.url)}">Download Second Wind (.dmg)</a>.</li>`,
-        '<li>Open it and drag Second Wind into Applications, then open Second Wind from Applications.</li>',
+        `<li><a href="${e(plan.app.url)}">Download for Mac (.zip)</a>. Open the ZIP by double-clicking it in Finder.</li>`,
+        '<li>Drag Second Wind into Applications. Updating? Choose Quit Second Wind from the ••• menu, then drag the new copy into the folder holding your existing app and choose Replace. If you built it from source, that folder is usually Applications inside your home folder.</li>',
+        '<li>Open Second Wind from Applications. If macOS says it can’t verify the developer or check the app for malware, close that message. Open System Settings, click Privacy &amp; Security, scroll down and click Open Anyway, then click Open. Your Mac may ask for your password. If your Mac is managed by a school or company, this may be blocked.</li>',
         account,
         '</ol>',
-        `<p>SHA-256 of the download: <code>${e(plan.app.sha256)}</code></p>`,
+        '<p>If macOS says Second Wind is damaged, will damage your computer or contains malware, don’t open it. Move that copy to the Trash.</p>',
+        `<p>SHA-256 of the ZIP: <code>${e(plan.app.sha256)}</code>. A matching checksum and GitHub’s build record show the file is the one GitHub built from the public source. That isn’t a review by Apple.</p>`,
         `<p>Prefer to build it yourself? <a href="${e(plan.release.source.url)}">Download the source (.zip)</a>.</p>`,
       ].join('\n');
     default: {

@@ -31,10 +31,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         self.interface = interface
             ?? (model.isPreview ? PreviewFixtures.interface(for: model) : .live(isReadOnly: model.isReadOnly))
         super.init()
+        // Attached before launch finishes, so a notification click that arrives first still resolves.
+        self.interface.attach(model)
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
-        interface.attach(model)
         if model.isPreview {
             showInspectionWindow()
             return
@@ -164,8 +165,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// highlighted once its provider has loaded. A removed account or an unloaded provider
     /// shows a notice instead.
     func reveal(_ target: AccountRef) {
-        interface.reveal(target)
         showPopover()
+        interface.reveal(target)
     }
 
     /// Opens the popover without choosing an account, for notices about the app itself.
@@ -239,13 +240,11 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         if let title = summary.menuBarTitle {
             // An unconfirmed figure is dimmed rather than hidden: it is still the best number
             // available, but it does not claim to be current.
-            button.attributedTitle = NSAttributedString(
-                string: " \(title)",
-                attributes: [
-                    .font: NSFont.menuBarFont(ofSize: 0),
-                    .foregroundColor: summary.isConfident ? NSColor.labelColor : NSColor.secondaryLabelColor,
-                ]
-            )
+            // A confident figure keeps the system's own title colour, which follows highlight and
+            // menu bar vibrancy; only the dimmed state sets a colour.
+            var attributes: [NSAttributedString.Key: Any] = [.font: NSFont.menuBarFont(ofSize: 0)]
+            if !summary.isConfident { attributes[.foregroundColor] = NSColor.secondaryLabelColor }
+            button.attributedTitle = NSAttributedString(string: " \(title)", attributes: attributes)
         } else {
             button.attributedTitle = NSAttributedString(string: "")
         }

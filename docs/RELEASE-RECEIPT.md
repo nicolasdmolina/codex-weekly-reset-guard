@@ -7,7 +7,7 @@ Local verification ran on Apple silicon with macOS 27.2.1 and Swift 6.2.4.
 | Check | Observed result |
 | --- | --- |
 | Native package | Debug and release builds passed with warnings treated as errors. The bundled executable passed its self-test and the app passed strict local signature verification. |
-| Tests with native controls enabled | All 334 tests passed. The run included typing and submitting a rename in an AppKit field, the settings display, notification navigation, and the installed Claude CLI in a fresh signed-out folder. |
+| Tests with native controls enabled | All 336 tests passed. The run included typing and submitting a rename in an AppKit field, opening and reopening an account from a notification, the settings display, and the installed Claude CLI in a fresh signed-out folder. |
 | Quota and recovery | Two monitor-only accounts that previously appeared healthy now warn for the right window. Tests cover partial provider responses, failed sign-in, overdue resets, simultaneous checks and interrupted account removal. Synthetic sessions recorded no reset requests for five-hour exhaustion. |
 | Pre-job command | The packaged executable returned 0 for sufficient quota, 10 for exhaustion or an explicit provider block, and 11 for an old, incomplete or ambiguous reading. It left the supplied snapshot untouched. |
 | Native menus | Rendered 22 synthetic states, including the two Codex windows, unknown inventory, expired sign-in, recovery targets, settings and clock-time display. |

@@ -597,6 +597,18 @@ private func codexRecordWithAccess(_ account: AccountRef, access: IncludedUsageA
     #expect(interface.notices.map(\.text).contains("Claude accounts could not load. Its saved account list could not be read."))
 }
 
+@Test @MainActor func revealRequestedBeforeAttachResolvesOnAttach() {
+    let model = GuardAppModel(profiles: [presentation(codexA, name: "Personal", record: nil)], isPreview: false)
+    model.isReady = true
+    let interface = liveInterface()
+    interface.providerDidLoad(.codex)
+    interface.reveal(codexA)
+    #expect(interface.pendingReveal == codexA, "Nothing to resolve against yet")
+    interface.attach(model)
+    #expect(interface.pendingReveal == nil)
+    #expect(interface.highlighted == codexA)
+}
+
 @Test @MainActor func revealClosesSettingsAndAnyOpenEditor() {
     let model = GuardAppModel(profiles: [presentation(codexA, name: "Personal", record: nil)], isPreview: false)
     model.isReady = true

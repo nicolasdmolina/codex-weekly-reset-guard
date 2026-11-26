@@ -5,6 +5,7 @@ struct GuardPopoverView: View {
     @ObservedObject var interface: GuardInterfaceModel
     var canvasHeight: CGFloat = SW.Size.popoverHeight
     var isStaticRender = false
+    @State private var isOnScreen = false
 
     var body: some View {
         if let reference = model.referenceDate {
@@ -122,23 +123,31 @@ struct GuardPopoverView: View {
                 }
                 .scrollIndicators(.automatic)
                 .onChange(of: interface.scrollTarget) { _, target in
-                    scroll(to: target, with: proxy)
+                    // A closed popover keeps the request until it appears and can lay out.
+                    if isOnScreen { scroll(to: target, with: proxy, animated: true) }
                 }
                 .onAppear {
-                    scroll(to: interface.scrollTarget, with: proxy)
+                    isOnScreen = true
+                    scroll(to: interface.scrollTarget, with: proxy, animated: false)
                 }
+                .onDisappear { isOnScreen = false }
             }
         }
     }
 
-    private func scroll(to target: AccountRef?, with proxy: ScrollViewProxy) {
+    /// A just-opened popover can finish layout a frame or two after it appears, and a scroll
+    /// before that lands nowhere. The request repeats briefly and is cleared only afterwards.
+    private func scroll(to target: AccountRef?, with proxy: ScrollViewProxy, animated: Bool) {
         guard let target else { return }
-        // Let a just-opened popover lay out before scrolling.
-        DispatchQueue.main.async {
-            withAnimation(SW.Motion.easeOut(SW.Motion.standard, reduceMotion: false)) {
-                proxy.scrollTo(target, anchor: .center)
+        Task { @MainActor in
+            for delay in [0.0, 0.12, 0.3] {
+                if delay > 0 { try? await Task.sleep(for: .seconds(delay)) }
+                guard interface.scrollTarget == target else { return }
+                withAnimation(animated && delay == 0 ? SW.Motion.easeOut(SW.Motion.standard, reduceMotion: false) : nil) {
+                    proxy.scrollTo(target, anchor: .center)
+                }
             }
-            interface.scrollTarget = nil
+            if interface.scrollTarget == target { interface.scrollTarget = nil }
         }
     }
 
@@ -1509,7 +1518,8 @@ struct SWDestructiveButtonStyle: ButtonStyle {
     func makeBody(configuration: Configuration) -> some View {
         configuration.label
             .font(.system(size: 12, weight: .semibold))
-            .foregroundStyle(.white)
+            // The accent's on-colour clears 4.5:1 on coral in both themes; white does not in dark.
+            .foregroundStyle(SW.Palette.onAccent)
             .padding(.horizontal, SW.Space.md)
             .frame(height: 24)
             .background(

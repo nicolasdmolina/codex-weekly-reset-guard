@@ -25,15 +25,24 @@ spacing scale, radii 8/12/16 and motion at 175/280/410 ms. Tokens live in
 
 ## Signature: the headroom meter
 
-Each limit is a 6 pt capsule of remaining headroom with a 1 pt tick at the alert
-line (3% for Codex auto-redeem, 10% for Claude alerts). When a reset lands, the
-fill sweeps back on the slow motion token. Reduce Motion removes the sweep.
+Each reported limit uses a 6 pt capsule. The fill and its label both show the
+amount left by default, or the amount used when the user chooses Used. A 1 pt
+tick marks 3% remaining on a Codex weekly window with Auto-redeem enabled and
+10% on other windows. An absent window reads “Not reported” and has no meter.
+Stale figures dim. Reduce Motion removes the refill animation.
 
 ## Behaviour
 
 - Background refresh never dismisses or reorders the open popover.
+- “All clear” requires every provider to load and every account to have a
+  confirmed reading. The menu bar labels its figure “left” or “used”.
+- Each account shows the age of its reading. “Refill due” stays on screen
+  until the provider confirms the next window.
+- Rename and removal happen in the account row. A failed action stays visible
+  until the user retries, cancels or dismisses it.
+- A notification opens the popover and briefly highlights the affected account.
 - Every action reports an inline result; Codex events go to the local history.
 - Copy names the action and the recovery. No taglines or helper captions that the
   layout could carry instead.
-- Deterministic previews cover onboarding, connect, paused, healthy, near limit,
-  redeemed, auth error, both services together, Claude low and Claude sign-in.
+- The [visual QA fixtures](docs/VISUAL-QA.md) cover enrollment, account states,
+  display preferences, alert settings and recovery.

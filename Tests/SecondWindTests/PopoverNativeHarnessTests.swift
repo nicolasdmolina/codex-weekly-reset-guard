@@ -20,7 +20,7 @@ private final class NativeHarness {
     let window: NSWindow
     let host: NSHostingView<AnyView>
 
-    init(_ kind: PreviewKind) async {
+    init(_ kind: PreviewKind, inWindow: Bool = true) async {
         _ = NSApplication.shared
         model = PreviewFixtures.model(for: kind)
         interface = PreviewFixtures.interface(for: model)
@@ -35,9 +35,34 @@ private final class NativeHarness {
         )
         window.appearance = NSAppearance(named: .darkAqua)
         window.isReleasedWhenClosed = false
+        if inWindow { await show() }
+    }
+
+    /// Waits for a condition instead of a fixed delay, so a busy parallel run cannot fake a failure.
+    @discardableResult
+    func waitUntil(_ timeout: Double = 4, _ condition: () -> Bool) async -> Bool {
+        let deadline = Date().addingTimeInterval(timeout)
+        while !condition() {
+            if Date() > deadline { return false }
+            try? await Task.sleep(for: .milliseconds(25))
+        }
+        return true
+    }
+
+    /// Puts the view in its window, as opening the popover does.
+    func show() async {
         window.contentView = host
         window.orderFrontRegardless()
         await settle()
+    }
+
+    var scrollOffset: CGFloat? {
+        func find(_ view: NSView) -> NSScrollView? {
+            if let scroll = view as? NSScrollView { return scroll }
+            for subview in view.subviews { if let scroll = find(subview) { return scroll } }
+            return nil
+        }
+        return find(host)?.contentView.bounds.origin.y
     }
 
     /// Suspends rather than spinning the run loop, so SwiftUI updates and main-actor tasks run.
@@ -141,9 +166,45 @@ private final class NativeHarness {
     defer { harness.close() }
     let work = AccountRef(provider: .codex, id: PreviewFixtures.ID.work)
     #expect(harness.interface.highlighted == work)
-    #expect(harness.interface.scrollTarget == nil, "The scroll view consumed the scroll request")
+    #expect(await harness.waitUntil { harness.interface.scrollTarget == nil }, "The scroll view consumed the request")
     harness.snapshot("native-06-reveal")
-    await harness.settle(GuardInterfaceModel.highlightDuration + 0.6)
-    #expect(harness.interface.highlighted == nil, "The highlight fades on its own")
+    #expect(await harness.waitUntil(GuardInterfaceModel.highlightDuration + 3) { harness.interface.highlighted == nil },
+            "The highlight fades on its own")
     harness.snapshot("native-07-reveal-faded")
+}
+
+@Test(.enabled(if: nativeQA)) @MainActor func nativeRevealOfAClosedPopoverScrollsOnceItOpens() async {
+    // Production order: the popover's view exists before the click, the click sets the target
+    // while the popover is closed, and the popover opens afterwards.
+    let harness = await NativeHarness(.freshness, inWindow: false)
+    defer { harness.close() }
+    let studio = AccountRef(provider: .claude, id: PreviewFixtures.ID.studio)
+    let personal = AccountRef(provider: .codex, id: PreviewFixtures.ID.personal)
+    harness.interface.reveal(studio)
+    await harness.settle()
+    #expect(harness.interface.highlighted == studio)
+    #expect(harness.interface.scrollTarget == studio, "A closed popover holds the request")
+    await harness.show()
+    #expect(await harness.waitUntil { harness.interface.scrollTarget == nil }, "The opened popover consumed the request")
+    let scrolled = await harness.waitUntil { (harness.scrollOffset ?? 0) > 0 }
+    #expect(scrolled, "The list scrolled toward the bottom account, offset \(harness.scrollOffset ?? -1)")
+    harness.snapshot("native-08-reveal-after-open")
+
+    // While open, a second click scrolls back up.
+    let offset = harness.scrollOffset ?? 0
+    harness.interface.reveal(personal)
+    let up = await harness.waitUntil { (harness.scrollOffset ?? 0) < offset }
+    #expect(up, "An open popover scrolls on a new request, offset \(harness.scrollOffset ?? -1) from \(offset)")
+    await harness.waitUntil { harness.interface.scrollTarget == nil }
+
+    // Closed again: the request waits for the next opening.
+    let top = harness.scrollOffset ?? 0
+    harness.window.contentView = nil
+    await harness.settle()
+    harness.interface.reveal(studio)
+    await harness.settle()
+    await harness.show()
+    let reopened = await harness.waitUntil { (harness.scrollOffset ?? 0) > top }
+    #expect(reopened, "Reopening scrolls to the new target, offset \(harness.scrollOffset ?? -1) from \(top)")
+    #expect(await harness.waitUntil { harness.interface.scrollTarget == nil })
 }

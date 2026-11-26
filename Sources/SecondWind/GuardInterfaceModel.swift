@@ -381,6 +381,7 @@ final class GuardInterfaceModel: ObservableObject {
             .sink { [weak self] _ in
                 MainActor.assumeIsolated { self?.resolvePendingReveal() }
             }
+        resolvePendingReveal()
     }
 
     var allProvidersLoaded: Bool {

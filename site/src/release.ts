@@ -1,4 +1,4 @@
-import { REPO_URL, REPOSITORY, SOURCE_FOLDER, SOURCE_ZIP_URL } from './config';
+import { REPO_URL, REPOSITORY, SOURCE_FOLDER, SOURCE_ZIP_URL } from './config.ts';
 
 // src/release.json is written only by scripts/verify_release.sh --published --write-site-manifest,
 // after the public files pass their checksum, provenance and (for the app) Apple checks.

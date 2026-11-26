@@ -14,6 +14,20 @@ Local verification ran on Apple silicon with macOS 27.2.1 and Swift 6.2.4.
 | Website | Chrome checked desktop and mobile layouts, light and dark appearances, keyboard focus and reduced motion. The eight checks reported no page errors, overflow or accessibility violations. |
 | Public source hygiene | The scanner accepted the staged source. All 35 publication fixtures passed, including rejection of unlisted runtime data. |
 
+GitHub's macOS runner built and installed the app from a clean checkout.
+The website passed its desktop and mobile checks.
+[Mac CI](https://github.com/nicolasdmolina/codex-weekly-reset-guard/actions/runs/45908058142)
+and [website checks](https://github.com/nicolasdmolina/codex-weekly-reset-guard/actions/runs/45908058187).
+
+The public source ZIP has SHA-256
+`d19c3efd71fba8be10ee6ace9b962bf8294424bf28a7d0a7fbaa5736d6b024af`.
+An anonymous download matched the published checksum. Its installer built the
+app on a Mac, where it passed its self-test and the pre-job checks. GitHub's
+attestation identified the release workflow and tagged commit
+`8098991633b3dc07dc468b3a1db66acc3ef55eca`.
+[Release files](https://github.com/nicolasdmolina/codex-weekly-reset-guard/releases/tag/v0.3.0)
+and [build attestation](https://github.com/nicolasdmolina/codex-weekly-reset-guard/attestations/72870497).
+
 Notification delivery and signed-in provider sessions were simulated. No real
 reset was spent. Local builds use an ad-hoc signature. A public app disk image
 requires a Developer ID Application identity and a successful Apple notary submission.

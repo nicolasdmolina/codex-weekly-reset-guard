@@ -47,6 +47,38 @@ import SecondWindCore
         }
     }
 
+    @Test func preflightRoutesItsOwnOptionsWhileOtherModesStillRejectThem() throws {
+        guard case let .preflight(invocation) = try GuardCommandLine.parse(["--preflight", "--weekly", "10", "--json"]) else {
+            Issue.record("--preflight did not select preflight"); return
+        }
+        #expect(invocation.format == .json)
+        #expect(invocation.snapshotURL == PreflightSnapshotFile.url())
+        #expect(invocation.request == PreflightRequest(minimumSessionPercent: nil, minimumWeeklyPercent: 10))
+
+        let rejected: [([String], GuardCommandLineError)] = [
+            (["--doctor", "--json"], .unknownOption("--json")),
+            (["--self-test", "--session", "5"], .unknownOption("--session")),
+            (["--weekly", "10", "--preflight"], .unknownOption("--weekly")),
+            (["--doctor", "--preflight"], .conflictingModes(["--doctor", "--preflight"])),
+            (["junk", "--preflight"], .unexpectedArgument("junk")),
+            (["--preflight"], .invalidPreflight("Give --session, --weekly or both.")),
+        ]
+        for (arguments, error) in rejected {
+            #expect(throws: error, "\(arguments)") { try GuardCommandLine.parse(arguments) }
+        }
+    }
+
+    @Test func preflightIsLiveDataSoSyntheticAndDiagnosticBundlesRejectIt() throws {
+        #expect(throws: GuardCommandLineError.liveModeInPreviewBundle) {
+            try GuardCommandLine.parse(["--preflight", "--weekly", "10"], bundledPreviewKind: "healthy")
+        }
+        let fixture = try DiagnosticDirectories()
+        defer { fixture.remove() }
+        #expect(throws: GuardCommandLineError.argumentsInDiagnosticBundle) {
+            try fixture.parse(fixture.diagnostic.path, arguments: ["--preflight", "--weekly", "10"])
+        }
+    }
+
     @Test func malformedPreviewBundleMarkerCannotResolveToProduction() {
         for marker in ["", "typo", "1"] {
             #expect(throws: GuardCommandLineError.invalidPreviewKind(marker)) {

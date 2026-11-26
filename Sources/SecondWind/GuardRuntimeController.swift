@@ -68,6 +68,9 @@ struct GuardRuntimeProfileSnapshot: Equatable, Sendable {
     let phase: MonitorPhase
     let detail: String
     let autoResetEnabled: Bool
+    /// Display, alert and preflight evidence. Never an input to redemption.
+    let quota: QuotaAccountRecord
+    var removalKeepsResetRecord = false
 }
 
 struct GuardRuntimeEvent: Equatable, Identifiable, Sendable {
@@ -83,13 +86,17 @@ struct GuardRuntimeSnapshot: Equatable, Sendable {
     var isChecking: Bool
     var lastCheckedAt: Date?
     var banner: String?
+    /// The runtime clock when this snapshot was published; quota readings derive at this time.
+    var generatedAt: Date? = nil
+    var hasLoadedProfiles = true
 
     static let empty = GuardRuntimeSnapshot(
         profiles: [],
         history: [],
         isChecking: false,
         lastCheckedAt: nil,
-        banner: nil
+        banner: nil,
+        hasLoadedProfiles: false
     )
 }
 
@@ -242,10 +249,13 @@ private actor ProductionGuardAppServerSession: GuardAppServerSession {
     }
 }
 
+/// A read that began before a reconnect; its result belongs to the previous sign-in.
+private struct DiscardedRead: Error {}
+
 typealias GuardAppServerSessionFactory = @Sendable (ProfileConfiguration) throws
     -> any GuardAppServerSession
 typealias GuardRuntimeUpdateHandler = @MainActor @Sendable (GuardRuntimeSnapshot) -> Void
-typealias GuardRuntimeNotificationHandler = @MainActor @Sendable (String, String) -> Void
+typealias GuardRuntimeNotificationHandler = @Sendable (AlertPost) -> Void
 
 actor GuardRuntimeController {
     private enum Lifecycle: Sendable {
@@ -283,6 +293,14 @@ actor GuardRuntimeController {
     private var persistentState: GuardPersistentState?
     private var sessions: [UUID: any GuardAppServerSession] = [:]
     private var liveProfiles: [UUID: LiveProfileState] = [:]
+    /// Per-account quota evidence, stamped at the read boundary. Kept apart from the policy
+    /// reading so a missing inventory or rejected weekly window never erases a good read.
+    private var quotaRecords: [UUID: QuotaAccountRecord] = [:]
+    /// Bumped when a reconnect starts. A read that began under an older generation is discarded,
+    /// so it can never mark the account verified or current while the new sign-in is pending.
+    private var readGenerations: [UUID: UInt64] = [:]
+    /// Accounts waiting for their reconnect's login completion. Their reads are suppressed.
+    private var awaitingLogin = Set<UUID>()
     private var pollingTasks: [UUID: Task<Void, Never>] = [:]
     private var notificationTasks: [UUID: Task<Void, Never>] = [:]
     private var checksInFlight = Set<UUID>()
@@ -301,6 +319,10 @@ actor GuardRuntimeController {
     /// Reconnect and toggle intent is assigned before any await. An older enable must never
     /// overwrite a newer pause after its identity request resumes.
     private var profileControlIntents: [UUID: UUID] = [:]
+    /// Accounts whose removal is under way. No check, sign-in, toggle or rename starts for them,
+    /// and their redemption boundary stays closed.
+    private var profilesBeingRemoved = Set<UUID>()
+    private var removalDrainTimeout: Duration = .seconds(20)
 
     init(
         configuration: GuardRuntimeConfiguration,
@@ -312,7 +334,7 @@ actor GuardRuntimeController {
         now: @escaping @Sendable () -> Date = Date.init,
         startupGate: @escaping @Sendable () async -> Void = {},
         updateHandler: @escaping GuardRuntimeUpdateHandler = { _ in },
-        notificationHandler: @escaping GuardRuntimeNotificationHandler = { _, _ in }
+        notificationHandler: @escaping GuardRuntimeNotificationHandler = { _ in }
     ) {
         self.configuration = configuration
         self.persistence = persistence ?? MonitorPersistence(
@@ -373,7 +395,10 @@ actor GuardRuntimeController {
             }
             monitoring = true
             lifecycle = .running
-            startNotificationListeners()
+            await startNotificationListeners()
+            guard lifecycle == .running, !Task.isCancelled else {
+                throw GuardRuntimeError.runtimeStopped
+            }
             startPollingLoops()
             await publish()
             guard lifecycle == .running, !Task.isCancelled else {
@@ -462,6 +487,9 @@ actor GuardRuntimeController {
         guard let profile = persistentState?.profiles.first(where: { $0.id == profileID }) else {
             throw GuardRuntimeError.profileNotFound
         }
+        guard !profilesBeingRemoved.contains(profileID) else {
+            throw AccountLifecycleError.busy
+        }
 
         // OAuth can replace credentials inside the isolated home. Install the in-memory stop
         // synchronously, then durably pause before any login/session await. Login completion stays
@@ -469,6 +497,17 @@ actor GuardRuntimeController {
         redemptionKillSwitches.insert(profileID)
         let controlIntent = UUID()
         profileControlIntents[profileID] = controlIntent
+        readGenerations[profileID, default: 0] &+= 1
+        let generation = readGenerations[profileID, default: 0]
+        awaitingLogin.insert(profileID)
+        var loginStarted = false
+        defer {
+            // Without a started login nothing will complete it; let ordinary reads resume unless a
+            // newer reconnect owns the marker.
+            if !loginStarted, readGenerations[profileID, default: 0] == generation {
+                awaitingLogin.remove(profileID)
+            }
+        }
         do {
             adoptPersistentState(try await persistence.setProfileEnabled(
                 profileID,
@@ -491,6 +530,7 @@ actor GuardRuntimeController {
         live.inventory = nil
         live.detail = "Waiting for browser sign-in…"
         liveProfiles[profileID] = live
+        recordQuotaFailure(.signInRequired, profileID: profileID)
         await publish()
 
         guard lifecycle == .running, !Task.isCancelled else {
@@ -514,13 +554,18 @@ actor GuardRuntimeController {
         guard profileControlIntents[profileID] == controlIntent else {
             throw GuardRuntimeError.settingSuperseded
         }
-        if notificationTasks[profileID] == nil {
-            startNotificationListener(profileID: profileID, session: session)
+        await startNotificationListener(profileID: profileID, session: session)
+        guard lifecycle == .running, !Task.isCancelled else {
+            throw GuardRuntimeError.runtimeStopped
+        }
+        guard profileControlIntents[profileID] == controlIntent else {
+            throw GuardRuntimeError.settingSuperseded
         }
         let login = try await session.startChatGPTLogin(
             useHostedLoginSuccessPage: true,
             appBrand: "codex"
         )
+        loginStarted = true
         guard lifecycle == .running, !Task.isCancelled else {
             await session.shutdown()
             throw GuardRuntimeError.runtimeStopped
@@ -549,6 +594,9 @@ actor GuardRuntimeController {
         guard lifecycle != .stopping, lifecycle != .stopped else {
             throw GuardRuntimeError.runtimeStopped
         }
+        guard !profilesBeingRemoved.contains(profileID) else {
+            throw AccountLifecycleError.busy
+        }
 
         redemptionKillSwitches.insert(profileID)
         let controlIntent = UUID()
@@ -557,11 +605,18 @@ actor GuardRuntimeController {
         if enabled {
             // Opt-in is available only after this isolated session matches the enrolled identity.
             // Recheck before committing in case the account changed while the popover was open.
-            guard let profile = persistentState?.profiles.first(where: { $0.id == profileID }),
+            guard !awaitingLogin.contains(profileID),
+                  let profile = persistentState?.profiles.first(where: { $0.id == profileID }),
                   let session = sessions[profileID] else {
                 throw GuardRuntimeError.authenticationRequired
             }
-            try await verifyIdentity(profile: profile, session: session, refreshToken: true)
+            do {
+                try await verifyIdentity(profile: profile, session: session, refreshToken: true)
+            } catch {
+                // The old verified state must not outlive a failed identity check.
+                await publishIdentityFailure(error, profileID: profileID)
+                throw error
+            }
             let latest = try await persistence.snapshot()
             guard lifecycle != .stopping, lifecycle != .stopped, !Task.isCancelled else {
                 throw GuardRuntimeError.runtimeStopped
@@ -605,6 +660,130 @@ actor GuardRuntimeController {
             await checkProfile(profileID, allowConsume: configuration.operationMode == .production)
         }
         return latestSnapshot
+    }
+
+    /// Renames one Codex account. Only its display name changes.
+    @discardableResult
+    func renameProfile(profileID: UUID, displayName: String) async throws -> GuardRuntimeSnapshot {
+        guard configuration.operationMode == .production else {
+            throw AccountLifecycleError.readOnly
+        }
+        guard initialized, lifecycle == .running else { throw AccountLifecycleError.unavailable }
+        guard !profilesBeingRemoved.contains(profileID) else { throw AccountLifecycleError.busy }
+        do {
+            adoptPersistentState(try await persistence.renameProfile(
+                profileID,
+                displayName: displayName,
+                now: now()
+            ))
+        } catch {
+            // The write may have committed before its durability check failed; show what is saved.
+            if let latest = try? await persistence.snapshot() {
+                adoptPersistentState(latest)
+            }
+            await publish()
+            throw AccountLifecycleError(codexFailure: error)
+        }
+        await publish()
+        return latestSnapshot
+    }
+
+    /// Removes one Codex account, its monitor state and its app-owned Codex home.
+    ///
+    /// The redemption boundary closes before any await. A check that is already running, possibly
+    /// mid reset request, is allowed to finish and durably record its outcome first; cancelling
+    /// it could turn a clean answer into an ambiguous one. The removal is then committed in one
+    /// write that keeps any uncertain redemption for this email (see
+    /// `MonitorPersistence.removeProfile`). Only after that commit are the session, tasks and
+    /// private folder discarded, so a failed write leaves the account fully intact.
+    func removeProfile(profileID: UUID) async throws -> AccountRemovalOutcome {
+        guard configuration.operationMode == .production else {
+            throw AccountLifecycleError.readOnly
+        }
+        guard initialized, lifecycle == .running else { throw AccountLifecycleError.unavailable }
+        guard persistentState?.profiles.contains(where: { $0.id == profileID }) == true else {
+            throw AccountLifecycleError.accountNotFound
+        }
+        guard profilesBeingRemoved.insert(profileID).inserted else {
+            throw AccountLifecycleError.busy
+        }
+        defer { profilesBeingRemoved.remove(profileID) }
+
+        let hadKillSwitch = redemptionKillSwitches.contains(profileID)
+        let removalIntent = UUID()
+        redemptionKillSwitches.insert(profileID)
+        profileControlIntents[profileID] = removalIntent
+
+        guard await waitForCheckToDrain(profileID) else {
+            // Nothing durable changed. Reopen the boundary only if no other action touched it.
+            if !hadKillSwitch, profileControlIntents[profileID] == removalIntent {
+                redemptionKillSwitches.remove(profileID)
+            }
+            await publish()
+            throw AccountLifecycleError.busy
+        }
+        guard lifecycle == .running else { throw AccountLifecycleError.unavailable }
+
+        let key = GuardPersistentState.key(for: profileID)
+        let keptResetRecord: Bool
+        do {
+            let removal = try await persistence.removeProfile(profileID, now: now())
+            adoptPersistentState(removal.state)
+            keptResetRecord = removal.keptResetRecord
+        } catch {
+            if let latest = try? await persistence.snapshot() {
+                adoptPersistentState(latest)
+            }
+            guard let current = persistentState,
+                  !current.profiles.contains(where: { $0.id == profileID }) else {
+                await publish()
+                throw AccountLifecycleError(codexFailure: error)
+            }
+            // The removal reached disk even though its durability check failed. Finish cleanup.
+            keptResetRecord = current.retainedRedemptions?
+                .contains { $0.formerProfileID == key } ?? false
+        }
+
+        pollingTasks.removeValue(forKey: profileID)?.cancel()
+        notificationTasks.removeValue(forKey: profileID)?.cancel()
+        let session = sessions.removeValue(forKey: profileID)
+        liveProfiles.removeValue(forKey: profileID)
+        quotaRecords.removeValue(forKey: profileID)
+        lastLoggedFailure.removeValue(forKey: profileID)
+        checkFailureBanners.removeValue(forKey: profileID)
+        profileControlIntents.removeValue(forKey: profileID)
+        // The kill switch stays: the UUID never returns, and a stale task must stay harmless.
+        await session?.shutdown()
+
+        var outcome = AccountRemovalOutcome(keptResetRecord: keptResetRecord)
+        do {
+            let remaining = try await persistence.discardPendingProfileHomes(now: now())
+            outcome.folderCleanupPending = remaining.contains(profileID)
+        } catch {
+            outcome.folderCleanupPending = true
+        }
+        if let latest = try? await persistence.snapshot() {
+            adoptPersistentState(latest)
+            if latest.pendingHomeDiscards?.contains(key) == true {
+                outcome.folderCleanupPending = true
+            }
+        }
+        await publish()
+        return outcome
+    }
+
+    func overrideRemovalDrainTimeoutForTesting(_ timeout: Duration) {
+        removalDrainTimeout = timeout
+    }
+
+    private func waitForCheckToDrain(_ profileID: UUID) async -> Bool {
+        let clock = ContinuousClock()
+        let deadline = clock.now.advanced(by: removalDrainTimeout)
+        while checksInFlight.contains(profileID) {
+            guard clock.now < deadline, lifecycle == .running else { return false }
+            try? await Task.sleep(for: .milliseconds(20))
+        }
+        return true
     }
 
     func stop() async {
@@ -706,18 +885,22 @@ actor GuardRuntimeController {
         configuration.operationMode == .production
     }
 
-    private func startNotificationListeners() {
+    private func startNotificationListeners() async {
         for (profileID, session) in sessions where notificationTasks[profileID] == nil {
-            startNotificationListener(profileID: profileID, session: session)
+            await startNotificationListener(profileID: profileID, session: session)
         }
     }
 
     private func startNotificationListener(
         profileID: UUID,
         session: any GuardAppServerSession
-    ) {
+    ) async {
+        guard notificationTasks[profileID] == nil else { return }
+        // The provider may complete sign-in as soon as login starts. Register the stream first.
+        let notifications = await session.notifications()
+        guard lifecycle == .running, sessions[profileID] != nil,
+              !profilesBeingRemoved.contains(profileID), notificationTasks[profileID] == nil else { return }
         notificationTasks[profileID] = Task { [weak self] in
-            let notifications = await session.notifications()
             for await notification in notifications {
                 guard !Task.isCancelled else { return }
                 await self?.handle(notification, profileID: profileID)
@@ -736,6 +919,7 @@ actor GuardRuntimeController {
             }
             live.pendingLoginID = nil
             liveProfiles[profileID] = live
+            awaitingLogin.remove(profileID)
             guard completion.success else {
                 setConnectionFailure(
                     profileID: profileID,
@@ -791,19 +975,26 @@ actor GuardRuntimeController {
         recordSideEffects: Bool = true
     ) async {
         guard initialized, !checksInFlight.contains(profileID),
+              !profilesBeingRemoved.contains(profileID),
+              !awaitingLogin.contains(profileID),
               let profile = persistentState?.profiles.first(where: { $0.id == profileID }),
               let session = sessions[profileID] else {
             return
         }
         checksInFlight.insert(profileID)
+        let generation = readGenerations[profileID, default: 0]
         await publish()
 
         do {
             let reading = try await readVerified(
                 profile: profile,
                 session: session,
-                refreshIdentity: refreshIdentity
+                refreshIdentity: refreshIdentity,
+                generation: generation
             )
+            guard readGenerations[profileID, default: 0] == generation else {
+                throw DiscardedRead()
+            }
             var live = liveProfiles[profileID] ?? LiveProfileState()
             live.connectionStatus = .verified
             live.weeklyLimit = reading.weeklyLimit
@@ -823,12 +1014,15 @@ actor GuardRuntimeController {
                     profile: profile,
                     session: session,
                     reading: reading,
-                    monitorState: monitorState
+                    monitorState: monitorState,
+                    generation: generation
                 )
             }
             lastCheckedAt = now()
         } catch {
-            if lifecycle != .stopping, lifecycle != .stopped, !Task.isCancelled {
+            if !(error is DiscardedRead),
+               readGenerations[profileID, default: 0] == generation,
+               lifecycle != .stopping, lifecycle != .stopped, !Task.isCancelled {
                 if recordSideEffects {
                     await recordCheckFailure(error, profileID: profileID)
                 } else {
@@ -841,22 +1035,46 @@ actor GuardRuntimeController {
         await publish()
     }
 
+    /// `generation` is the originating check's reconnect generation, captured before its first
+    /// await. Quota evidence is stamped only while it is still current.
     private func readVerified(
         profile: ProfileConfiguration,
         session: any GuardAppServerSession,
-        refreshIdentity: Bool
+        refreshIdentity: Bool,
+        generation: UInt64
     ) async throws -> Reading {
-        try await verifyIdentity(
-            profile: profile,
-            session: session,
-            refreshToken: refreshIdentity
-        )
-        let response = try await session.readRateLimits()
+        let response: RPCRateLimitsReadResponse
+        do {
+            try await verifyIdentity(
+                profile: profile,
+                session: session,
+                refreshToken: refreshIdentity
+            )
+            response = try await session.readRateLimits()
+        } catch {
+            if readGenerations[profile.id, default: 0] == generation {
+                recordQuotaFailure(Self.quotaFailureReason(error), profileID: profile.id)
+            }
+            throw error
+        }
         let observedAt = now()
+        let evidenceIsCurrent = readGenerations[profile.id, default: 0] == generation
         guard let canonicalSnapshot = response.canonicalCodexRateLimits else {
+            if evidenceIsCurrent { recordQuotaFailure(.unreadable, profileID: profile.id) }
             throw GuardRuntimeError.rejectedWeeklyLimit("canonical Codex bucket missing")
         }
         let snapshot = canonicalSnapshot.domainValue(observedAt: observedAt)
+        // Display evidence only. The policy below still trusts nothing but `classify`.
+        if evidenceIsCurrent {
+            if let observation = response.quotaObservation(observedAt: observedAt, classifier: classifier) {
+                var record = quotaRecords[profile.id]
+                    ?? QuotaAccountRecord(provider: .codex, accountID: profile.id)
+                record.recordSuccess(observation)
+                quotaRecords[profile.id] = record
+            } else {
+                recordQuotaFailure(.unreadable, profileID: profile.id)
+            }
+        }
         let weeklyLimit: CanonicalWeeklyLimit
         switch classifier.classify(snapshot, now: observedAt) {
         case let .canonical(value):
@@ -896,7 +1114,8 @@ actor GuardRuntimeController {
         profile: ProfileConfiguration,
         session: any GuardAppServerSession,
         reading: Reading,
-        monitorState: MonitorState
+        monitorState: MonitorState,
+        generation: UInt64
     ) async throws {
         let evaluationTime = now()
         let evaluation = policy.evaluate(
@@ -947,7 +1166,8 @@ actor GuardRuntimeController {
                 profile: profile,
                 session: session,
                 state: persistedMonitorState,
-                attempt: attempt
+                attempt: attempt,
+                generation: generation
             )
         }
     }
@@ -956,7 +1176,8 @@ actor GuardRuntimeController {
         profile: ProfileConfiguration,
         session: any GuardAppServerSession,
         state: MonitorState,
-        attempt: RedemptionAttempt
+        attempt: RedemptionAttempt,
+        generation: UInt64
     ) async throws {
         guard isRedemptionBoundaryOpen(for: profile.id) else { return }
 
@@ -971,7 +1192,8 @@ actor GuardRuntimeController {
         let finalReading = try await readVerified(
             profile: profile,
             session: session,
-            refreshIdentity: false
+            refreshIdentity: false,
+            generation: generation
         )
         guard isRedemptionBoundaryOpen(for: profile.id) else { return }
 
@@ -1129,7 +1351,8 @@ actor GuardRuntimeController {
             let verificationReading = try await readVerified(
                 profile: profile,
                 session: session,
-                refreshIdentity: false
+                refreshIdentity: false,
+                generation: generation
             )
             try await reconcileVerification(
                 profileID: profile.id,
@@ -1213,26 +1436,22 @@ actor GuardRuntimeController {
         liveProfiles[profileID] = live
         updateLiveDetail(profileID: profileID, state: reconciled)
 
+        let target = AccountRef(provider: .codex, id: profileID)
+        let name = persistentState?.profiles.first { $0.id == profileID }?.displayName ?? "Codex account"
         if reconciled.phase == .verified {
             _ = try? await eventLog.append(
                 profileID: profileID,
                 kind: .redemptionSucceeded,
                 message: "The weekly allowance recovered and the saved reset count decreased."
             )
-            await notificationHandler(
-                "Codex weekly reset applied",
-                "The weekly allowance recovered and the saved reset was verified."
-            )
+            notificationHandler(.resetApplied(target, name: name))
         } else if reconciled.phase == .attentionRequired, !wasVerificationFailure {
             _ = try? await eventLog.append(
                 profileID: profileID,
                 kind: .verificationFailed,
                 message: "The weekly reset outcome could not be verified safely."
             )
-            await notificationHandler(
-                "Codex reset needs attention",
-                "Second Wind stopped because the weekly recovery could not be verified."
-            )
+            notificationHandler(.resetNeedsAttention(target, name: name))
         }
     }
 
@@ -1368,9 +1587,66 @@ actor GuardRuntimeController {
         if status == .authenticationRequired || status == .identityMismatch {
             live.weeklyLimit = nil
             live.inventory = nil
+            recordQuotaFailure(
+                status == .identityMismatch ? .wrongAccount : .signInRequired,
+                profileID: profileID
+            )
         }
         live.detail = detail
         liveProfiles[profileID] = live
+    }
+
+    /// Publishes a failed identity check so an earlier verified state cannot linger. The read
+    /// generation advances first, so only a check that starts after this failure can clear it.
+    private func publishIdentityFailure(_ error: any Error, profileID: UUID) async {
+        guard lifecycle != .stopping, lifecycle != .stopped, !Task.isCancelled else { return }
+        switch error {
+        case GuardRuntimeError.authenticationRequired, GuardRuntimeError.missingExpectedIdentity,
+             GuardRuntimeError.identityMismatch:
+            readGenerations[profileID, default: 0] &+= 1
+        default:
+            return
+        }
+        switch error {
+        case GuardRuntimeError.authenticationRequired, GuardRuntimeError.missingExpectedIdentity:
+            setConnectionFailure(
+                profileID: profileID,
+                status: .authenticationRequired,
+                detail: "Connect this profile with a fresh Codex browser sign-in."
+            )
+        case GuardRuntimeError.identityMismatch:
+            setConnectionFailure(
+                profileID: profileID,
+                status: .identityMismatch,
+                detail: "Wrong Codex account signed in. Reconnect with the expected profile."
+            )
+        default:
+            return
+        }
+        await publish()
+    }
+
+    /// Keeps the last good reading, now marked historical. Shutdown errors are not failures.
+    private func recordQuotaFailure(_ reason: QuotaFailureReason, profileID: UUID) {
+        guard lifecycle != .stopping, lifecycle != .stopped, !Task.isCancelled else { return }
+        var record = quotaRecords[profileID]
+            ?? QuotaAccountRecord(provider: .codex, accountID: profileID)
+        record.recordFailure(reason, at: now())
+        quotaRecords[profileID] = record
+    }
+
+    private nonisolated static func quotaFailureReason(_ error: any Error) -> QuotaFailureReason {
+        switch error {
+        case GuardRuntimeError.authenticationRequired, GuardRuntimeError.missingExpectedIdentity:
+            .signInRequired
+        case GuardRuntimeError.identityMismatch:
+            .wrongAccount
+        case is GuardRuntimeError, AppServerClientError.invalidMessage,
+             AppServerClientError.unexpectedResponse:
+            .unreadable
+        default:
+            .unavailable
+        }
     }
 
     private func updateLiveDetail(profileID: UUID, state: MonitorState) {
@@ -1438,12 +1714,12 @@ actor GuardRuntimeController {
     }
 
     private func publish() async {
+        let records = persistentState == nil ? [] : (try? await eventLog.entries(limit: 12)) ?? []
         guard let state = persistentState else {
             latestSnapshot = .empty
             await updateHandler(latestSnapshot)
             return
         }
-        let records = (try? await eventLog.entries(limit: 12)) ?? []
         let snapshot = GuardRuntimeSnapshot(
             profiles: state.profiles.map { profile in
                 profileSnapshot(profile: profile, state: state)
@@ -1458,7 +1734,8 @@ actor GuardRuntimeController {
             },
             isChecking: !checksInFlight.isEmpty,
             lastCheckedAt: lastCheckedAt,
-            banner: state.profiles.compactMap { checkFailureBanners[$0.id] }.first ?? banner
+            banner: state.profiles.compactMap { checkFailureBanners[$0.id] }.first ?? banner,
+            generatedAt: now()
         )
         latestSnapshot = snapshot
         await updateHandler(snapshot)
@@ -1471,9 +1748,13 @@ actor GuardRuntimeController {
         let live = liveProfiles[profile.id] ?? LiveProfileState()
         let monitorState = state.monitorState(for: profile.id)
             ?? MonitorState(profileID: GuardPersistentState.key(for: profile.id), isEnabled: false)
-        let nearestExpiry = live.inventory?
-            .earliestExpiringAvailableCodexCredit(at: now())?
-            .expiresAt
+        // Display only: a date only when it is the soonest of every saved reset. A capped list or
+        // a row without its expiry gives none. The policy keeps its own credit choice.
+        let nearestExpiry: Date? = if case let .reported(saved)? = quotaRecords[profile.id]?.lastSuccess?.inventory {
+            saved.nextExpiry(after: now())
+        } else {
+            nil
+        }
         return GuardRuntimeProfileSnapshot(
             id: profile.id,
             displayName: profile.displayName,
@@ -1485,7 +1766,10 @@ actor GuardRuntimeController {
             nearestResetExpiry: nearestExpiry,
             phase: monitorState.phase,
             detail: live.detail,
-            autoResetEnabled: profile.isEnabled
+            autoResetEnabled: profile.isEnabled,
+            quota: quotaRecords[profile.id]
+                ?? QuotaAccountRecord(provider: .codex, accountID: profile.id),
+            removalKeepsResetRecord: state.removalKeepsResetRecord(for: profile.id)
         )
     }
 
@@ -1504,6 +1788,7 @@ actor GuardRuntimeController {
         if !keepSnapshot {
             persistentState = nil
             liveProfiles.removeAll()
+            quotaRecords.removeAll()
             checkFailureBanners.removeAll()
             latestSnapshot = .empty
         }
@@ -1553,8 +1838,11 @@ actor GuardRuntimeController {
 extension GuardAppModel {
     func apply(_ snapshot: GuardRuntimeSnapshot) {
         let names = Dictionary(uniqueKeysWithValues: snapshot.profiles.map { ($0.id, $0.displayName) })
+        let readingTime = snapshot.generatedAt ?? referenceDate ?? Date()
         profiles = snapshot.profiles.map { profile in
-            GuardProfilePresentation(
+            let reading = profile.quota.reading(at: readingTime)
+            let quotaWarning = Self.monitorWarning(for: profile, reading: reading)
+            return GuardProfilePresentation(
                 id: profile.id.uuidString.lowercased(),
                 displayName: profile.displayName,
                 accountHint: profile.accountHint,
@@ -1562,10 +1850,18 @@ extension GuardAppModel {
                 naturalResetAt: profile.naturalResetAt,
                 availableResetCount: profile.availableResetCount,
                 nearestResetExpiry: profile.nearestResetExpiry,
-                status: Self.presentationStatus(for: profile),
-                detail: profile.detail,
+                status: quotaWarning == nil ? Self.presentationStatus(for: profile) : .nearLimit,
+                detail: quotaWarning.map {
+                    Self.quotaDetail(
+                        for: $0,
+                        inventory: reading.inventory,
+                        autoResetEnabled: profile.autoResetEnabled
+                    )
+                } ?? profile.detail,
                 autoResetEnabled: profile.autoResetEnabled,
-                identityVerified: profile.connectionStatus == .verified
+                identityVerified: profile.connectionStatus == .verified,
+                quota: profile.quota,
+                removalKeepsResetRecord: profile.removalKeepsResetRecord
             )
         }
         history = snapshot.history.map { event in
@@ -1579,7 +1875,45 @@ extension GuardAppModel {
         isChecking = snapshot.isChecking
         lastCheckedAt = snapshot.lastCheckedAt
         banner = snapshot.banner
-        isReady = true
+        isReady = snapshot.hasLoadedProfiles
+        if snapshot.hasLoadedProfiles {
+            onQuotaRecordsChanged?(.codex, snapshot.profiles.map(\.quota))
+        }
+    }
+
+    /// A current low window outranks a quiet automation phase. Monitoring warns whether or not
+    /// Auto-redeem is on; redemption phases keep their own status because they are the fix.
+    private static func monitorWarning(
+        for profile: GuardRuntimeProfileSnapshot,
+        reading: QuotaAccountReading
+    ) -> QuotaWindowReading? {
+        guard profile.connectionStatus == .verified,
+              profile.phase == .disabled || profile.phase == .healthy,
+              let warning = reading.warning, warning.isCurrent
+        else {
+            return nil
+        }
+        return warning
+    }
+
+    static func quotaDetail(
+        for warning: QuotaWindowReading,
+        inventory: ResetInventoryReading,
+        autoResetEnabled: Bool
+    ) -> String {
+        let usedUp = warning.level == .exhausted
+        switch warning.window.kind {
+        case .session:
+            return usedUp
+                ? "5-hour limit is used up. It renews on its own."
+                : "5-hour limit is running low."
+        case .weekly, .modelWeekly:
+            let state = usedUp ? "Weekly limit is used up." : "Weekly limit is running low."
+            if !autoResetEnabled, case let .known(saved, _) = inventory, saved.availableCount > 0 {
+                return state + " Turn on Auto-redeem to use a saved reset."
+            }
+            return state
+        }
     }
 
     private static func presentationStatus(
@@ -1607,17 +1941,15 @@ extension GuardAppModel {
 @MainActor
 func makeGuardRuntimeController(
     model: GuardAppModel,
-    configuration: GuardRuntimeConfiguration
+    configuration: GuardRuntimeConfiguration,
+    alerts: AlertRouter
 ) -> GuardRuntimeController {
     let controller = GuardRuntimeController(
         configuration: configuration,
         updateHandler: { [weak model] snapshot in
             model?.apply(snapshot)
         },
-        notificationHandler: { title, body in
-            guard configuration.operationMode == .production else { return }
-            GuardNotifications.send(title: title, body: body)
-        }
+        notificationHandler: { alerts.post($0) }
     )
     model.onCheckNow = { [weak controller] in
         Task { _ = await controller?.checkNow() }
@@ -1646,12 +1978,15 @@ func makeGuardRuntimeController(
         Task { @MainActor in
             do {
                 _ = try await controller?.setEnabled(profileID: profileID, enabled: enabled)
-                if enabled { GuardNotifications.requestAuthorization() }
+                if enabled { _ = await alerts.requestPermission() }
             } catch {
                 if let snapshot = await controller?.snapshot() {
                     model?.apply(snapshot)
                 }
-                model?.banner = "Could not confirm the automatic reset setting. Redemption remains safely blocked."
+                model?.reportActionFailure(
+                    "Could not confirm the automatic reset setting. Redemption remains safely blocked.",
+                    for: AccountRef(provider: .codex, id: profileID)
+                )
             }
         }
     }
@@ -1664,7 +1999,10 @@ func makeGuardRuntimeController(
                 }
                 NSWorkspace.shared.open(url)
             } catch {
-                model?.banner = "Could not start the isolated Codex sign-in."
+                model?.reportActionFailure(
+                    "Could not start the isolated Codex sign-in.",
+                    for: AccountRef(provider: .codex, id: profileID)
+                )
             }
         }
     }

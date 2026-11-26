@@ -22,8 +22,14 @@ Runtime data lives outside the checkout at:
   readings and any durable pending redemption, which can include a credit
   identifier and idempotency key.
 - `events.json`: a bounded history of redacted Codex events.
+- `alerts.json`: notification preferences, account IDs and the window or
+  expiry dates used to avoid sending the same alert twice.
 - `claude-state.json`: Claude account emails, names, profile UUIDs, plan name,
   the latest usage reading and which low-limit alerts were already sent.
+- `quota-snapshot.json`: the preflight command's local view of each account's
+  allowances. It contains profile IDs, providers, windows, percentages and
+  timestamps and Codex's reported access status. Account emails, saved reset identifiers and conversation text
+  are excluded.
 - `guard.lock`: the single-instance process lock.
 - `profiles/<uuid>/`: an isolated `CODEX_HOME` maintained by Codex app-server,
   configured for file-backed authentication. Codex owns the credentials there.
@@ -52,6 +58,13 @@ Automatic Codex redemption starts off for each new account, and reconnecting
 pauses it until you turn it back on. Launch at login is opt-in. macOS controls
 notification permission. Quitting stops all monitoring processes; it does not
 revoke account access or delete local data.
+
+You can rename or remove an individual account from the menu. When a Codex
+reset is still being verified, Second Wind preserves the information it needs
+to reconcile that request if you enroll the same email again. Removing a
+Codex account deletes its local sign-in. Removing a Claude account asks Claude
+Code to sign out of that account's private folder. If Claude Code cannot
+confirm sign-out, Second Wind tells you that a Keychain entry may remain.
 
 To stop using the app, turn off launch at login, quit it and move the app to
 Trash. You can then trash its application-support directory to discard all

@@ -5,13 +5,24 @@ import Foundation
 do {
     // Parsing must complete before constructing locks, runtimes, or NSApplication. In
     // particular, an invalid preview name must never fall through to production mode.
-    let command = try GuardCommandLine.parse(
-        Array(CommandLine.arguments.dropFirst()),
-        bundledPreviewKind: Bundle.main.object(forInfoDictionaryKey: "GuardPreviewKind")
-            .map { String(describing: $0) },
-        bundledDiagnosticDirectory: Bundle.main.object(forInfoDictionaryKey: "GuardDiagnosticSupportDirectory")
-            .map { String(describing: $0) }
-    )
+    let arguments = Array(CommandLine.arguments.dropFirst())
+    let command: GuardLaunchCommand
+    do {
+        command = try GuardCommandLine.parse(
+            arguments,
+            bundledPreviewKind: Bundle.main.object(forInfoDictionaryKey: "GuardPreviewKind")
+                .map { String(describing: $0) },
+            bundledDiagnosticDirectory: Bundle.main.object(forInfoDictionaryKey: "GuardDiagnosticSupportDirectory")
+                .map { String(describing: $0) }
+        )
+    } catch where arguments.first == "--preflight" {
+        exit(PreflightCommandLine.reportUsageError(error))
+    }
+
+    // Read-only: no lock, migration, app-server, or NSApplication.
+    if case let .preflight(invocation) = command {
+        exit(PreflightCommandLine.execute(invocation))
+    }
 
     if case let .renderPreview(kind, destinationPath) = command {
         try MainActor.assumeIsolated {
@@ -79,7 +90,7 @@ do {
             applicationSupportDirectory: supportDirectory,
             profilesDirectory: supportDirectory.appendingPathComponent("profiles", isDirectory: true)
         )
-    case .renderPreview, .renderAllPreviews, .selfTest, .doctor:
+    case .renderPreview, .renderAllPreviews, .selfTest, .doctor, .preflight:
         preconditionFailure("A completed non-runtime command unexpectedly returned")
     }
     let model = MainActor.assumeIsolated {
@@ -116,32 +127,40 @@ do {
                 .appendingPathComponent("guard.lock", isDirectory: false)
         )
     }
-    _ = instanceLock
-    let runtime = MainActor.assumeIsolated {
-        runtimeConfiguration.map { makeGuardRuntimeController(model: model, configuration: $0) }
-    }
-    let claudeMonitor = MainActor.assumeIsolated {
+    let services = MainActor.assumeIsolated {
         runtimeConfiguration.map { configuration in
-            makeClaudeMonitor(model: model, configuration: ClaudeMonitorConfiguration(
+            let alerts = makeAlertRouter(configuration: configuration)
+            let codex = makeGuardRuntimeController(model: model, configuration: configuration, alerts: alerts)
+            let claude = makeClaudeMonitor(model: model, configuration: ClaudeMonitorConfiguration(
                 isReadOnly: configuration.operationMode == .readOnly,
                 executableURL: ProcessClaudeCommandRunner.defaultExecutableURL,
                 applicationSupportDirectory: configuration.applicationSupportDirectory
-            ))
-        }
-    }
-    MainActor.assumeIsolated {
-        guard let runtime else { return }
-        model.onCheckNow = { [weak runtime, weak claudeMonitor] in
-            Task { _ = await runtime?.checkNow() }
-            Task { await claudeMonitor?.checkNow() }
+            ), alerts: alerts)
+            return (codex: codex, claude: claude, alerts: alerts)
         }
     }
     let app = NSApplication.shared
     let delegate = MainActor.assumeIsolated {
-        AppDelegate(model: model, runtime: runtime, claudeMonitor: claudeMonitor)
+        let delegate = AppDelegate(model: model, runtime: services?.codex, claudeMonitor: services?.claude)
+        guard let services, let configuration = runtimeConfiguration else { return delegate }
+        model.onCheckNow = {
+            Task { _ = await services.codex.checkNow() }
+            Task { await services.claude.checkNow() }
+        }
+        if configuration.operationMode == .production {
+            connectLiveFeatures(model: model, delegate: delegate, codex: services.codex, claude: services.claude,
+                                alerts: services.alerts, supportDirectory: configuration.applicationSupportDirectory)
+        }
+        return delegate
     }
     app.delegate = delegate
-    withExtendedLifetime(instanceLock) {
+    let responder = MainActor.assumeIsolated { () -> AlertResponder? in
+        guard command == .production, Bundle.main.bundleURL.pathExtension == "app" else { return nil }
+        return AlertResponder.install { [weak delegate] target in
+            if let target { delegate?.reveal(target) } else { delegate?.showPopover() }
+        }
+    }
+    withExtendedLifetime((instanceLock, responder)) {
         app.run()
     }
 } catch {

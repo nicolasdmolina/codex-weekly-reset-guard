@@ -1,14 +1,31 @@
 // Visual and accessibility pass against a running preview (`npm run preview`).
-// Usage: node scripts/qa.mjs [url]. Screenshots go to .qa/ (gitignored).
+// Usage: node scripts/qa.mjs [url] [release manifest the build used, default src/release.json].
+// Screenshots go to .qa/<install state>/ (gitignored).
 // Uses the installed Google Chrome so no Playwright browser download is needed.
-import { mkdir } from 'node:fs/promises';
+import { mkdir, readFile } from 'node:fs/promises';
 import { strict as assert } from 'node:assert';
 import { fileURLToPath } from 'node:url';
 import { chromium } from 'playwright';
 import { AxeBuilder } from '@axe-core/playwright';
 
 const url = process.argv[2] ?? 'http://localhost:4317/';
-const out = fileURLToPath(new URL('../.qa/', import.meta.url));
+const manifestPath = process.argv[3] ?? fileURLToPath(new URL('../src/release.json', import.meta.url));
+const { release } = JSON.parse(await readFile(manifestPath, 'utf8'));
+const repo = 'https://github.com/nicolasdmolina/codex-weekly-reset-guard';
+const downloads = release && `${repo}/releases/download/${release.tag}`;
+// Expectations restated from the manifest, independently of the site's own parser.
+const expected =
+  release === null
+    ? { state: 'main', hero: '#install', download: /download source/i, href: `${repo}/archive/refs/heads/main.zip`,
+        steps: /cd ~\/Downloads\/codex-weekly-reset-guard-main\n\.\/scripts\/install_app\.sh --launch/, checksum: null }
+    : release.app === null
+      ? { state: 'source', hero: '#install', download: /download source/i, href: `${downloads}/${release.source.file}`,
+          steps: new RegExp(`cd ~/Downloads/${release.source.folder}\n\\./scripts/install_app\\.sh --launch`),
+          checksum: release.source.sha256 }
+      : { state: 'app', hero: `${downloads}/${release.app.file}`, download: /download for mac/i,
+          href: `${downloads}/${release.app.file}`, steps: /drag second wind onto the applications folder/i,
+          checksum: release.app.sha256, source: `${downloads}/${release.source.file}` };
+const out = fileURLToPath(new URL(`../.qa/${expected.state}/`, import.meta.url));
 await mkdir(out, { recursive: true });
 
 const browser = await chromium.launch({ channel: 'chrome' });
@@ -79,12 +96,32 @@ for (const colorScheme of ['dark', 'light']) {
 
 {
   const run = await page('320-install', { width: 320, height: 700, colorScheme: 'dark', reducedMotion: 'reduce' });
-  await run.p.locator('.hero a[href="#install"]').click();
-  assert.equal(new URL(run.p.url()).hash, '#install');
+  const hero = run.p.locator('.hero__actions a').first();
+  assert.equal(await hero.getAttribute('href'), expected.hero, 'Hero action');
+  if (expected.hero === '#install') {
+    await hero.click();
+    assert.equal(new URL(run.p.url()).hash, '#install');
+  }
   const install = run.p.locator('#install');
-  assert.equal(await install.getByRole('link', { name: /download/i }).getAttribute('href'),
-    'https://github.com/nicolasdmolina/codex-weekly-reset-guard/archive/refs/heads/main.zip');
-  assert.match(await install.innerText(), /\.\/scripts\/install_app\.sh/);
+  assert.equal(await install.getByRole('link', { name: expected.download }).getAttribute('href'), expected.href);
+  assert.match(await install.innerText(), expected.steps);
+  if (expected.source) {
+    assert.equal(await install.getByRole('link', { name: /download the source/i }).getAttribute('href'), expected.source);
+  }
+  const check = install.getByRole('button', { name: /check the download/i });
+  if (expected.checksum) {
+    assert.equal(await check.getAttribute('aria-expanded'), 'false', 'Checksum details start closed');
+    await check.click();
+    await install.getByText(expected.checksum).waitFor();
+    assert.match(await install.innerText(), /gh attestation verify ~\/Downloads\//);
+    await install.screenshot({ path: `${out}install-check-open.png` });
+  } else {
+    assert.equal(await check.count(), 0, 'No checksum without a verified release');
+  }
+  const html = await (await run.context.request.get(url)).text();
+  const noscript = html.slice(html.indexOf('<noscript>'), html.indexOf('</noscript>'));
+  assert.ok(noscript.includes(`href="${expected.href}"`), 'No-JavaScript install link matches');
+  assert.equal(noscript.includes(expected.checksum ?? 'no checksum expected'), Boolean(expected.checksum));
   await audit(run);
 }
 

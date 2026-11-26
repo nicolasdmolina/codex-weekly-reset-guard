@@ -1,6 +1,7 @@
 import { Collapsible, CollapsibleGroup } from '@astryxdesign/core/Collapsible';
 import { Heading } from '@astryxdesign/core/Heading';
 import { Text } from '@astryxdesign/core/Text';
+import { INSTALL } from '../install';
 
 const questions = [
   {
@@ -17,7 +18,10 @@ const questions = [
   },
   {
     q: 'I use Codex Weekly Reset Guard. What happens?',
-    a: 'That was this app’s old name. Quit it, then install Second Wind. The installer moves the old app aside, and your accounts and any pending reset move over the first time Second Wind opens.',
+    a:
+      INSTALL.kind === 'app'
+        ? 'That was this app’s old name. Quit it and move it to the Trash, then install Second Wind. Your accounts and any pending reset move over the first time Second Wind opens.'
+        : 'That was this app’s old name. Quit it, then install Second Wind. The installer moves the old app aside, and your accounts and any pending reset move over the first time Second Wind opens.',
   },
   {
     q: 'Which Codex versions work?',

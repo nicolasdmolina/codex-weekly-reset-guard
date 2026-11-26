@@ -296,7 +296,7 @@ func enrollmentRejectsInvalidIdentity(email: String) async throws {
     defer { fixture.remove() }
     let persistence = MonitorPersistence(stateFileURL: fixture.stateURL, profilesDirectory: fixture.profilesURL)
     let factoryCalls = LockedCounter()
-    let session = DiagnosticGuardSession(email: "new@example.com", now: fixture.now)
+    let session = DiagnosticGuardSession(email: "new@example.com", now: fixture.now, deliversLoginCompletion: true)
     let controller = GuardRuntimeController(
         configuration: runtimeConfiguration(fixture),
         persistence: persistence,
@@ -319,6 +319,9 @@ func enrollmentRejectsInvalidIdentity(email: String) async throws {
     }
     _ = try await controller.beginConnection(profileID: profile.id)
     _ = await controller.checkNow()
+    // The old isolated sign-in must not read as verified while the new one is pending.
+    #expect(await controller.snapshot().profiles.first?.connectionStatus == .connecting)
+    await session.completeLogin()
     #expect(await eventually { await controller.snapshot().profiles.first?.connectionStatus == .verified })
     #expect(try await persistence.snapshot().profiles.first?.isEnabled == false)
     #expect(await session.consumeCount() == 0)
@@ -651,7 +654,11 @@ private func laterPauseSupersedesEnableWaitingForIdentity(action: FailedPauseAct
         now: { clock.value }
     )
     _ = try await controller.start()
-    #expect(await eventually { !(await controller.snapshot()).isChecking })
+    #expect(await eventually {
+        let snapshot = await controller.snapshot()
+        return !snapshot.isChecking && snapshot.profiles.count == sessions.count
+            && snapshot.profiles.allSatisfy { $0.connectionStatus == .verified }
+    })
     for _ in 0..<3 {
         clock.advance(by: 10)
         _ = await controller.checkNow()
@@ -773,7 +780,8 @@ private func laterPauseSupersedesEnableWaitingForIdentity(action: FailedPauseAct
         weeklyUsedPercent: 98,
         resetAt: resetAt,
         blockAccountReadNumber: 2,
-        consumeScript: [.outcome(.nothingToReset)]
+        consumeScript: [.outcome(.nothingToReset)],
+        deliversLoginCompletion: true
     )
     let healthy = RuntimeGuardSession(
         email: fixture.emails[1],
@@ -799,6 +807,16 @@ private func laterPauseSupersedesEnableWaitingForIdentity(action: FailedPauseAct
     #expect(try await persistence.snapshot().monitorState(for: profileID)?.isEnabled == false)
 
     await target.setEmail(fixture.emails[0])
+    do {
+        _ = try await controller.setEnabled(profileID: profileID, enabled: true)
+        Issue.record("Enabling must wait for the pending sign-in to complete")
+    } catch let error as GuardRuntimeError {
+        #expect(error == .authenticationRequired)
+    }
+    await target.completeLogin()
+    #expect(await eventually {
+        await controller.snapshot().profiles.first { $0.id == profileID }?.connectionStatus == .verified
+    })
     _ = try await controller.setEnabled(profileID: profileID, enabled: true)
     #expect(await target.consumeCount() == 0)
     clock.advance(by: 5)
@@ -1162,7 +1180,7 @@ private func laterPauseSupersedesEnableWaitingForIdentity(action: FailedPauseAct
         persistence: persistence,
         sessions: [fixture.emails[0]: target, fixture.emails[1]: healthy],
         clock: clock,
-        notificationHandler: { _, _ in notifications.increment() }
+        notificationHandler: { _ in notifications.increment() }
     )
 
     _ = try await controller.start()
@@ -1371,7 +1389,7 @@ private func makeRuntimeController(
     persistence: MonitorPersistence,
     sessions: [String: RuntimeGuardSession],
     clock: LockedTestClock,
-    notificationHandler: @escaping GuardRuntimeNotificationHandler = { _, _ in }
+    notificationHandler: @escaping GuardRuntimeNotificationHandler = { _ in }
 ) -> GuardRuntimeController {
     GuardRuntimeController(
         configuration: runtimeConfiguration(fixture),
@@ -1471,6 +1489,8 @@ private actor RuntimeGuardSession: GuardAppServerSession {
     private var blockedContinuation: CheckedContinuation<Void, Never>?
     private var shutdownBlocked = false
     private var shutdownContinuation: CheckedContinuation<Void, Never>?
+    private let deliversLoginCompletion: Bool
+    private var notificationStreams: [AsyncStream<AppServerNotification>.Continuation] = []
 
     init(
         email: String,
@@ -1481,8 +1501,10 @@ private actor RuntimeGuardSession: GuardAppServerSession {
         blockAccountReadNumber: Int? = nil,
         blockShutdown: Bool = false,
         advanceClockOnAccountReadNumber: (Int, TimeInterval)? = nil,
-        consumeScript: [ScriptedConsume] = [.outcome(.nothingToReset)]
+        consumeScript: [ScriptedConsume] = [.outcome(.nothingToReset)],
+        deliversLoginCompletion: Bool = false
     ) {
+        self.deliversLoginCompletion = deliversLoginCompletion
         self.email = email
         self.clock = clock
         self.weeklyUsedPercent = weeklyUsedPercent
@@ -1498,6 +1520,8 @@ private actor RuntimeGuardSession: GuardAppServerSession {
 
     func shutdown() async {
         shutdowns += 1
+        for stream in notificationStreams { stream.finish() }
+        notificationStreams.removeAll()
         blockedContinuation?.resume()
         blockedContinuation = nil
         blocked = false
@@ -1509,7 +1533,20 @@ private actor RuntimeGuardSession: GuardAppServerSession {
     }
 
     func notifications() async -> AsyncStream<AppServerNotification> {
-        AsyncStream { continuation in continuation.finish() }
+        let (stream, continuation) = AsyncStream<AppServerNotification>.makeStream()
+        if deliversLoginCompletion {
+            notificationStreams.append(continuation)
+        } else {
+            continuation.finish()
+        }
+        return stream
+    }
+
+    func completeLogin(success: Bool = true) {
+        let completion = RPCLoginCompletedNotification(
+            loginID: "runtime-fixture-login", success: success, error: nil
+        )
+        for stream in notificationStreams { stream.yield(.loginCompleted(completion)) }
     }
 
     func accountRead(refreshToken: Bool) async throws -> RPCAccountReadResponse {
@@ -1615,16 +1652,32 @@ private actor DiagnosticGuardSession: GuardAppServerSession {
     let email: String
     let now: Date
     private var consumes = 0
+    private let deliversLoginCompletion: Bool
+    private var notificationStreams: [AsyncStream<AppServerNotification>.Continuation] = []
 
-    init(email: String, now: Date) {
+    init(email: String, now: Date, deliversLoginCompletion: Bool = false) {
         self.email = email
         self.now = now
+        self.deliversLoginCompletion = deliversLoginCompletion
     }
 
     func start() async throws {}
-    func shutdown() async {}
+    func shutdown() async {
+        for stream in notificationStreams { stream.finish() }
+        notificationStreams.removeAll()
+    }
     func notifications() async -> AsyncStream<AppServerNotification> {
-        AsyncStream { continuation in continuation.finish() }
+        let (stream, continuation) = AsyncStream<AppServerNotification>.makeStream()
+        if deliversLoginCompletion {
+            notificationStreams.append(continuation)
+        } else {
+            continuation.finish()
+        }
+        return stream
+    }
+    func completeLogin() {
+        let completion = RPCLoginCompletedNotification(loginID: "fixture-login", success: true, error: nil)
+        for stream in notificationStreams { stream.yield(.loginCompleted(completion)) }
     }
     func accountRead(refreshToken: Bool) async throws -> RPCAccountReadResponse {
         RPCAccountReadResponse(

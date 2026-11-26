@@ -1,6 +1,7 @@
 import AppKit
 import Combine
 import Foundation
+import SecondWindCore
 
 enum GuardProfileStatus: String, Codable, CaseIterable, Sendable {
     case healthy
@@ -14,7 +15,7 @@ enum GuardProfileStatus: String, Codable, CaseIterable, Sendable {
     var title: String {
         switch self {
         case .healthy: "Healthy"
-        case .nearLimit: "Near weekly limit"
+        case .nearLimit: "Running low"
         case .confirming: "Confirming weekly limit"
         case .redeeming: "Redeeming reset"
         case .verified: "Reset verified"
@@ -48,6 +49,9 @@ struct GuardProfilePresentation: Identifiable, Equatable, Sendable {
     var detail: String
     var autoResetEnabled: Bool
     var identityVerified: Bool = true
+    /// Quota evidence with per-account timestamps. Nil only in previews that predate it.
+    var quota: QuotaAccountRecord? = nil
+    var removalKeepsResetRecord = false
 
     var isConnected: Bool { identityVerified && status != .disconnected }
 }
@@ -102,6 +106,8 @@ struct ClaudeWindowPresentation: Identifiable, Equatable, Sendable {
     var label: String
     var remainingPercent: Double
     var resetsAt: Date?
+    /// False when the figure is historical: stale, kept after a failed refresh, or past its reset.
+    var isCurrent: Bool = true
 }
 
 struct ClaudeProfilePresentation: Identifiable, Equatable, Sendable {
@@ -116,6 +122,8 @@ struct ClaudeProfilePresentation: Identifiable, Equatable, Sendable {
     var status: ClaudeProfileStatus
     var detail: String
     var signInURL: URL?
+    /// Quota evidence with per-account timestamps. Nil only in previews that predate it.
+    var quota: QuotaAccountRecord? = nil
 
     var tightestWindow: ClaudeWindowPresentation? {
         windows.min { $0.remainingPercent < $1.remainingPercent }
@@ -159,6 +167,10 @@ final class GuardAppModel: ObservableObject {
     var onAddClaudeProfile: ((String, String) -> Void)?
     var onConnectClaude: ((String) -> Void)?
     var onCancelClaudeSignIn: ((String) -> Void)?
+    var onAccountActionFailure: ((AccountRef, String) -> Void)?
+    /// Called after each provider's snapshot is applied with that provider's full roster in
+    /// display order, including never-read accounts as empty records.
+    var onQuotaRecordsChanged: ((QuotaProvider, [QuotaAccountRecord]) -> Void)?
 
     init(
         profiles: [GuardProfilePresentation] = [],
@@ -179,12 +191,41 @@ final class GuardAppModel: ObservableObject {
 
     var hasAccounts: Bool { !profiles.isEmpty || !claudeProfiles.isEmpty }
 
+    func reportActionFailure(_ message: String, for account: AccountRef) {
+        if let onAccountActionFailure {
+            onAccountActionFailure(account, message)
+        } else {
+            banner = message
+        }
+    }
+
     var isBusyChecking: Bool { isChecking || isCheckingClaude }
 
-    /// The least headroom across every account and window, shown in the menu bar.
+    /// Every account's reading at `now`, Codex first, in display order.
+    func quotaReadings(at now: Date) -> [QuotaAccountReading] {
+        (profiles.compactMap(\.quota) + claudeProfiles.compactMap(\.quota)).map { $0.reading(at: now) }
+    }
+
+    /// All clear only when every account has a current reading and none is low.
+    func quotaSummary(at now: Date) -> QuotaSummary {
+        QuotaSummary(readings: quotaReadings(at: now))
+    }
+
+    /// The least current headroom across every account and window, including the Codex 5-hour
+    /// window, shown in the menu bar. Historical figures are left out.
     var minimumRemainingPercent: Double? {
-        (profiles.compactMap(\.weeklyRemainingPercent)
-            + claudeProfiles.compactMap { $0.tightestWindow?.remainingPercent }).min()
+        let now = referenceDate ?? Date()
+        func current(_ record: QuotaAccountRecord) -> [Double] {
+            record.reading(at: now).windows.filter(\.isCurrent).map(\.window.remainingPercent)
+        }
+        // Presentations without evidence (older previews) keep their legacy figures.
+        let codex = profiles.flatMap { profile in
+            profile.quota.map(current) ?? profile.weeklyRemainingPercent.map { [$0] } ?? []
+        }
+        let claude = claudeProfiles.flatMap { profile in
+            profile.quota.map(current) ?? profile.tightestWindow.map { [$0.remainingPercent] } ?? []
+        }
+        return (codex + claude).min()
     }
 
     var attentionCount: Int {

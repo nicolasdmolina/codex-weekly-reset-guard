@@ -102,6 +102,19 @@ public struct ClaudePersistentState: Codable, Equatable, Sendable {
         states[Self.key(for: id)] = state
     }
 
+    public func alertKeys(for accountID: UUID) -> Set<String> {
+        let prefix = Self.key(for: accountID) + "|"
+        return Set(sentAlertKeys.compactMap { key in
+            if key.hasPrefix(prefix) { return String(key.dropFirst(prefix.count)) }
+            return key.contains("|") ? nil : key
+        })
+    }
+
+    public mutating func rememberAlerts(_ keys: [String], for accountID: UUID) {
+        let prefix = Self.key(for: accountID) + "|"
+        rememberAlerts(keys.map { prefix + $0 })
+    }
+
     public mutating func rememberAlerts(_ keys: [String]) {
         for key in keys where !sentAlertKeys.contains(key) {
             sentAlertKeys.append(key)

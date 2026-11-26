@@ -10,6 +10,7 @@ enum GuardLaunchCommand: Equatable {
     case renderAllPreviews(directoryPath: String)
     case selfTest
     case doctor
+    case preflight(PreflightInvocation)
 }
 
 enum GuardCommandLineError: Error, Equatable, LocalizedError {
@@ -23,6 +24,7 @@ enum GuardCommandLineError: Error, Equatable, LocalizedError {
     case invalidDiagnosticDirectory
     case argumentsInDiagnosticBundle
     case malformedArguments(option: String, usage: String)
+    case invalidPreflight(String)
 
     var errorDescription: String? {
         switch self {
@@ -46,6 +48,8 @@ enum GuardCommandLineError: Error, Equatable, LocalizedError {
             "A diagnostic bundle must be launched without command-line arguments."
         case let .malformedArguments(_, usage):
             "Usage: \(usage)"
+        case let .invalidPreflight(message):
+            message
         }
     }
 }
@@ -61,6 +65,7 @@ enum GuardCommandLine {
         "--render-all-previews",
         "--self-test",
         "--doctor",
+        "--preflight",
     ]
 
     /// Parses arguments after the executable name. Invalid input always throws; it can never
@@ -93,6 +98,10 @@ enum GuardCommandLine {
             guard !arguments.isEmpty else { return .preview(kind) }
             let command = try parseArguments(arguments)
             guard command != .production, command != .doctor else {
+                throw GuardCommandLineError.liveModeInPreviewBundle
+            }
+            // Preflight reads the user's real quota snapshot, so it is live data too.
+            if case .preflight = command {
                 throw GuardCommandLineError.liveModeInPreviewBundle
             }
             return command
@@ -166,6 +175,11 @@ enum GuardCommandLine {
 
     private static func parseArguments(_ arguments: [String]) throws -> GuardLaunchCommand {
         guard !arguments.isEmpty else { return .production }
+
+        // Preflight has its own options; every other mode still rejects them as unknown.
+        if arguments.first == "--preflight" {
+            return .preflight(try PreflightCommandLine.parse(Array(arguments.dropFirst())))
+        }
 
         if let unknown = arguments.first(where: { $0.hasPrefix("--") && !modeOptions.contains($0) }) {
             throw GuardCommandLineError.unknownOption(unknown)

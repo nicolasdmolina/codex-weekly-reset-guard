@@ -26,6 +26,10 @@ it moves your existing accounts over on first launch.
 
 [secondwind.nickymolina.com](https://secondwind.nickymolina.com/) has screenshots, requirements and the source download.
 
+Versioned source downloads include a SHA-256 checksum and GitHub build
+provenance. See [releases](https://github.com/nicolasdmolina/codex-weekly-reset-guard/releases)
+and the [verification instructions](docs/RELEASING.md#what-verify_releasesh-checks).
+
 Second Wind shows Codex and Claude usage in your Mac menu bar and can use a saved Codex weekly reset when you run low.
 
 The hero screenshot is [docs/images/website-hero.png](docs/images/website-hero.png).
@@ -48,7 +52,10 @@ test "$(curl -sS -o /dev/null -w '%{http_code}' "$pages_url")" = 200 &&
 **Codex**
 
 - Monitor one or more separately signed-in Codex accounts.
-- Show weekly headroom, when the allowance renews, and how many resets are saved.
+- See how much of each five-hour and weekly allowance remains and when each renews.
+  Low-quota warnings also work with **Auto-redeem** off.
+- See how many saved resets are available and when they expire. An unavailable
+  inventory is shown as unknown. Expiry reminders are optional.
 - Optionally redeem after two fresh weekly readings at or below **3% remaining**,
   at least five seconds apart, with at least five minutes until the natural reset.
 - Keep a durable idempotency key so an uncertain request can be reconciled.
@@ -104,12 +111,42 @@ path. Do not disable macOS security protections to run an untrusted download.
    folder, so this never signs you out of your everyday Codex or Claude Code.
 3. Check the readings. For Codex, leave **Auto-redeem** off to only monitor, or
    turn it on for that account.
-4. Add more accounts with **Add account**. Launch at login is in the ••• menu.
+4. Add more accounts with **Add account**. To start the app when you log in, open **Settings** and enable **Open at login**.
 
 Keep the app running and the Mac awake and online for monitoring. It cannot
 guarantee you never run out.
 
-## How the Claude side works
+## Read the menu
+
+Each account shows when its usage was last verified. If a reset time passes,
+the previous reading stays marked as waiting until the provider confirms a refill.
+Choose **Left** or **Used** and **Countdown** or **Clock time** in Settings.
+
+In **Settings › Alerts** you can check notification permission, send a test,
+or turn on refill notices and saved-reset reminders. Reminders arrive a day
+and an hour before a reported expiry. Clicking an account notification opens
+its row. Each account's options menu also lets you rename or remove it.
+
+## Check quota before a job
+
+To require at least 20% of a Codex session and 30% of the week before starting
+work, run the app's executable:
+
+```sh
+"$HOME/Applications/Second Wind.app/Contents/MacOS/SecondWind" --preflight --provider codex --session 20 --weekly 30
+```
+
+The check reads the latest local snapshot. It works while the menu app is
+running and does not start a model session or use a saved reset. To select a
+specific account, choose **Copy pre-job check** from its options menu. You can
+change the percentages and add `--json` for a script.
+
+An exit code of `0` means the current reading meets your thresholds. Code
+`10` means quota is low or Codex says usage is blocked. Code `11` means the
+answer is unknown, and `64` means the command arguments were invalid. The
+thresholds measure what is available now. A job can still use more than you expect.
+
+## How Claude usage is read
 
 Second Wind runs the official `claude` executable with `CLAUDE_CONFIG_DIR` set to
 the account's private folder:
@@ -130,7 +167,7 @@ Claude Code is found at the first of `~/.local/bin/claude`,
 
 ## Codex compatibility
 
-Schema compatibility was checked against Codex CLI **0.145.0** and **0.153.4**.
+Schema compatibility was checked against Codex CLI **0.145.0**, **0.153.4** and **0.172.0**.
 These are tested protocol versions, not a guaranteed minimum. The app needs the
 official app-server account, rate-limit, reset-inventory and consume methods;
 missing or ambiguous data prevents redemption.

@@ -1,8 +1,9 @@
-// The one place the repository URL lives. Update it here if the repo is renamed.
-export const REPO_URL = 'https://github.com/nicolasdmolina/codex-weekly-reset-guard';
+// The one place the repository lives. Update it here if the repo is renamed.
+export const REPOSITORY = 'nicolasdmolina/codex-weekly-reset-guard';
+export const REPO_URL = `https://github.com/${REPOSITORY}`;
 
-// GitHub's archive of main unpacks to a folder named after the repo plus "-main".
-// The older v0.1 prerelease is the pre-rename app, so the site always offers main.
+// Until src/release.json records a verified release, the site offers GitHub's archive
+// of main, which unpacks to a folder named after the repo plus "-main".
 export const SOURCE_ZIP_URL = `${REPO_URL}/archive/refs/heads/main.zip`;
 export const SOURCE_FOLDER = 'codex-weekly-reset-guard-main';
 

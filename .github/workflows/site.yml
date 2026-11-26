@@ -31,15 +31,28 @@ jobs:
           cache: npm
           cache-dependency-path: site/package-lock.json
       - run: npm ci
+      - name: Test the release manifest parser
+        run: node scripts/test-release-manifest.mjs
       - run: npm run build
+      - name: Build the verified-source and app install states from fixtures
+        run: |
+          npx vite build --mode qa-source --outDir dist-qa-source
+          npx vite build --mode qa-app --outDir dist-qa-app
       - name: Check desktop and mobile in Chrome
         run: |
-          npm run preview -- --host 127.0.0.1 --port 4317 --strictPort &
-          server=$!
-          trap 'kill "$server" 2>/dev/null || true' EXIT
-          curl --retry 12 --retry-connrefused --retry-delay 1 --fail --silent \
-            --output /dev/null http://127.0.0.1:4317/
+          servers=()
+          trap 'kill "${servers[@]}" 2>/dev/null || true' EXIT
+          for build in dist:4317 dist-qa-source:4318 dist-qa-app:4319; do
+            npx vite preview --outDir "${build%%:*}" --host 127.0.0.1 --port "${build##*:}" --strictPort &
+            servers+=($!)
+          done
+          for port in 4317 4318 4319; do
+            curl --retry 12 --retry-connrefused --retry-delay 1 --fail --silent \
+              --output /dev/null "http://127.0.0.1:$port/"
+          done
           node scripts/qa.mjs http://127.0.0.1:4317/
+          node scripts/qa.mjs http://127.0.0.1:4318/ scripts/qa-release-source.json
+          node scripts/qa.mjs http://127.0.0.1:4319/ scripts/qa-release-app.json
       - uses: actions/upload-pages-artifact@fc324d3547104276b827a68afc52ff2a11cc49c9 # v5.0.0
         if: github.ref == 'refs/heads/main'
         with:

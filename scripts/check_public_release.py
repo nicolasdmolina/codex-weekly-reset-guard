@@ -29,7 +29,8 @@ SITE_FILES = {
     "site/tsconfig.json", "site/ui-stack.lock.json", "site/vite.config.ts",
     "site/public/favicon.svg", "site/public/motion-primitives-license.txt",
     "site/public/schibsted-grotesk-license.txt",
-    "site/scripts/qa.mjs", "site/scripts/render-og.mjs",
+    "site/scripts/qa.mjs", "site/scripts/render-og.mjs", "site/scripts/test-release-manifest.mjs",
+    "site/scripts/qa-release-app.json", "site/scripts/qa-release-source.json", "site/src/release.json",
     "site/hosting/worker.js", "site/hosting/wrangler.jsonc",
 }
 SITE_SOURCE_DIRS = {

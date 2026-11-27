@@ -49,6 +49,14 @@ enum PreviewKind: String, CaseIterable {
     case addConnected = "add-connected"
     /// A new Claude Max account connected, with its plan and three limits.
     case addConnectedClaude = "add-connected-claude"
+    /// No accounts on this Mac; two Codex accounts on a synced Mac mini, one change waiting.
+    case remote
+    /// A synced Mac that stopped publishing, and a change it did not make.
+    case remoteStale = "remote-stale"
+    /// Sync turned on while iCloud Drive is off.
+    case settingsSync = "settings-sync"
+    /// A synced Mac that publishes but cannot read commands, so its switches are read-only here.
+    case remoteReadOnly = "remote-read-only"
 }
 
 @MainActor
@@ -73,6 +81,9 @@ enum PreviewFixtures {
         static let work = UUID(uuidString: "C0DE0000-0000-4000-8000-000000000002")!
         static let studio = UUID(uuidString: "C1A0DE00-0000-4000-8000-000000000001")!
         static let removed = UUID(uuidString: "C0DE0000-0000-4000-8000-0000000000FF")!
+        static let mini = SyncDeviceID(UUID(uuidString: "5EED0000-0000-4000-8000-000000000001")!)
+        static let miniPersonal = UUID(uuidString: "C0DE0000-0000-4000-8000-0000000000A1")!
+        static let miniWork = UUID(uuidString: "C0DE0000-0000-4000-8000-0000000000A2")!
     }
 
     static func model(for kind: PreviewKind) -> GuardAppModel {
@@ -87,6 +98,7 @@ enum PreviewFixtures {
         var preferences = DisplayPreferences()
         var permission = NotificationPermissionStatus.allowed
         var alerts = AlertPreferences.off
+        var syncStatus: SyncStatus?
         var stage: (GuardInterfaceModel) -> Void = { _ in }
         let model: GuardAppModel
 
@@ -364,6 +376,30 @@ enum PreviewFixtures {
                     record: codexRecord(ID.work, session: 90, weekly: 58, saved: 1, expiresInDays: 18, access: .unknown)
                 ),
             ], isPreview: true, referenceDate: reference)
+        case .remote:
+            model = GuardAppModel(isPreview: true, referenceDate: reference)
+            let mini = miniSnapshot(publishedSecondsAgo: 25, workAutoRedeem: false)
+            model.remoteDevices = [mini]
+            model.pendingRemoteCommands[GuardAppModel.remoteKey(device: ID.mini, account: mini.accounts[1])] =
+                PendingRemoteCommand(commandID: UUID(), enabled: true, issuedAt: reference.addingTimeInterval(-15))
+            syncStatus = .on
+        case .remoteStale:
+            model = GuardAppModel(isPreview: true, referenceDate: reference)
+            let mini = miniSnapshot(publishedSecondsAgo: 3 * 3_600, workAutoRedeem: false)
+            model.remoteDevices = [mini]
+            model.pendingRemoteCommands[GuardAppModel.remoteKey(device: ID.mini, account: mini.accounts[1])] =
+                PendingRemoteCommand(commandID: UUID(), enabled: true, issuedAt: reference.addingTimeInterval(-20 * 60))
+            syncStatus = .on
+        case .remoteReadOnly:
+            model = GuardAppModel(isPreview: true, referenceDate: reference)
+            var mini = miniSnapshot(publishedSecondsAgo: 25, workAutoRedeem: false)
+            mini.acceptsCommands = false
+            model.remoteDevices = [mini]
+            syncStatus = .on
+        case .settingsSync:
+            syncStatus = .unavailable
+            model = GuardAppModel(profiles: [personalHealthy()], isPreview: true, referenceDate: reference)
+            stage = { interface in interface.showSettings() }
         case .providerFailed:
             model = GuardAppModel(profiles: [personalHealthy()], isPreview: true, referenceDate: reference)
             stage = { interface in
@@ -377,7 +413,8 @@ enum PreviewFixtures {
             preferenceDefaults: nil,
             preferences: preferences,
             permission: permission,
-            alertPreferences: alerts
+            alertPreferences: alerts,
+            syncStatus: syncStatus
         )
         interface.attach(model)
         stage(interface)
@@ -564,6 +601,37 @@ enum PreviewFixtures {
         )
     }
 
+    // MARK: Other Macs
+
+    private static func miniSnapshot(publishedSecondsAgo: TimeInterval, workAutoRedeem: Bool) -> DeviceSnapshot {
+        let publishedAt = reference.addingTimeInterval(-publishedSecondsAgo)
+        let observedAt = publishedAt.addingTimeInterval(-20)
+        let window = { (kind: QuotaWindowKind, remaining: Double, hours: Double) in
+            SharedWindow(kind: kind, remainingPercent: remaining, resetsAt: reference.addingTimeInterval(hours * 3_600), observedAt: observedAt)
+        }
+        return DeviceSnapshot(
+            deviceID: ID.mini,
+            deviceName: "Mac mini",
+            publishedAt: publishedAt,
+            accounts: [
+                SharedAccount(
+                    profileID: ID.miniPersonal, provider: .codex, displayName: "Personal", email: "personal@example.com",
+                    autoRedeemEnabled: true,
+                    windows: [window(.session, 82, 3.3), window(.weekly, 61, 144)],
+                    savedResetCount: 2
+                ),
+                SharedAccount(
+                    profileID: ID.miniWork, provider: .codex, displayName: "Work", email: "work@example.com",
+                    autoRedeemEnabled: workAutoRedeem,
+                    windows: [window(.session, 64, 1.5), window(.weekly, 8, 40)],
+                    savedResetCount: 1
+                ),
+            ],
+            appliedCommandIDs: [],
+            acceptsCommands: true
+        )
+    }
+
     // MARK: Quota evidence
 
     private static func codexRecord(
@@ -636,8 +704,8 @@ enum PreviewFixtures {
         for kind in PreviewKind.allCases {
             let model = model(for: kind)
             let expectedCount: Int = switch kind {
-            case .onboarding: 0
-            case .connect, .paused, .claudeSignIn, .settings, .settingsDenied, .providerFailed,
+            case .onboarding, .remote, .remoteStale, .remoteReadOnly: 0
+            case .connect, .paused, .claudeSignIn, .settings, .settingsDenied, .providerFailed, .settingsSync,
                  .onboardingError, .addWaiting, .addConnected: 1
             case .freshness, .reveal: 3
             default: 2

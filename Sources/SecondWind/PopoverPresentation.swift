@@ -167,6 +167,18 @@ enum QuotaDisplayBuilder {
         return AccountQuotaDisplay(windows: windows, inventory: nil, age: .never, isConfirmed: false)
     }
 
+    /// An account another Mac hosts, read with the remote stale line.
+    static func remote(_ account: SharedAccount, now: Date) -> AccountQuotaDisplay {
+        let lowLine = QuotaReadPolicy.remote.lowRemainingPercent
+        return display(
+            reading: account.quotaRecord().reading(at: now, policy: .remote),
+            now: now,
+            alertLine: { kind in
+                kind == .weekly && account.autoRedeemEnabled == true ? codexAutoRedeemLine : lowLine
+            }
+        )
+    }
+
     static func display(
         reading: QuotaAccountReading,
         now: Date,
@@ -288,7 +300,10 @@ struct PopoverSummary: Equatable {
         let convention = interface.preferences.quota
         let codex = model.profiles.map { (name: $0.displayName, display: QuotaDisplayBuilder.codex($0, now: now)) }
         let claude = model.claudeProfiles.map { (name: $0.displayName, display: QuotaDisplayBuilder.claude($0, now: now)) }
-        let accounts = codex + claude
+        let remote = model.remoteDevices.flatMap { device in
+            device.accounts.map { (name: $0.displayName, display: QuotaDisplayBuilder.remote($0, now: now)) }
+        }
+        let accounts = codex + claude + remote
         let currentWindows = accounts.flatMap { account in
             account.display.windows.filter { $0.state == .current }.compactMap(\.remaining)
         }

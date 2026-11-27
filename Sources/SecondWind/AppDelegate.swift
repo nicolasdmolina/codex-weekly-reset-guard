@@ -8,6 +8,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// Popover UI state and the user actions the app wires to the runtimes.
     let interface: GuardInterfaceModel
     var finishQuotaUpdates: (() async -> Void)?
+    var onPopoverOpen: (() -> Void)?
     private let runtime: GuardRuntimeController?
     private let claudeMonitor: ClaudeMonitorController?
     private var statusItem: NSStatusItem?
@@ -194,6 +195,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         NSApp.activate(ignoringOtherApps: true)
         if !popover.isShown {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
+            onPopoverOpen?()
         }
         popover.contentViewController?.view.window?.makeKey()
     }

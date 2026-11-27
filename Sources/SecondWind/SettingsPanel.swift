@@ -67,10 +67,41 @@ struct SettingsPanel: View {
                                 .controlSize(.mini)
                             }
                         }
+                        RowDivider()
+                        SettingsRow(title: "Sync with your other Macs") {
+                            if isStaticRender {
+                                StaticToggle(isOn: interface.syncEnabled, label: "Sync with your other Macs")
+                            } else {
+                                Toggle("Sync with your other Macs", isOn: Binding(
+                                    get: { interface.syncEnabled },
+                                    set: { interface.setSyncEnabled($0) }
+                                ))
+                                .labelsHidden()
+                                .toggleStyle(.switch)
+                                .controlSize(.mini)
+                            }
+                        }
                     }
                     if let error = interface.launchAtLoginError {
                         StatusLine(symbol: "exclamationmark.circle.fill", text: error, tone: .critical)
                             .padding(.horizontal, SW.Space.xs)
+                    }
+                    switch interface.syncStatus {
+                    case .unavailable:
+                        StatusLine(symbol: "icloud.slash", text: "Turn on iCloud Drive on this Mac to sync.", tone: .caution)
+                            .padding(.horizontal, SW.Space.xs)
+                    case .readFailed:
+                        StatusLine(
+                            symbol: "exclamationmark.circle.fill",
+                            text: "Second Wind can't read iCloud Drive on this Mac, so changes from your other Macs can't reach it.",
+                            tone: .caution
+                        )
+                        .padding(.horizontal, SW.Space.xs)
+                    case let .failed(message):
+                        StatusLine(symbol: "exclamationmark.circle.fill", text: message, tone: .critical)
+                            .padding(.horizontal, SW.Space.xs)
+                    case .on, .off:
+                        EmptyView()
                     }
                 }
             }

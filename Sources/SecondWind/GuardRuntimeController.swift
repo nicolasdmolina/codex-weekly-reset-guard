@@ -75,8 +75,9 @@ struct GuardRuntimeProfileSnapshot: Equatable, Sendable {
     var removalKeepsResetRecord = false
     /// The ChatGPT plan from the last verified sign-in, for display only.
     var planName: String? = nil
-    /// The account's email once known, shown in full only where the user just signed in.
-    var email: String? = nil
+    /// The account's email once known: identity for sync and the double Auto-redeem guard, and
+    /// shown in full only where the user just signed in.
+    var expectedEmail: String? = nil
 }
 
 struct GuardRuntimeEvent: Equatable, Identifiable, Sendable {
@@ -1832,7 +1833,7 @@ actor GuardRuntimeController {
                 ?? QuotaAccountRecord(provider: .codex, accountID: profile.id),
             removalKeepsResetRecord: state.removalKeepsResetRecord(for: profile.id),
             planName: planNames[profile.id],
-            email: profile.expectedEmail
+            expectedEmail: profile.expectedEmail
         )
     }
 
@@ -1875,7 +1876,7 @@ actor GuardRuntimeController {
         switch kind {
         case .redemptionSucceeded, .redemptionFailed, .verificationFailed: true
         case .profileConnected, .profileDisconnected, .checkSucceeded, .checkFailed, .thresholdConfirmed,
-             .redemptionStarted, .redemptionDeferred, .authenticationRequired: false
+             .redemptionStarted, .redemptionDeferred, .authenticationRequired, .syncPass: false
         }
     }
 
@@ -1892,6 +1893,7 @@ actor GuardRuntimeController {
         case .redemptionFailed: "Blocked saved weekly reset safely"
         case .verificationFailed: "Weekly reset verification needs attention"
         case .authenticationRequired: "Fresh Codex sign-in required"
+        case .syncPass: "Synced with your other Macs"
         }
     }
 
@@ -1935,7 +1937,7 @@ extension GuardAppModel {
                 removalKeepsResetRecord: profile.removalKeepsResetRecord,
                 signIn: Self.signInState(for: profile),
                 planName: profile.planName,
-                email: profile.email
+                email: profile.expectedEmail
             )
         }
         history = snapshot.history.map { event in
@@ -1962,7 +1964,7 @@ extension GuardAppModel {
         case .verified: .connected
         case .authenticationRequired: .signedOut
         case .identityMismatch: .wrongAccount(found: nil)
-        case .alreadyWatched: .alreadyAdded(found: profile.email)
+        case .alreadyWatched: .alreadyAdded(found: profile.expectedEmail)
         case .failed: .failed(profile.detail)
         }
     }
@@ -2041,24 +2043,30 @@ func makeGuardRuntimeController(
         Task { _ = await controller?.checkNow() }
     }
     connectCodexSignIn(model: model, controller: controller) { NSWorkspace.shared.open($0) }
-    model.onToggleAutoReset = { [weak controller, weak model] rawID, enabled in
-        guard configuration.operationMode == .production else { return }
-        guard let profileID = UUID(uuidString: rawID) else { return }
-        Task { @MainActor in
-            do {
-                _ = try await controller?.setEnabled(profileID: profileID, enabled: enabled)
-                if enabled { _ = await alerts.requestPermission() }
-            } catch {
-                if let snapshot = await controller?.snapshot() {
-                    model?.apply(snapshot)
-                }
-                model?.reportActionFailure(
-                    "Could not confirm the automatic reset setting. Redemption remains safely blocked.",
-                    for: AccountRef(provider: .codex, id: profileID)
-                )
+    // The one path that changes Auto-redeem, for the switch and for commands from another Mac.
+    let changeAutoReset: @MainActor (String, Bool) async -> Bool = { [weak controller, weak model] rawID, enabled in
+        guard configuration.operationMode == .production else { return false }
+        guard let profileID = UUID(uuidString: rawID) else { return false }
+        do {
+            guard let controller else { throw GuardRuntimeError.runtimeStopped }
+            _ = try await controller.setEnabled(profileID: profileID, enabled: enabled)
+            if enabled { _ = await alerts.requestPermission() }
+            return true
+        } catch {
+            if let snapshot = await controller?.snapshot() {
+                model?.apply(snapshot)
             }
+            model?.reportActionFailure(
+                "Could not confirm the automatic reset setting. Redemption remains safely blocked.",
+                for: AccountRef(provider: .codex, id: profileID)
+            )
+            return false
         }
     }
+    model.onToggleAutoReset = { rawID, enabled in
+        Task { @MainActor in _ = await changeAutoReset(rawID, enabled) }
+    }
+    model.applyAutoReset = changeAutoReset
     return controller
 }
 

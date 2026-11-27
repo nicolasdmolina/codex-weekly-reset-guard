@@ -245,7 +245,7 @@ private struct ChooseServiceScreen: View {
     @ObservedObject var interface: GuardInterfaceModel
 
     var body: some View {
-        let isFirstRun = !model.hasAccounts
+        let isFirstRun = !model.hasAnyAccounts
         VStack(spacing: 0) {
             if isFirstRun {
                 Spacer(minLength: SW.Space.lg)

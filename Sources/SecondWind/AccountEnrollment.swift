@@ -143,9 +143,12 @@ enum AccountNaming {
 extension GuardAppModel {
     // MARK: Reading the flow
 
+    /// Accounts on this Mac or, with sync on, on another Mac: either way there is a list to show.
+    var hasAnyAccounts: Bool { hasAccounts || hasRemoteAccounts }
+
     /// The flow on screen, or nil for the account list. With no accounts the flow is always open.
     var activeEnrollment: EnrollmentFlow? {
-        enrollment ?? (hasAccounts ? nil : EnrollmentFlow(step: .choose))
+        enrollment ?? (hasAnyAccounts ? nil : EnrollmentFlow(step: .choose))
     }
 
     var enrollmentPhase: EnrollmentPhase? {
@@ -215,7 +218,7 @@ extension GuardAppModel {
         guard let flow = activeEnrollment, !isAddingProfile else { return }
         switch flow.step {
         case .choose, .couldNotStart:
-            enrollment = hasAccounts ? nil : EnrollmentFlow(step: .choose)
+            enrollment = hasAnyAccounts ? nil : EnrollmentFlow(step: .choose)
         case .starting:
             break
         case let .signIn(ref):
@@ -285,7 +288,7 @@ extension GuardAppModel {
     func cancelEnrollment() {
         guard let flow = activeEnrollment else { return }
         guard case let .signIn(ref) = flow.step else {
-            enrollment = hasAccounts ? nil : EnrollmentFlow(step: .choose)
+            enrollment = hasAnyAccounts ? nil : EnrollmentFlow(step: .choose)
             return
         }
         let raw = ref.id.uuidString.lowercased()
@@ -293,6 +296,7 @@ extension GuardAppModel {
             onCancelClaudeSignIn?(raw)
         }
         let othersRemain = profiles.contains { $0.id != raw } || claudeProfiles.contains { $0.id != raw }
+            || hasRemoteAccounts
         enrollment = othersRemain ? nil : EnrollmentFlow(step: .choose)
         if isPreview {
             profiles.removeAll { $0.id == raw }

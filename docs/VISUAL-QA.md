@@ -27,6 +27,9 @@ Run `./scripts/native_release_check.sh` to regenerate these synthetic fixtures:
 | `settings.png`, `settings-denied.png` | An enabled test notification and denied permission |
 | `rename.png`, `remove.png` | Inline rename and removal confirmation |
 | `reveal.png`, `provider-failed.png` | An account highlighted after a notification and a provider that could not load |
+| `remote.png`, `remote-stale.png` | Accounts on a synced Mac with a change waiting, and a Mac that stopped updating with a change it did not make |
+| `settings-sync.png` | Sync turned on while iCloud Drive is off |
+| `remote-read-only.png` | A synced Mac that cannot read commands: its switches are read-only here |
 
 Images are generated under ignored `qa-artifacts/` and contain synthetic data.
 Set `SECOND_WIND_PREVIEW_APPEARANCE=light` to render the light theme instead.

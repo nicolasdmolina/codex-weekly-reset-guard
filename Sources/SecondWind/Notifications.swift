@@ -231,6 +231,12 @@ enum AlertText {
                 body += " Resets \(RelativeDateTimeFormatter().localizedString(for: resetsAt, relativeTo: now))."
             }
             return ("\(provider) \(windowName(window.kind)) limit is low", body)
+        case let .remoteLowQuota(window, remoteProvider, deviceName):
+            var body = "\(name) on \(deviceName) has \(Int(window.remainingPercent.rounded(.down)))% left."
+            if let resetsAt = window.resetsAt, resetsAt > now {
+                body += " Resets \(RelativeDateTimeFormatter().localizedString(for: resetsAt, relativeTo: now))."
+            }
+            return ("\(remoteProvider.title) \(windowName(window.kind)) limit is low", body)
         case let .limitRefilled(kind):
             return (
                 "\(provider) \(windowName(kind)) limit refilled",

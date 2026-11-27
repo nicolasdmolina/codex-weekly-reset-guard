@@ -2204,7 +2204,7 @@ private final class LockedURLs: @unchecked Sendable {
     #expect(await waitOnMain { if case .problem(_, _, .alreadyAdded)? = model.enrollmentPhase { true } else { false } })
     let snapshot = await controller.snapshot()
     let duplicate = try #require(snapshot.profiles.first(where: { $0.id == second.id }))
-    #expect(duplicate.email == nil, "The duplicate never takes the identity")
+    #expect(duplicate.expectedEmail == nil, "The duplicate never takes the identity")
     #expect(duplicate.connectionStatus == .alreadyWatched)
     do {
         _ = try await controller.setEnabled(profileID: second.id, enabled: true)

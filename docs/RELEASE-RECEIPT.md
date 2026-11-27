@@ -1,4 +1,30 @@
-# Source release verification
+# Release verification
+
+## 0.3.1, November 26, 2026
+
+The release tag points to `3031d7cb54aafc40f853d1736e6c4466a6d322a6`.
+All 336 tests passed on an Apple silicon Mac with native UI tests enabled
+and the installed Claude CLI using a fresh, signed-out profile.
+[Tagged source](https://github.com/nicolasdmolina/codex-weekly-reset-guard/tree/v0.3.1).
+
+GitHub built both ZIPs on a hosted Mac and attested them to the release tag.
+Anonymous downloads of both files matched the published SHA-256 checksums
+and the attestation. [Release files](https://github.com/nicolasdmolina/codex-weekly-reset-guard/releases/tag/v0.3.1) ·
+[Build run](https://github.com/nicolasdmolina/codex-weekly-reset-guard/actions/runs/45913532437) ·
+[Build attestation](https://github.com/nicolasdmolina/codex-weekly-reset-guard/attestations/72881640).
+
+| File | SHA-256 |
+| --- | --- |
+| `Second-Wind-0.3.1-mac.zip` | `12cd6f97eed88ae385d74a207032fe9812afc7b8e1c981edcff6a98e36093e7f` |
+| `Second-Wind-0.3.1-source.zip` | `5ef3e187e7e32b8a6da3a211572b754f3e4cda4375c19e63380e33b7b483b33a` |
+
+The downloaded app passed strict signature verification and its self-test on
+Apple silicon and under Rosetta for Intel. Both executable slices target
+macOS 14. The pre-job check returned `unknown` (exit 11) for a missing snapshot.
+
+The standard Gatekeeper assessment rejected the ad-hoc signed app with system
+assessments enabled. Apple has not notarized the app. The interactive first-open
+approval was not exercised on this Mac. [Apple’s first-open guide](https://support.apple.com/en-us/102445).
 
 ## 0.3.0, November 26, 2026
 

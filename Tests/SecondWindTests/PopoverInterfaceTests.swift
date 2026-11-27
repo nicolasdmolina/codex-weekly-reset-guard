@@ -145,6 +145,11 @@ private func presentation(_ account: AccountRef, name: String, record: QuotaAcco
 
     defaults.set("sideways", forKey: "display.quotaConvention")
     #expect(DisplayPreferences.load(from: defaults).quota == .remaining)
+
+    // The menu bar figure is on until the user turns it off, and stays off after a relaunch.
+    #expect(reloaded.showsMenuBarPercent)
+    live.preferences.showsMenuBarPercent = false
+    #expect(DisplayPreferences.load(from: defaults).showsMenuBarPercent == false)
 }
 
 // MARK: - Quota adapter

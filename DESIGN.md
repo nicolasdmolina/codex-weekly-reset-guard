@@ -71,7 +71,8 @@ Stale figures dim, the tick with them. Reduce Motion removes the refill animatio
 
 - Background refresh never dismisses or reorders the open popover.
 - “All clear” requires every provider to load and every account to have a
-  confirmed reading. The menu bar labels its figure “left” or “used”.
+  confirmed reading. The menu bar labels its figure “left” or “used”;
+  **Percentage in menu bar** in Settings hides it and leaves only the mark.
 - Each account shows the age of its reading. “Refill due” stays on screen
   until the provider confirms the next window.
 - Rename and removal happen in the account row. A failed action stays visible

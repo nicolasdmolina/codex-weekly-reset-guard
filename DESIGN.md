@@ -40,6 +40,10 @@ Stale figures dim, the tick with them. Reduce Motion removes the refill animatio
   account's first reading. Nothing is typed: the first sign-in supplies the email,
   and the name comes from it ("Personal" for a consumer mailbox, otherwise the
   organisation) and is editable on the result.
+- Services are shown by their own marks: OpenAI's mark for Codex (it signs in with
+  ChatGPT) in the text colour, and Claude's spark in Claude's orange. Brand colour
+  identifies the service only and is never used as an accent. The marks are vector
+  paths in `ProviderMarks.swift`.
 - After the service list, every step shares one service tile that never fades.
   While waiting, an accent stroke travels round its border; a badge shows the
   result. Waiting and problem steps keep their message and actions together near

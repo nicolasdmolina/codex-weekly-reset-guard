@@ -16,7 +16,8 @@ page where you redeem one.
 
 Independent community software. Not affiliated with or endorsed by OpenAI or
 Anthropic. Codex and ChatGPT are OpenAI products; Claude and Claude Code are
-Anthropic products. Second Wind does not grant or purchase resets, and reset
+Anthropic products. The OpenAI and Claude marks shown in the app are their
+owners' trademarks and only identify which service an account belongs to. Second Wind does not grant or purchase resets, and reset
 availability depends on your account, plan and app versions.
 
 Second Wind was called Codex Weekly Reset Guard before version 0.2.0. Installing

@@ -99,13 +99,6 @@ extension ProviderKind {
         case .claude: "Claude"
         }
     }
-
-    var glyph: String {
-        switch self {
-        case .codex: "chevron.left.forwardslash.chevron.right"
-        case .claude: "sparkle"
-        }
-    }
 }
 
 /// Names for new accounts. An account starts with a provisional name and takes one from its

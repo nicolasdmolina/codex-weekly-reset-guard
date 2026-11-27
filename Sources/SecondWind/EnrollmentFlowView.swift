@@ -773,9 +773,9 @@ struct ServiceTile: View {
                     .strokeBorder(SW.Palette.hairline)
             }
             .overlay {
-                Image(systemName: provider.glyph)
-                    .font(.system(size: size * 0.4, weight: .semibold))
-                    .foregroundStyle(SW.Palette.textPrimary)
+                ProviderMark(provider: provider)
+                    .fill(ProviderMark.color(for: provider))
+                    .frame(width: size * 0.66, height: size * 0.66)
             }
             .frame(width: size, height: size)
             // Drawn over the layout, so the tile sits in the same place with or without it.

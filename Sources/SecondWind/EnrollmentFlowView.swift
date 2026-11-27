@@ -72,7 +72,7 @@ struct EnrollmentFlowView: View {
         case let .connected(ref):
             ConnectedScreen(model: model, interface: interface, account: ref, isStaticRender: isStaticRender, now: now)
         case let .problem(ref, state):
-            ProblemScreen(model: model, account: ref, state: state, isStaticRender: isStaticRender)
+            ProblemScreen(model: model, interface: interface, account: ref, state: state, isStaticRender: isStaticRender)
         }
     }
 }
@@ -460,6 +460,7 @@ private struct CopyLinkButton: View {
 
 private struct ProblemScreen: View {
     @ObservedObject var model: GuardAppModel
+    @ObservedObject var interface: GuardInterfaceModel
     let account: AccountRef
     let state: SignInState
     let isStaticRender: Bool
@@ -471,19 +472,35 @@ private struct ProblemScreen: View {
                 StepMessage(text: message)
             }
         } actions: {
-            PrimaryAction(title: "Try again", opensBrowser: true) { model.retryEnrollmentSignIn() }
-            if case let .wrongAccount(found?) = state, account.provider == .claude {
-                Button("Watch \(found) instead") { model.adoptSignedInAccount(found) }
-                    .buttonStyle(FlowLinkButtonStyle())
-                    .truncationMode(.middle)
-            } else if offersDifferentEmail {
-                Button("Use a different email") { model.cancelEnrollment(returningTo: account.provider) }
-                    .buttonStyle(FlowLinkButtonStyle())
+            if readFailedAfterSignIn {
+                // Signed in, but the first reading failed: read again rather than sign in again.
+                PrimaryAction(title: "Check again") { model.checkNow() }
+                Button("Finish and retry later") {
+                    if let ref = model.finishEnrollment() { interface.reveal(ref) }
+                }
+                .buttonStyle(FlowLinkButtonStyle())
+            } else {
+                PrimaryAction(title: "Try again", opensBrowser: true) { model.retryEnrollmentSignIn() }
+                if case let .wrongAccount(found?) = state, account.provider == .claude {
+                    Button("Watch \(found) instead") { model.adoptSignedInAccount(found) }
+                        .buttonStyle(FlowLinkButtonStyle())
+                        .truncationMode(.middle)
+                } else if offersDifferentEmail {
+                    Button("Use a different email") { model.cancelEnrollment(returningTo: account.provider) }
+                        .buttonStyle(FlowLinkButtonStyle())
+                }
             }
         }
     }
 
     private var email: String { model.enrollment?.email ?? "" }
+
+    /// Codex reports a failed check separately from a failed sign-in; the account keeps
+    /// checking on its own.
+    private var readFailedAfterSignIn: Bool {
+        guard account.provider == .codex, case .failed = state else { return false }
+        return model.enrollment?.startFailure == nil
+    }
 
     private var offersDifferentEmail: Bool {
         switch state {

@@ -472,7 +472,7 @@ actor GuardRuntimeController {
             redemptionKillSwitches.insert(profile.id)
             liveProfiles[profile.id] = LiveProfileState(
                 connectionStatus: .authenticationRequired,
-                detail: "Connect this profile to sign in securely."
+                detail: "Sign in to start monitoring."
             )
         }
     }
@@ -1510,7 +1510,7 @@ actor GuardRuntimeController {
         switch error {
         case GuardRuntimeError.authenticationRequired:
             status = .authenticationRequired
-            detail = "Connect this profile with a fresh Codex browser sign-in."
+            detail = "Sign in again to keep monitoring."
         case GuardRuntimeError.identityMismatch:
             status = .identityMismatch
             detail = "Wrong Codex account signed in. Reconnect with the expected profile."
@@ -1558,7 +1558,7 @@ actor GuardRuntimeController {
         switch error {
         case GuardRuntimeError.authenticationRequired:
             status = .authenticationRequired
-            detail = "Connect this profile with a fresh Codex browser sign-in."
+            detail = "Sign in again to keep monitoring."
         case GuardRuntimeError.identityMismatch:
             status = .identityMismatch
             detail = "Wrong Codex account signed in. Reconnect with the expected profile."
@@ -1612,7 +1612,7 @@ actor GuardRuntimeController {
             setConnectionFailure(
                 profileID: profileID,
                 status: .authenticationRequired,
-                detail: "Connect this profile with a fresh Codex browser sign-in."
+                detail: "Sign in again to keep monitoring."
             )
         case GuardRuntimeError.identityMismatch:
             setConnectionFailure(

@@ -67,6 +67,7 @@ enum PreviewFixtures {
 
     static func model(for kind: PreviewKind) -> GuardAppModel {
         let (model, interface) = scene(for: kind)
+        if model.hasAccounts { model.lastCheckedAt = reference }
         interfaces[ObjectIdentifier(model)] = interface
         return model
     }
@@ -89,7 +90,7 @@ enum PreviewFixtures {
             model = GuardAppModel(profiles: [
                 codex(
                     ID.personal, "Personal", hint: "p•••@example.com",
-                    status: .disconnected, detail: "Connect this profile to sign in securely.",
+                    status: .disconnected, detail: "Sign in to start monitoring.",
                     autoReset: false, identityVerified: false, record: nil
                 ),
             ], isPreview: true, referenceDate: reference)
@@ -107,7 +108,7 @@ enum PreviewFixtures {
             model = GuardAppModel(profiles: [
                 codex(
                     ID.personal, "Personal", hint: "Account 1",
-                    status: .confirming, detail: "Reading 1 of 2 · checking again in 5 seconds",
+                    status: .confirming, detail: "Reading 1 of 2, next check in 5 seconds",
                     record: codexRecord(ID.personal, session: 44, weekly: 2.6, weeklyResetHours: 48, saved: 2, expiresInDays: 14)
                 ),
                 workHealthy(),
@@ -146,7 +147,7 @@ enum PreviewFixtures {
             model = GuardAppModel(
                 profiles: [workHealthy()],
                 claudeProfiles: [
-                    studio(session: 64, weekly: 7, sonnet: 31, status: .low, detail: "Use a reset from Claude settings if you have one."),
+                    studio(session: 64, weekly: 7, sonnet: 31, status: .low, detail: "Use a reset if you have one."),
                 ],
                 isPreview: true,
                 referenceDate: reference
@@ -156,7 +157,7 @@ enum PreviewFixtures {
                 claudeProfiles: [
                     ClaudeProfilePresentation(
                         id: ID.studio.uuidString.lowercased(), displayName: "Studio", accountHint: "s•••@example.com",
-                        planName: nil, windows: [], status: .signingIn, detail: "Finish signing in in your browser.",
+                        planName: nil, windows: [], status: .signingIn, detail: "Finish signing in with your browser.",
                         signInURL: nil
                     ),
                 ],
@@ -249,7 +250,7 @@ enum PreviewFixtures {
             stage = { interface in
                 interface.showSettings()
                 interface.stagePreview(settingsFeedback: .failure(
-                    "Alert saved, but notifications are off for Second Wind. Turn them on in System Settings."
+                    "Alert saved. Turn on notifications for Second Wind in System Settings to get it."
                 ))
             }
         case .rename:
@@ -259,7 +260,7 @@ enum PreviewFixtures {
                 interface.beginRename(work, currentName: "Work")
                 interface.draftName = "Client work"
                 interface.reportFailure(
-                    "Could not rename this account. Second Wind is checking or signing in to this account. Try again in a moment.",
+                    "Could not rename this account. It is busy checking or signing in. Try again in a moment.",
                     for: work
                 )
             }
@@ -270,7 +271,7 @@ enum PreviewFixtures {
                 interface.removalKeepsResetRecord = { $0 == personal }
                 interface.confirmRemoval(personal)
                 interface.reportFailure(
-                    "Could not remove Personal. Second Wind is checking or signing in to this account. Try again in a moment.",
+                    "Could not remove Personal. It is busy checking or signing in. Try again in a moment.",
                     for: personal
                 )
             }
@@ -339,7 +340,7 @@ enum PreviewFixtures {
         record.recordFailure(.signInRequired, at: reference.addingTimeInterval(-2 * 3_600))
         return codex(
             ID.work, "Work", hint: "w•••@example.com", status: .disconnected,
-            detail: "Sign-in expired. Connect to sign in to this account again.",
+            detail: "Sign-in expired. Sign in again.",
             identityVerified: false, record: record
         )
     }
@@ -545,18 +546,20 @@ enum PreviewRenderer {
         // ImageRenderer cannot materialize an AppKit-backed ScrollView offscreen. The
         // deterministic canvas uses the exact production popover dimensions.
         let model = PreviewFixtures.model(for: kind)
+        // Dark is the published default; SECOND_WIND_PREVIEW_APPEARANCE=light checks the other half.
+        let isLight = ProcessInfo.processInfo.environment["SECOND_WIND_PREVIEW_APPEARANCE"] == "light"
         let view = GuardPopoverView(
             model: model,
             interface: PreviewFixtures.interface(for: model),
             canvasHeight: 560,
             isStaticRender: true
         )
-            .environment(\.colorScheme, .dark)
+            .environment(\.colorScheme, isLight ? .light : .dark)
         let renderer = ImageRenderer(content: view)
         renderer.scale = 2
         var png: Data?
         // Dynamic palette colours resolve against the current drawing appearance.
-        NSAppearance(named: .darkAqua)!.performAsCurrentDrawingAppearance {
+        NSAppearance(named: isLight ? .aqua : .darkAqua)!.performAsCurrentDrawingAppearance {
             if let image = renderer.nsImage,
                let tiff = image.tiffRepresentation,
                let bitmap = NSBitmapImageRep(data: tiff) {

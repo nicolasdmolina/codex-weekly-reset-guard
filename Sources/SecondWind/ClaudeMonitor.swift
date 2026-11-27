@@ -604,11 +604,11 @@ extension GuardAppModel {
             detail = "Sign in to start monitoring."
         case .signingIn:
             status = .signingIn
-            detail = "Finish signing in in your browser."
+            detail = "Finish signing in with your browser."
         case .verified:
             if let warning = reading.warning, warning.isCurrent {
                 status = .low
-                detail = "Use a reset from Claude settings if you have one."
+                detail = "Use a reset if you have one."
             } else {
                 status = .healthy
                 detail = "Checked every 5 minutes."

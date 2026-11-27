@@ -116,14 +116,14 @@ enum QuotaTimeFormat {
         }
     }
 
-    /// "just now", "4 min ago", "3 h ago", "2 days ago".
+    /// "just now", "4 min ago", "3h ago", "2 days ago".
     static func age(of date: Date, reference: Date) -> String {
         let seconds = max(0, reference.timeIntervalSince(date))
         if seconds < 60 { return "just now" }
         let minutes = Int(seconds / 60)
         if minutes < 60 { return "\(minutes) min ago" }
         let hours = minutes / 60
-        if hours < 48 { return "\(hours) h ago" }
+        if hours < 48 { return "\(hours)h ago" }
         return "\(hours / 24) days ago"
     }
 

@@ -227,6 +227,7 @@ struct NativePopoverTests {
         }
         #expect(waiting, "Choosing the service starts its sign-in")
         #expect(harness.textField() == nil)
+        await harness.settle(0.6)  // let the step's cross-fade finish before capturing it
         harness.snapshot("native-10-enroll-waiting")
 
         // Escape cancels the sign-in and drops the unfinished account.

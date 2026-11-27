@@ -1,10 +1,10 @@
 import AppKit
 import SwiftUI
 
-/// Adding an account: pick the service, give the email, sign in in the browser, see the limits.
-/// Every step after the service list shares one frame: the service tile at a fixed spot, the
-/// step's words under it, and one primary action in the same bottom slot. Steps cross-fade, so
-/// the tile stays put while its ring, badge and text change.
+/// Adding an account: pick the service, sign in in the browser, see the limits. Every step
+/// after the service list draws one service tile; its words and actions cross-fade under it.
+/// Status steps (waiting, problems) hold a compact group near the middle; the result lifts the
+/// tile to make room for the reading, with Done in the bottom slot.
 struct EnrollmentFlowView: View {
     @ObservedObject var model: GuardAppModel
     @ObservedObject var interface: GuardInterfaceModel
@@ -22,7 +22,7 @@ struct EnrollmentFlowView: View {
             // around it; only its outline and badge change.
             if let tile {
                 ServiceTile(provider: tile.provider, state: tile.state, isStaticRender: isStaticRender)
-                    .padding(.top, stepTileTop)
+                    .padding(.top, phase.isStatus ? statusTileTop : resultTileTop)
             }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
@@ -77,9 +77,25 @@ struct EnrollmentFlowView: View {
 
 /// The tile, the step's content and its actions, in the same places on every step.
 /// Where the shared service tile sits, measured from the top of the flow.
-private let stepTileTop: CGFloat = 60
+/// Where the shared tile sits: lower on status steps so their short group reads as centred,
+/// higher on the result so the reading fits. The tile moves between them as the step changes.
+private let statusTileTop: CGFloat = 100
+private let resultTileTop: CGFloat = 60
+
+extension EnrollmentPhase {
+    /// A step with a short message and its actions directly under it.
+    var isStatus: Bool {
+        switch self {
+        case .waiting, .problem: true
+        case .choose, .connected: false
+        }
+    }
+}
 
 private struct StepFrame<Content: View, Actions: View>: View {
+    /// Status steps keep their actions right under the message; the result pins Done to the
+    /// bottom slot below its reading.
+    var isStatus = true
     @ViewBuilder var content: Content
     @ViewBuilder var actions: Actions
 
@@ -88,15 +104,19 @@ private struct StepFrame<Content: View, Actions: View>: View {
             // The flow draws the tile above every step; this keeps its place.
             Color.clear
                 .frame(height: ServiceTile.defaultSize)
-                .padding(.top, stepTileTop)
+                .padding(.top, isStatus ? statusTileTop : resultTileTop)
             content
                 .padding(.top, SW.Space.lg + 2)
-            Spacer(minLength: SW.Space.md)
-            // A fixed slot: the primary button sits at the same height with or without a
-            // text button under it.
-            VStack(spacing: SW.Space.xs + 2) { actions }
-                .frame(height: 60, alignment: .top)
-                .padding(.bottom, SW.Space.md)
+            if isStatus {
+                VStack(spacing: SW.Space.xs + 2) { actions }
+                    .padding(.top, SW.Space.xl + SW.Space.xs)
+                Spacer(minLength: 0)
+            } else {
+                Spacer(minLength: SW.Space.md)
+                VStack(spacing: SW.Space.xs + 2) { actions }
+                    .frame(height: 60, alignment: .top)
+                    .padding(.bottom, SW.Space.md)
+            }
         }
         .padding(.horizontal, SW.Space.lg)
         .frame(maxWidth: .infinity)
@@ -234,7 +254,8 @@ private struct ChooseServiceScreen: View {
             }
             VStack(spacing: 0) {
                 ForEach(Array(ProviderKind.allCases.enumerated()), id: \.element) { index, provider in
-                    if index > 0 { RowDivider().padding(.leading, 58) }
+                    // RowDivider insets 12 pt itself; this lines it up with the service names.
+                    if index > 0 { RowDivider().padding(.leading, 46) }
                     ProviderChoiceRow(
                         provider: provider,
                         detail: detail(for: provider),
@@ -363,7 +384,7 @@ private struct WaitingScreen: View {
 
     private var title: String {
         if isChecking { return "Reading your limits" }
-        if isPrivateWindow { return "Paste it in a private window" }
+        if isPrivateWindow { return model.enrollment?.hasCopiedLink == true ? "Sign-in link copied" : "Getting a fresh link" }
         return account == nil ? "Opening your browser" : "Finish in your browser"
     }
 
@@ -371,8 +392,8 @@ private struct WaitingScreen: View {
         if isChecking { return "Signed in. One moment." }
         if isPrivateWindow {
             return model.enrollment?.hasCopiedLink == true
-                ? "The sign-in link is copied. Open a private window, paste it and sign in with the other account."
-                : "Getting a fresh sign-in link."
+                ? "Open a private window (⇧⌘N in most browsers), paste the link and sign in with the other account."
+                : "One moment."
         }
         return "Sign in to \(provider.signInAccountName) with the account you want to watch."
     }
@@ -428,11 +449,15 @@ private struct ProblemScreen: View {
             } else if case .alreadyAdded = state, account != nil {
                 // The browser is still signed in to the listed account; a private window is the
                 // way past it, so it leads.
-                PrimaryAction(title: "Use a private window") { model.retryEnrollment(inPrivateWindow: true) }
+                PrimaryAction(title: "Copy link for a private window") { model.retryEnrollment(inPrivateWindow: true) }
                 Button("Try again in this browser") { model.retryEnrollment() }
                     .buttonStyle(FlowLinkButtonStyle())
             } else {
                 PrimaryAction(title: "Try again", opensBrowser: account != nil) { model.retryEnrollment() }
+                if account != nil {
+                    Button("Copy link for a private window") { model.retryEnrollment(inPrivateWindow: true) }
+                        .buttonStyle(FlowLinkButtonStyle())
+                }
             }
         }
     }
@@ -446,7 +471,7 @@ private struct ProblemScreen: View {
 
     private var title: String {
         switch state {
-        case .alreadyAdded: "Already in Second Wind"
+        case .alreadyAdded: "Already added"
         case .wrongAccount: "Wrong account"
         case .noPlan: "No Pro or Max plan"
         case .signedOut: "Sign-in didn't finish"
@@ -457,8 +482,8 @@ private struct ProblemScreen: View {
     private var message: Text {
         switch state {
         case let .alreadyAdded(found):
-            let who = found.map(emphasised) ?? Text("That account")
-            return who + Text(" is already in Second Wind. Your browser is still signed in to it, so sign in with the other account in a private window.")
+            let who = found.map(emphasised) ?? Text("that account")
+            return Text("Your browser is still signed in to ") + who + Text(". Sign in with the other account in a private window.")
         case let .wrongAccount(found):
             let signedIn = found.map { Text("You signed in as ") + emphasised($0) + Text(".") }
                 ?? Text("That was a different account.")
@@ -497,7 +522,7 @@ private struct ConnectedScreen: View {
     private var claude: ClaudeProfilePresentation? { model.claudeProfiles.first { $0.id == raw } }
 
     var body: some View {
-        StepFrame {
+        StepFrame(isStatus: false) {
             VStack(spacing: 0) {
                 nameRow
                     .frame(height: 24)
@@ -581,7 +606,12 @@ private struct ConnectedScreen: View {
 
     @ViewBuilder
     private var nameAccessories: some View {
-        if !isStaticRender && !model.isReadOnly {
+        if isStaticRender {
+            Image(systemName: "pencil")
+                .font(.system(size: 11.5, weight: .semibold))
+                .foregroundStyle(SW.Palette.textSecondary)
+                .frame(width: 22, height: 22)
+        } else if !model.isReadOnly {
             Button {
                 draftName = name
                 renameError = nil
@@ -674,7 +704,7 @@ private struct ConnectedScreen: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Auto-redeem")
                             .font(.system(size: 12, weight: .medium))
-                        Text(["At 3% left", savedResets(quota?.inventory)].compactMap { $0 }.joined(separator: " · "))
+                        Text(["At 3% weekly left", savedResets(quota?.inventory)].compactMap { $0 }.joined(separator: " · "))
                             .font(.system(size: 11))
                             .foregroundStyle(SW.Palette.textTertiary)
                     }
@@ -837,10 +867,11 @@ struct AddAccountMenu: View {
 
     var body: some View {
         if isStaticRender {
+            // Drawn to the native borderless menu's own metrics, so renders match the app.
             label
                 .font(.system(size: showsIcon ? 12 : 12.5, weight: .medium))
                 .foregroundStyle(showsIcon ? SW.Palette.textSecondary : SW.Palette.textPrimary)
-                .padding(.horizontal, SW.Space.sm)
+                .padding(.horizontal, showsIcon ? SW.Space.xs : 0)
                 .frame(height: 24)
         } else {
             Menu {
@@ -854,6 +885,7 @@ struct AddAccountMenu: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
+            .frame(height: 24)
             .tint(showsIcon ? SW.Palette.textSecondary : SW.Palette.textPrimary)
             .disabled(model.isReadOnly)
             .accessibilityLabel(title)

@@ -128,16 +128,19 @@ struct GuardPopoverView: View {
 
     /// The title never moves: the back button keeps its slot even on the step that has none.
     private func enrollmentHeader(_ phase: EnrollmentPhase) -> some View {
+        // Back navigates; a sign-in under way or stopped is ended with a named Cancel instead,
+        // because ending it also removes the unfinished account.
         let canGoBack: Bool = switch phase {
-        case .choose: true
+        case .choose, .connected: true
+        case .waiting, .problem: false
+        }
+        let canCancel: Bool = switch phase {
         case let .waiting(_, account, checking): account != nil && !checking
-        case .problem, .connected: true
+        case .problem: true
+        case .choose, .connected: false
         }
-        let backLabel: String = switch phase {
-        case .waiting, .problem: "Cancel sign-in"
-        case .connected: "Back to accounts"
-        default: "Back"
-        }
+        let backLabel = phase == .choose ? "Back" : "Back to accounts"
+        let title = phase.provider.map { "Add \($0.title) account" } ?? "Add account"
         return HStack(spacing: SW.Space.sm) {
             Button {
                 // From the result, back is the same as Done: the list, with the new account lit.
@@ -159,7 +162,7 @@ struct GuardPopoverView: View {
             .opacity(canGoBack ? 1 : 0)
             .disabled(!canGoBack)
             .accessibilityHidden(!canGoBack)
-            Text("Add account")
+            Text(title)
                 .font(.system(size: 13.5, weight: .semibold))
             Spacer(minLength: SW.Space.sm)
             if model.isPreview {
@@ -169,6 +172,14 @@ struct GuardPopoverView: View {
                     .padding(.horizontal, SW.Space.sm)
                     .padding(.vertical, SW.Space.xxs + 1)
                     .background(SW.Palette.surfaceRaised, in: Capsule())
+            }
+            if canCancel {
+                Button("Cancel") {
+                    if phase.account == nil { model.enrollmentBack() } else { model.cancelEnrollment() }
+                }
+                .buttonStyle(SWQuietButtonStyle())
+                .keyboardShortcut(.cancelAction)
+                .help("Stop this sign-in and remove the unfinished account")
             }
         }
         .padding(.leading, SW.Space.md)

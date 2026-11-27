@@ -405,7 +405,7 @@ extension GuardAppModel {
             try? await Task.sleep(for: .seconds(2.6))
             guard let self, self.signInState(for: ref) == .waiting else { return }
             self.lastCheckedAt = self.referenceDate ?? Date()
-            let email = ref.provider == .codex ? "sample@gmail.com" : "studio@example.com"
+            let email = ref.provider == .codex ? "sample@gmail.com" : "you@studio.example"
             switch ref.provider {
             case .codex:
                 if let index = self.profiles.firstIndex(where: { $0.id == raw }) {

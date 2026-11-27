@@ -144,7 +144,7 @@ enum PreviewFixtures {
                 profiles: [personalHealthy()],
                 claudeProfiles: [connectedClaude(
                     enrollingClaude(ID.studio, name: AccountNaming.provisionalName, hint: "Claude account"),
-                    email: "studio@example.com",
+                    email: "you@studio.example",
                     taken: []
                 )],
                 isPreview: true,
@@ -457,10 +457,12 @@ enum PreviewFixtures {
     // MARK: Accounts
 
     private static func personalHealthy() -> GuardProfilePresentation {
-        codex(
+        var profile = codex(
             ID.personal, "Personal", hint: "p•••@example.com", status: .healthy, detail: "Checked every 60 seconds.",
             record: codexRecord(ID.personal, session: 82, weekly: 61, weeklyResetHours: 144, saved: 2, expiresInDays: 14)
         )
+        profile.planName = "Plus"
+        return profile
     }
 
     private static func workHealthy() -> GuardProfilePresentation {

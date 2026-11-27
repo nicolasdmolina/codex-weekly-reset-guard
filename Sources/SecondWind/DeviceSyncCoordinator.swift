@@ -14,6 +14,9 @@ final class DeviceSyncCoordinator {
     private let locateFolder: @Sendable () -> DeviceSyncFolder?
     private var service: DeviceSyncService?
     private var loop: Task<Void, Never>?
+    /// Devices missing from the latest pass. One missed read (a placeholder, a busy file) keeps
+    /// the last snapshot on screen; a second drops it.
+    private var missedPasses: [SyncDeviceID: Int] = [:]
 
     init(
         model: GuardAppModel,
@@ -39,13 +42,27 @@ final class DeviceSyncCoordinator {
         guard enabled else {
             let service = self.service
             self.service = nil
+            missedPasses = [:]
             model?.remoteDevices = []
             model?.pendingRemoteCommands = [:]
             interface?.updateSyncStatus(.off)
-            // Withdraw this Mac's snapshot so the others stop listing a Mac that left.
-            Task { try? await service?.withdraw() }
+            // Withdraw this Mac's snapshot so the others stop listing a Mac that left, even when
+            // no pass has run yet this session.
+            let locate = locateFolder
+            let stateURL = stateURL
+            Task.detached {
+                if let service {
+                    try? await service.withdraw()
+                } else if let folder = locate(),
+                          let state = try? await SecureStateStore<DeviceSyncState>(fileURL: stateURL).load() {
+                    try? folder.removeSnapshot(for: state.deviceID)
+                }
+            }
             return
         }
+        // Remote low-quota notices need permission even on a Mac with no accounts of its own.
+        let alerts = alerts
+        Task { _ = await alerts.requestPermission() }
         loop = Task { [weak self] in
             while !Task.isCancelled {
                 await self?.pass()
@@ -120,15 +137,24 @@ final class DeviceSyncCoordinator {
     private func apply(_ pass: DeviceSyncPass) {
         guard let model else { return }
         let now = Date()
-        model.remoteDevices = pass.devices
+        let seen = Set(pass.devices.map(\.deviceID))
+        var devices = pass.devices
+        for previous in model.remoteDevices where !seen.contains(previous.deviceID) {
+            let missed = missedPasses[previous.deviceID, default: 0] + 1
+            missedPasses[previous.deviceID] = missed
+            if missed < 2 { devices.append(previous) }
+        }
+        for id in seen { missedPasses[id] = nil }
+        model.remoteDevices = devices
         model.pendingRemoteCommands = model.pendingRemoteCommands.filter { key, _ in
-            for device in pass.devices {
+            for device in devices {
                 for account in device.accounts where GuardAppModel.remoteKey(device: device.deviceID, account: account) == key {
                     return !model.remoteState(of: account, in: device, now: now).isSettled
                 }
             }
             return false
         }
+        // Alerts come only from what this pass actually read.
         for device in pass.devices where device.freshness(at: now).isLive {
             for account in device.accounts {
                 let reading = account.quotaRecord().reading(at: now, policy: .remote)

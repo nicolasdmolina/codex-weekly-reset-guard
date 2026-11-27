@@ -908,7 +908,7 @@ private struct RemoteAccountRow: View {
             return StatusPresentation(
                 symbol: "exclamationmark.triangle.fill",
                 title: "Not changed",
-                text: "\(device.deviceName) did not turn Auto-redeem \(onOff(enabled)). Try again.",
+                text: "\(device.deviceName) did not turn Auto-redeem \(onOff(enabled)).",
                 tone: .caution
             )
         case .live, .stale:

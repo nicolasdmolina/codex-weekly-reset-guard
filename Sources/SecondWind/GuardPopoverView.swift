@@ -410,16 +410,15 @@ struct GuardPopoverView: View {
 
 // MARK: - Brand
 
+/// The bare wind symbol, like the menu bar's own icon. Sized to the two-line title beside it:
+/// 22 pt medium pairs with the semibold title, in a 24 pt box whose left edge lines up with the
+/// cards below.
 private struct BrandMark: View {
     var body: some View {
-        RoundedRectangle(cornerRadius: SW.Radius.small, style: .continuous)
-            .fill(SW.Palette.accent.opacity(0.16))
-            .frame(width: 30, height: 30)
-            .overlay {
-                Image(systemName: "wind")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(SW.Palette.accent)
-            }
+        Image(systemName: "wind")
+            .font(.system(size: 22, weight: .medium))
+            .foregroundStyle(SW.Palette.textPrimary)
+            .frame(width: 24, height: 24)
             .accessibilityHidden(true)
     }
 }

@@ -9,15 +9,16 @@ spacing scale, radii 8/12/16 and motion at 175/280/410 ms. Tokens live in
 
 - An `NSStatusItem` with the `wind` symbol and the lowest headroom across all
   accounts. It switches to a warning triangle when an account needs attention.
-- A 380 × 560 pt popover: header (mark, name, one-line summary, check now),
-  scrolling content, footer (add account, last checked, ••• menu).
+- A 380 × 560 pt popover: header (the bare `wind` symbol in primary text, 22 pt
+  medium in a 24 pt box aligned with the cards' left edge; name; one-line summary;
+  check now), scrolling content, footer (add account, last checked, ••• menu).
 - Accounts are grouped by service in inset sections, one row per account, divided
   by hairlines. No nested cards.
 
 ## Colour
 
-- Teal (`#0A8274` light, `#3FD9C3` dark) is the only accent: primary buttons,
-  healthy meters, the brand mark.
+- Teal (`#0A8274` light, `#3FD9C3` dark) is the only accent: primary buttons and
+  healthy meters.
 - Amber means near a limit. Coral means the user must act. Neither is decorative.
 - Every status pairs its colour with an SF Symbol and text.
 - Canvas, surface and raised surface are neutral greys; secondary text stays

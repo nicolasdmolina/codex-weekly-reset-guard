@@ -1,5 +1,27 @@
 # Release verification
 
+## 0.3.3, November 27, 2026 (UTC)
+
+The macOS check that caught the Claude command crash passed on commit
+`eea7bbd7e9d8bb2fd45de470d43f2ae3e2b6c5c4`. All 337 tests passed locally.
+GitHub built the Mac and source ZIPs from that commit. Both public downloads
+matched their SHA-256 checksums and the build attestation.
+[Mac check](https://github.com/nicolasdmolina/codex-weekly-reset-guard/actions/runs/45940153073) ·
+[Release files](https://github.com/nicolasdmolina/codex-weekly-reset-guard/releases/tag/v0.3.3) ·
+[Build run](https://github.com/nicolasdmolina/codex-weekly-reset-guard/actions/runs/45940180099) ·
+[Build attestation](https://github.com/nicolasdmolina/codex-weekly-reset-guard/attestations/72941336).
+
+| File | SHA-256 |
+| --- | --- |
+| `Second-Wind-0.3.3-mac.zip` | `78b7a8eca53a8eae6508336471e0612cf0a0a82a1a52423b66f2d21ef1a8c34a` |
+| `Second-Wind-0.3.3-source.zip` | `8aa1ae9b146a833bd6845e2277bc566217661351485924bfb7361a2a3afde437` |
+
+The downloaded app reported version 0.3.3, build 6. Its self-test passed on
+Apple silicon and under Rosetta for Intel. The pre-job check returned 0 for
+sufficient quota, 10 for low quota, and 11 for a missing reading. All four live
+screenshots matched the app’s renders pixel for pixel. Rebuilding the social
+preview from its overview also reproduced the live image.
+
 ## 0.3.2, November 27, 2026 (UTC)
 
 GitHub built the Mac and source ZIPs from `cd8183cd9984e009e2d49a943057b7a286d18657`.

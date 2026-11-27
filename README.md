@@ -144,17 +144,19 @@ its row. Each account's options menu also lets you rename or remove it.
 
 ## Check quota before a job
 
-To require at least 20% of a Codex session and 30% of the week before starting
-work, run the app's executable:
+Choose **Copy pre-job check** from an account’s options menu to get the command
+for that account and your installed copy of Second Wind. With one Codex account
+and the Mac download in Applications, this command checks for at least 20% of
+the session and 30% of the week before starting work.
 
 ```sh
-"$HOME/Applications/Second Wind.app/Contents/MacOS/SecondWind" --preflight --provider codex --session 20 --weekly 30
+"/Applications/Second Wind.app/Contents/MacOS/SecondWind" --preflight --provider codex --session 20 --weekly 30
 ```
 
-The check reads the latest local snapshot. It works while the menu app is
-running and does not start a model session or use a saved reset. To select a
-specific account, choose **Copy pre-job check** from its options menu. You can
-change the percentages and add `--json` for a script.
+The source installer puts the app under `$HOME/Applications`. The menu app
+refreshes the local snapshot. The command reads it without starting a model
+session or spending a saved reset. You can change the percentages and add
+`--json` for a script.
 
 An exit code of `0` means the current reading meets your thresholds. Code
 `10` means quota is low or Codex says usage is blocked. Code `11` means the

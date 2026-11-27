@@ -14,6 +14,13 @@ spacing scale, radii 8/12/16 and motion at 175/280/410 ms. Tokens live in
   check now), scrolling content, footer (add account, last checked, ••• menu).
 - Accounts are grouped by service in inset sections, one row per account, divided
   by hairlines. No nested cards.
+- An account row: the service tile (its own mark), the name, plan and ••• menu, and
+  under them the email with the reading's age when all is well ("· updated just
+  now", shortened to fit). The headline figure sits on the right ("54% weekly
+  left"), then the limit meters. A status line appears only when there is
+  something to say or do. Codex rows end in a footer under a hairline: saved
+  resets on the left (dates one click away, the next one shown when it is within
+  two days) and the Auto-redeem switch on the right.
 
 ## Colour
 

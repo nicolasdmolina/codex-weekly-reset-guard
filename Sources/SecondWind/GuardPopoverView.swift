@@ -507,6 +507,8 @@ private struct AccountRow<Details: View, Actions: View>: View {
     let isStaticRender: Bool
     let isReadOnly: Bool
     let now: Date
+    /// The details sit in a footer under a hairline: saved resets and Auto-redeem on one line.
+    var hasFooter = false
     @ViewBuilder var details: Details
     @ViewBuilder var actions: Actions
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -520,49 +522,65 @@ private struct AccountRow<Details: View, Actions: View>: View {
     private var isHighlighted: Bool { ref != nil && interface.highlighted == ref }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: SW.Space.sm + 2) {
-            heading
-            if case .renaming = editor { feedback }
-            if case .confirmingRemoval = editor {
-                RemovalConfirmation(
-                    name: name,
-                    provider: provider,
-                    keepsResetRecord: ref.map { interface.removalKeepsResetRecord(for: $0) } ?? false,
-                    isBusy: isBusy,
-                    onCancel: { interface.cancelEditing() },
-                    onRemove: { if let ref { interface.remove(ref, displayName: name) } }
-                )
-            } else {
-                if !quota.windows.isEmpty {
-                    VStack(spacing: SW.Space.sm - 1) {
-                        ForEach(quota.windows) { window in
-                            WindowRow(
-                                window: window,
-                                convention: interface.preferences.quota,
-                                resetStyle: interface.preferences.resetTimes,
-                                now: now,
-                                isStatic: isStaticRender,
-                                onToggleStyle: { interface.toggleResetTimeStyle() }
-                            )
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: SW.Space.sm + 2) {
+                heading
+                if case .renaming = editor { feedback }
+                if isConfirmingRemoval {
+                    RemovalConfirmation(
+                        name: name,
+                        provider: provider,
+                        keepsResetRecord: ref.map { interface.removalKeepsResetRecord(for: $0) } ?? false,
+                        isBusy: isBusy,
+                        onCancel: { interface.cancelEditing() },
+                        onRemove: { if let ref { interface.remove(ref, displayName: name) } }
+                    )
+                } else {
+                    if !quota.windows.isEmpty {
+                        VStack(spacing: SW.Space.sm - 1) {
+                            ForEach(quota.windows) { window in
+                                WindowRow(
+                                    window: window,
+                                    convention: interface.preferences.quota,
+                                    resetStyle: interface.preferences.resetTimes,
+                                    now: now,
+                                    isStatic: isStaticRender,
+                                    onToggleStyle: { interface.toggleResetTimeStyle() }
+                                )
+                            }
+                        }
+                    }
+                    if !hasFooter { details }
+                    // All well: the age is already under the name, so no status line repeats it.
+                    if status.routineAge == nil {
+                        HStack(alignment: .center, spacing: SW.Space.sm) {
+                            StatusLine(symbol: status.symbol, text: status.text, tone: status.tone, age: status.age)
+                            Spacer(minLength: SW.Space.xs)
+                            actions
                         }
                     }
                 }
-                details
-                HStack(alignment: .center, spacing: SW.Space.sm) {
-                    StatusLine(symbol: status.symbol, text: status.text, tone: status.tone, age: status.age)
-                    Spacer(minLength: SW.Space.xs)
-                    actions
-                }
+                if !isRenaming { feedback }
             }
-            if !isRenaming { feedback }
+            .padding(SW.Space.md)
+            if hasFooter && !isConfirmingRemoval {
+                Rectangle().fill(SW.Palette.hairline).frame(height: 1)
+                details
+                    .padding(.horizontal, SW.Space.md)
+                    .padding(.vertical, SW.Space.sm)
+            }
         }
-        .padding(SW.Space.md)
         .background(SW.Palette.accent.opacity(isHighlighted ? 0.10 : 0))
         .animation(SW.Motion.easeOut(SW.Motion.slow, reduceMotion: reduceMotion || isStaticRender), value: isHighlighted)
         .contextMenu { if !isStaticRender { menuItems } }
         .id(ref)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(name), \(provider.title), \(status.title)")
+    }
+
+    private var isConfirmingRemoval: Bool {
+        if case .confirmingRemoval = editor { return true }
+        return false
     }
 
     private var isRenaming: Bool {
@@ -586,7 +604,8 @@ private struct AccountRow<Details: View, Actions: View>: View {
         if case .renaming = editor {
             renameHeading
         } else {
-            HStack(alignment: .top, spacing: SW.Space.sm) {
+            HStack(alignment: .center, spacing: SW.Space.sm + 2) {
+                ServiceTile(provider: provider, size: 32)
                 VStack(alignment: .leading, spacing: SW.Space.xxs) {
                     HStack(spacing: SW.Space.xs + 2) {
                         Text(name)
@@ -598,14 +617,16 @@ private struct AccountRow<Details: View, Actions: View>: View {
                                 .foregroundStyle(SW.Palette.textSecondary)
                                 .padding(.horizontal, SW.Space.xs + 1)
                                 .padding(.vertical, 1)
-                                .overlay(Capsule().strokeBorder(SW.Palette.hairline))
+                                .overlay(Capsule().strokeBorder(SW.Palette.fieldBorder))
                         }
                         accountMenu
                     }
-                    Text(hint)
-                        .font(.system(size: 11))
-                        .foregroundStyle(SW.Palette.textSecondary)
-                        .lineLimit(1)
+                    // The email always shows whole; the reading's age shortens to fit beside it.
+                    ViewThatFits(in: .horizontal) {
+                        subtitle(age: status.routineAge)
+                        subtitle(age: status.routineAge.map { $0.replacingOccurrences(of: "updated ", with: "") })
+                        subtitle(age: nil)
+                    }
                 }
                 Spacer(minLength: SW.Space.sm)
                 if let headline = quota.headline, let remaining = headline.remaining {
@@ -619,6 +640,14 @@ private struct AccountRow<Details: View, Actions: View>: View {
                 }
             }
         }
+    }
+
+    private func subtitle(age: String?) -> some View {
+        (Text(hint).foregroundStyle(SW.Palette.textSecondary)
+            + Text(age.map { " · \($0)" } ?? "").foregroundStyle(SW.Palette.textTertiary))
+            .font(.system(size: 11))
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
     }
 
     private var renameHeading: some View {
@@ -699,6 +728,9 @@ struct StatusPresentation {
     let tone: SWTone
     /// How old the reading is, drawn quieter than the message so it never dangles on its own line.
     var age: String? = nil
+    /// Set when all is well: the card folds this ("updated 2 min ago") into the line under the
+    /// name and shows no status line.
+    var routineAge: String? = nil
 }
 
 private struct CodexAccountRow: View {
@@ -723,19 +755,24 @@ private struct CodexAccountRow: View {
             interface: interface,
             isStaticRender: isStaticRender,
             isReadOnly: isReadOnly,
-            now: now
+            now: now,
+            hasFooter: quota.inventory != nil || showsAutoRedeem
         ) {
-            if let inventory = quota.inventory {
-                InventoryLine(
-                    inventory: inventory,
-                    now: now,
-                    isExpanded: ref.map { interface.expandedInventories.contains($0) } ?? false,
-                    isStatic: isStaticRender,
-                    onToggle: { if let ref { interface.toggleInventoryDetail(ref) } }
-                )
-            }
-            if profile.isConnected || profile.autoResetEnabled {
-                autoRedeem
+            // One footer line: saved resets on the left, the Auto-redeem switch on the right.
+            HStack(alignment: .top, spacing: SW.Space.sm) {
+                if let inventory = quota.inventory {
+                    InventoryLine(
+                        inventory: inventory,
+                        now: now,
+                        isExpanded: ref.map { interface.expandedInventories.contains($0) } ?? false,
+                        isStatic: isStaticRender,
+                        isCompact: true,
+                        onToggle: { if let ref { interface.toggleInventoryDetail(ref) } }
+                    )
+                } else {
+                    Spacer(minLength: 0)
+                }
+                if showsAutoRedeem { autoRedeem }
             }
         } actions: {
             if !profile.isConnected && !isReadOnly {
@@ -746,14 +783,14 @@ private struct CodexAccountRow: View {
     }
 
     private var ref: AccountRef? { AccountRef(provider: .codex, rawID: profile.id) }
+    private var showsAutoRedeem: Bool { profile.isConnected || profile.autoResetEnabled }
 
-    /// A labelled row like the windows above it, so the switch never floats on its own.
+    /// The label sits right beside its switch, so the switch never floats on its own.
     private var autoRedeem: some View {
-        HStack(spacing: SW.Space.sm) {
+        HStack(spacing: SW.Space.xs + 2) {
             Text("Auto-redeem")
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(SW.Palette.textSecondary)
-            Spacer(minLength: SW.Space.sm)
             if isStaticRender {
                 StaticToggle(isOn: profile.autoResetEnabled, label: "Auto-redeem")
             } else {
@@ -941,7 +978,8 @@ enum StatusComposer {
                 title: title,
                 text: isRoutine ? "\(title) · updated \(age)" : sentence(base),
                 tone: tone,
-                age: isRoutine ? nil : "updated \(age)"
+                age: isRoutine ? nil : "updated \(age)",
+                routineAge: isRoutine ? "updated \(age)" : nil
             )
         case let .stale(date):
             guard tone != .critical else { break }
@@ -997,7 +1035,7 @@ private struct HeadlineFigure: View {
                 .monospacedDigit()
                 .foregroundStyle(figureColor)
                 .contentTransition(.numericText(value: Double(percent)))
-            Text("\(convention.word) · \(label.lowercased())")
+            Text("\(label.lowercased()) \(convention.word)")
                 .font(.system(size: 10.5))
                 .foregroundStyle(SW.Palette.textTertiary)
         }
@@ -1122,12 +1160,22 @@ private struct InventoryLine: View {
     let now: Date
     let isExpanded: Bool
     let isStatic: Bool
+    /// Footer form: the count alone, plus the next expiry only when it is within two days. The
+    /// full list of dates stays one click away.
+    var isCompact = false
     let onToggle: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// The footer form leaves dates out of the line, so any reported date is worth a click.
+    private var canExpand: Bool {
+        guard isCompact else { return inventory.hasDetail }
+        guard case let .known(count, _, datesReported, _, _) = inventory else { return false }
+        return datesReported && count > 0
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: SW.Space.xs + 1) {
-            if inventory.hasDetail && !isStatic {
+            if canExpand && !isStatic {
                 Button(action: onToggle) { summary.contentShape(Rectangle()) }
                     .buttonStyle(.plain)
                     .help(isExpanded ? "Hide expiry dates" : "Show every expiry date")
@@ -1136,7 +1184,7 @@ private struct InventoryLine: View {
             } else {
                 summary
             }
-            if isExpanded && inventory.hasDetail {
+            if isExpanded && canExpand {
                 detail
                     .transition(.opacity)
             }
@@ -1150,7 +1198,7 @@ private struct InventoryLine: View {
                 .foregroundStyle(SW.Palette.textTertiary)
             Text(text)
                 .fixedSize(horizontal: false, vertical: true)
-            if inventory.hasDetail {
+            if canExpand {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 8.5, weight: .bold))
                     .foregroundStyle(SW.Palette.textTertiary)
@@ -1205,11 +1253,18 @@ private struct InventoryLine: View {
                 parts.append("No saved resets")
             } else {
                 parts.append(count == 1 ? "1 saved reset" : "\(count) saved resets")
-                parts.append(expiryPhrase(count: count, listed: listed, datesReported: datesReported))
+                if !isCompact || expiresSoon(listed) {
+                    parts.append(expiryPhrase(count: count, listed: listed, datesReported: datesReported))
+                }
             }
             if !isCurrent { parts.append("checked \(QuotaTimeFormat.age(of: checkedAt, reference: now))") }
             return parts.joined(separator: " · ")
         }
+    }
+
+    private func expiresSoon(_ listed: [InventoryDisplay.Expiry]) -> Bool {
+        guard case let .on(date)? = listed.first else { return false }
+        return date.timeIntervalSince(now) < 2 * 86_400
     }
 
     /// "next expires" only when every reset is listed; otherwise "one expires", which stays true

@@ -1,3 +1,4 @@
+import Darwin
 import Foundation
 import Testing
 @testable import SecondWindCore
@@ -117,7 +118,7 @@ private final class Counter: @unchecked Sendable {
     let handled = try #require(try await pair.host.run())
     #expect(handled.decisions == [.apply(profileID: workID, enabled: true)])
     #expect(await pair.fake.applied.map(\.0) == [workID])
-    #expect(pair.shared.commands(for: hostID).isEmpty)
+    #expect(try pair.shared.commands(for: hostID).isEmpty)
 
     pair.clock.advance(5)
     let acknowledged = try #require(try await pair.viewer.run()).devices[0]
@@ -131,7 +132,7 @@ private final class Counter: @unchecked Sendable {
     let replay = try #require(try await pair.host.run())
     #expect(replay.decisions == [.reject(.alreadyApplied)])
     #expect(await pair.fake.applied.count == 1)
-    #expect(pair.shared.commands(for: hostID).isEmpty)
+    #expect(try pair.shared.commands(for: hostID).isEmpty)
     #expect(pair.viewerApplied() == 0)
 }
 
@@ -153,7 +154,7 @@ private final class Counter: @unchecked Sendable {
         appliedCommandIDs: []
     ))
 
-    let expired = RemoteCommand(issuedBy: viewerID, issuedAt: start.addingTimeInterval(-11 * 60), action: .setAutoRedeem(profileID: workID, enabled: false))
+    let expired = RemoteCommand(issuedBy: viewerID, issuedAt: start.addingTimeInterval(-31 * 60), action: .setAutoRedeem(profileID: workID, enabled: false))
     let unknown = RemoteCommand(issuedBy: viewerID, issuedAt: start, action: .setAutoRedeem(profileID: UUID(), enabled: true))
     let conflict = RemoteCommand(issuedBy: viewerID, issuedAt: start, action: .setAutoRedeem(profileID: workID, enabled: true))
     for command in [expired, unknown, conflict] { try pair.shared.send(command, to: hostID) }
@@ -168,7 +169,7 @@ private final class Counter: @unchecked Sendable {
         .reject(.autoRedeemOnElsewhere(deviceName: "Studio iMac")),
     ].map { "\($0)" }))
     #expect(await pair.fake.applied.isEmpty)
-    #expect(pair.shared.commands(for: hostID).isEmpty)
+    #expect(try pair.shared.commands(for: hostID).isEmpty)
 
     // Rejections are acknowledged too, so the sender stops waiting at once.
     let seen = try #require(try await pair.viewer.run()).devices.first { $0.deviceID == hostID }
@@ -196,8 +197,33 @@ private final class Counter: @unchecked Sendable {
     newer.schemaVersion = DeviceSnapshot.currentSchemaVersion + 1
     try folder.publish(newer)
 
-    #expect(folder.readSnapshots(excluding: me).map(\.deviceID) == [other])
+    #expect(try folder.readSnapshots(excluding: me).map(\.deviceID) == [other])
     try folder.removeSnapshot(for: other)
     try folder.removeSnapshot(for: other)
-    #expect(folder.readSnapshots(excluding: me).isEmpty)
+    #expect(try folder.readSnapshots(excluding: me).isEmpty)
+}
+
+@Test(arguments: ["devices", "commands"])
+func unreadableSyncFolderFailsThePassInsteadOfLookingSynced(_ blocked: String) async throws {
+    let pair = try makePair()
+    let hostID = try await pair.host.deviceID()
+    _ = try await pair.host.run()
+    let directory = blocked == "devices"
+        ? pair.shared.root.appendingPathComponent("devices")
+        : pair.shared.root.appendingPathComponent("commands/\(hostID)")
+    #expect(chmod(directory.path, 0o000) == 0)
+    defer { _ = chmod(directory.path, 0o700) }
+
+    await #expect(throws: (any Error).self) { try await pair.host.run() }
+    #expect(await pair.fake.applied.isEmpty)
+}
+
+@Test func hostCreatesItsCommandFolderBeforeAnyoneSends() async throws {
+    let pair = try makePair()
+    let hostID = try await pair.host.deviceID()
+    let inbox = pair.shared.root.appendingPathComponent("commands/\(hostID)")
+    #expect(!FileManager.default.fileExists(atPath: inbox.path))
+    let pass = try #require(try await pair.host.run())
+    #expect(FileManager.default.fileExists(atPath: inbox.path))
+    #expect(pass.commandsListed == 0 && pass.commandsDecoded == 0)
 }

@@ -1823,6 +1823,7 @@ actor GuardRuntimeController {
         case .redemptionFailed: "Blocked saved weekly reset safely"
         case .verificationFailed: "Weekly reset verification needs attention"
         case .authenticationRequired: "Fresh Codex sign-in required"
+        case .syncPass: "Synced with your other Macs"
         }
     }
 

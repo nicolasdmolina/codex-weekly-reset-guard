@@ -12,6 +12,7 @@ final class DeviceSyncCoordinator {
     private let alerts: AlertRouter
     private let stateURL: URL
     private let locateFolder: @Sendable () -> DeviceSyncFolder?
+    private let log: RedactedEventLog?
     private var service: DeviceSyncService?
     private var loop: Task<Void, Never>?
     /// Devices missing from the latest pass. One missed read (a placeholder, a busy file) keeps
@@ -23,8 +24,10 @@ final class DeviceSyncCoordinator {
         interface: GuardInterfaceModel,
         alerts: AlertRouter,
         stateURL: URL,
+        log: RedactedEventLog? = nil,
         locateFolder: @escaping @Sendable () -> DeviceSyncFolder? = { DeviceSyncFolder.iCloud() }
     ) {
+        self.log = log
         self.model = model
         self.interface = interface
         self.alerts = alerts
@@ -95,12 +98,15 @@ final class DeviceSyncCoordinator {
         }
     }
 
-    private func pass() async {
+    static let unreadableMessage = "Second Wind can't read iCloud Drive on this Mac. It keeps trying."
+
+    func pass() async {
         guard let interface, interface.syncEnabled else { return }
         // Until both providers have answered, an empty roster would reject commands for real accounts.
         guard !interface.providerStates.values.contains(.loading) else { return }
         guard let service = await makeService() else {
             interface.updateSyncStatus(.unavailable)
+            await record(["result": "unavailable"])
             return
         }
         do {
@@ -108,8 +114,39 @@ final class DeviceSyncCoordinator {
             guard interface.syncEnabled, self.service === service else { return }
             apply(result)
             interface.updateSyncStatus(.on)
+            await record([
+                "result": "ok",
+                "devices": String(result.devices.count),
+                "commandsListed": String(result.commandsListed),
+                "commandsDecoded": String(result.commandsDecoded),
+                "decisions": result.decisions.map(Self.describe).joined(separator: ","),
+            ])
         } catch {
-            interface.updateSyncStatus(.failed("Could not reach iCloud Drive. Second Wind keeps trying."))
+            interface.updateSyncStatus(.failed(Self.unreadableMessage))
+            let error = error as NSError
+            await record(["result": "failed", "errorDomain": error.domain, "errorCode": String(error.code)])
+        }
+    }
+
+    /// One redacted line per pass for diagnosing sync on a Mac without its screen: counts,
+    /// decision kinds and error codes only, never names, emails or identifiers.
+    private func record(_ fields: [String: String]) async {
+        _ = try? await log?.append(profileID: nil, kind: .syncPass, fields: fields)
+    }
+
+    static func describe(_ decision: CommandDecision) -> String {
+        switch decision {
+        case let .apply(_, enabled): enabled ? "apply:on" : "apply:off"
+        case let .reject(reason):
+            switch reason {
+            case .alreadyApplied: "reject:alreadyApplied"
+            case .issuedBySelf: "reject:issuedBySelf"
+            case .expired: "reject:expired"
+            case .issuedInFuture: "reject:issuedInFuture"
+            case .unknownProfile: "reject:unknownProfile"
+            case .unsupportedProfile: "reject:unsupportedProfile"
+            case .autoRedeemOnElsewhere: "reject:autoRedeemOnElsewhere"
+            }
         }
     }
 

@@ -4,6 +4,8 @@ import Foundation
 /// Every read and write is coordinated so iCloud Drive never sees a half-written file. Files
 /// synced from another Mac keep that Mac's permissions, so this does not use the private-file
 /// checks that local state requires; it only refuses links, oversized files and bad JSON.
+/// A missing folder or file reads as empty. Any other failure to list or read throws, so a Mac
+/// that cannot see the folder reports it instead of looking synced.
 public struct DeviceSyncFolder: Sendable {
     public static let maximumFileBytes = 256 * 1_024
 
@@ -45,12 +47,12 @@ public struct DeviceSyncFolder: Sendable {
     }
 
     /// Every other device's readable snapshot. A file must be named for the device it describes.
-    public func readSnapshots(excluding device: SyncDeviceID) -> [DeviceSnapshot] {
-        files(in: devicesDirectory).compactMap { url -> DeviceSnapshot? in
+    public func readSnapshots(excluding device: SyncDeviceID) throws -> [DeviceSnapshot] {
+        try files(in: devicesDirectory).compactMap { url -> DeviceSnapshot? in
             guard url.pathExtension == "json",
                   let named = SyncDeviceID(string: url.deletingPathExtension().lastPathComponent),
                   named != device,
-                  let snapshot = read(DeviceSnapshot.self, at: url),
+                  case let .value(snapshot)? = try read(DeviceSnapshot.self, at: url),
                   snapshot.deviceID == named,
                   snapshot.schemaVersion <= DeviceSnapshot.currentSchemaVersion
             else { return nil }
@@ -65,20 +67,34 @@ public struct DeviceSyncFolder: Sendable {
 
     // MARK: Commands
 
+    /// Creates this device's command folder ahead of time, so a sender writes into a folder
+    /// iCloud Drive has already synced instead of creating a new one.
+    public func prepareInbox(for device: SyncDeviceID) throws {
+        try FileManager.default.createDirectory(at: commandsDirectory(for: device), withIntermediateDirectories: true)
+    }
+
     public func send(_ command: RemoteCommand, to device: SyncDeviceID) throws {
         let url = commandsDirectory(for: device)
             .appendingPathComponent("\(command.id.uuidString.lowercased()).json", isDirectory: false)
         try write(command, to: url)
     }
 
-    /// Command files addressed to `device`, each with its command or nil when it cannot be read.
-    public func commands(for device: SyncDeviceID) -> [(url: URL, command: RemoteCommand?)] {
-        files(in: commandsDirectory(for: device))
+    /// Command files addressed to `device`, each with its command or nil when the file is not a
+    /// valid command. A file that vanished between listing and reading is left out.
+    public func commands(for device: SyncDeviceID) throws -> [(url: URL, command: RemoteCommand?)] {
+        try files(in: commandsDirectory(for: device))
             .filter { $0.pathExtension == "json" }
-            .map { url in
-                let command = read(RemoteCommand.self, at: url)
-                // A command whose name and id disagree was not written by Second Wind.
-                return (url, command.flatMap { $0.id == UUID(uuidString: url.deletingPathExtension().lastPathComponent) ? $0 : nil })
+            .compactMap { url in
+                switch try read(RemoteCommand.self, at: url) {
+                case nil:
+                    return nil
+                case .invalid:
+                    return (url, nil)
+                case let .value(command):
+                    // A command whose name and id disagree was not written by Second Wind.
+                    let named = UUID(uuidString: url.deletingPathExtension().lastPathComponent)
+                    return (url, command.id == named ? command : nil)
+                }
             }
     }
 
@@ -104,13 +120,30 @@ public struct DeviceSyncFolder: Sendable {
 
     /// Regular files in `directory`. A `.name.icloud` placeholder starts its download and is
     /// read on a later pass.
-    private func files(in directory: URL) -> [URL] {
+    private func files(in directory: URL) throws -> [URL] {
         let keys: [URLResourceKey] = [.isRegularFileKey, .isSymbolicLinkKey]
-        guard let entries = try? FileManager.default.contentsOfDirectory(
-            at: directory,
-            includingPropertiesForKeys: keys,
-            options: []
-        ) else { return [] }
+        var entries: [URL] = []
+        var listError: Error?
+        var coordinationError: NSError?
+        NSFileCoordinator(filePresenter: nil).coordinate(
+            readingItemAt: directory,
+            options: [],
+            error: &coordinationError
+        ) { directory in
+            do {
+                entries = try FileManager.default.contentsOfDirectory(
+                    at: directory,
+                    includingPropertiesForKeys: keys,
+                    options: []
+                )
+            } catch {
+                listError = error
+            }
+        }
+        if let error = coordinationError ?? listError {
+            if Self.isMissing(error) { return [] }
+            throw error
+        }
         var result: [URL] = []
         for url in entries {
             let name = url.lastPathComponent
@@ -131,20 +164,54 @@ public struct DeviceSyncFolder: Sendable {
         return result.sorted { $0.lastPathComponent < $1.lastPathComponent }
     }
 
-    private func read<Value: Decodable>(_ type: Value.Type, at url: URL) -> Value? {
+    private enum ReadResult<Value> {
+        case value(Value)
+        /// Readable but too large or not the expected JSON.
+        case invalid
+    }
+
+    /// nil when the file is gone; throws when it exists but cannot be read.
+    private func read<Value: Decodable>(_ type: Value.Type, at url: URL) throws -> ReadResult<Value>? {
         var data: Data?
+        var tooLarge = false
+        var readError: Error?
         var coordinationError: NSError?
         NSFileCoordinator(filePresenter: nil).coordinate(
             readingItemAt: url,
             options: [],
             error: &coordinationError
         ) { url in
-            guard let size = try? url.resourceValues(forKeys: [.fileSizeKey]).fileSize,
-                  size <= Self.maximumFileBytes else { return }
-            data = try? Data(contentsOf: url)
+            do {
+                let size = try url.resourceValues(forKeys: [.fileSizeKey]).fileSize ?? 0
+                guard size <= Self.maximumFileBytes else {
+                    tooLarge = true
+                    return
+                }
+                data = try Data(contentsOf: url)
+            } catch {
+                readError = error
+            }
         }
-        guard coordinationError == nil, let data, data.count <= Self.maximumFileBytes else { return nil }
-        return try? Self.decoder.decode(Value.self, from: data)
+        if let error = coordinationError ?? readError {
+            if Self.isMissing(error) { return nil }
+            throw error
+        }
+        guard !tooLarge, let data, data.count <= Self.maximumFileBytes,
+              let value = try? Self.decoder.decode(Value.self, from: data)
+        else { return .invalid }
+        return .value(value)
+    }
+
+    static func isMissing(_ error: Error) -> Bool {
+        let error = error as NSError
+        switch error.domain {
+        case NSCocoaErrorDomain:
+            return error.code == NSFileNoSuchFileError || error.code == NSFileReadNoSuchFileError
+        case NSPOSIXErrorDomain:
+            return error.code == Int(ENOENT)
+        default:
+            return false
+        }
     }
 
     private func write<Value: Encodable>(_ value: Value, to url: URL) throws {

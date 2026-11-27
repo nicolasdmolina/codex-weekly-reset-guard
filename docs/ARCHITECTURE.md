@@ -69,17 +69,23 @@ neither reads nor writes the shared folder. Turning it off removes this Mac's
 snapshot. The shared folder is `Second Wind/` in iCloud Drive. Every read and
 write goes through `NSFileCoordinator`. A `.name.icloud` placeholder starts its
 download and is read on a later pass. Passes run every 30 seconds and whenever
-the popover opens.
+the popover opens. A missing folder or file reads as empty. Any other listing or
+read failure fails the pass, and Settings says iCloud Drive cannot be read. Each
+pass appends one redacted `syncPass` record to `sync-events.json`, with counts,
+decision kinds and any error domain and code.
 
 - `devices/<deviceID>.json` is a `DeviceSnapshot`, written only by the Mac it
   describes. It holds each account's name, email, windows, saved-reset count,
   Codex Auto-redeem setting and any attention message, plus up to 50 handled
   command IDs. It holds no tokens, file paths or idempotency keys.
 - `commands/<target>/<commandID>.json` is one `RemoteCommand`. The only action
-  is `setAutoRedeem(profileID, enabled)`, an absolute state.
+  is `setAutoRedeem(profileID, enabled)`, an absolute state. Each Mac creates its
+  own command folder on every pass, so senders write into a folder iCloud Drive
+  has already synced.
 
 A host records a command's ID before acting on it, so a command is applied at
-most once even across a crash. It refuses commands older than 10 minutes, from
+most once even across a crash. It refuses commands older than 30 minutes, which
+leaves time for iCloud Drive to deliver them, and commands from
 the future, for an unknown or Claude profile, and enables for an email that
 another Mac's current snapshot already redeems. An accepted command calls the
 same function as the local Auto-redeem switch. The policy engine, its fail-closed

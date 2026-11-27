@@ -140,8 +140,8 @@ private func command(_ enabled: Bool, profile: UUID = workID, issuedAt: Date = n
 
     // A host that never answers stops the wait once the command could no longer be applied.
     let silent = snapshot(mini, publishedAt: now.addingTimeInterval(-20), accounts: [codexAccount()])
-    #expect(RemoteAccountState.classify(account: silent.accounts[0], in: silent, pending: pending, now: now.addingTimeInterval(11 * 60)) == .pending(enabled: true))
-    #expect(RemoteAccountState.classify(account: silent.accounts[0], in: silent, pending: pending, now: now.addingTimeInterval(13 * 60)) == .notApplied(enabled: true))
+    #expect(RemoteAccountState.classify(account: silent.accounts[0], in: silent, pending: pending, now: now.addingTimeInterval(31 * 60)) == .pending(enabled: true))
+    #expect(RemoteAccountState.classify(account: silent.accounts[0], in: silent, pending: pending, now: now.addingTimeInterval(33 * 60)) == .notApplied(enabled: true))
 
     #expect(RemoteAccountState.classify(account: silent.accounts[0], in: silent, pending: nil, now: now.addingTimeInterval(20 * 60)) == .stale(age: 1_220))
 }
@@ -181,8 +181,11 @@ private func command(_ enabled: Bool, profile: UUID = workID, issuedAt: Date = n
 @Test func hostRejectsStaleAndFutureCommands() {
     let accounts = [codexAccount()]
     #expect(RemoteCommandPolicy.decide(
-        command(true, issuedAt: now.addingTimeInterval(-11 * 60)), host: mini, hostAccounts: accounts, handledCommandIDs: [], otherDevices: [], now: now
+        command(true, issuedAt: now.addingTimeInterval(-31 * 60)), host: mini, hostAccounts: accounts, handledCommandIDs: [], otherDevices: [], now: now
     ) == .reject(.expired))
+    #expect(RemoteCommandPolicy.decide(
+        command(true, issuedAt: now.addingTimeInterval(-29 * 60)), host: mini, hostAccounts: accounts, handledCommandIDs: [], otherDevices: [], now: now
+    ) == .apply(profileID: workID, enabled: true))
     #expect(RemoteCommandPolicy.decide(
         command(true, issuedAt: now.addingTimeInterval(5 * 60)), host: mini, hostAccounts: accounts, handledCommandIDs: [], otherDevices: [], now: now
     ) == .reject(.issuedInFuture))

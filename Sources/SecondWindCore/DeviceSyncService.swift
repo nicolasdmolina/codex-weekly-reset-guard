@@ -25,6 +25,9 @@ public struct DeviceSyncPass: Equatable, Sendable {
     public var deviceID: SyncDeviceID
     /// Other Macs' snapshots, newest-forgotten ones left out.
     public var devices: [DeviceSnapshot]
+    /// Files found in this Mac's command folder, and how many of them were valid commands.
+    public var commandsListed: Int
+    public var commandsDecoded: Int
     public var decisions: [CommandDecision]
 }
 
@@ -73,12 +76,13 @@ public actor DeviceSyncService {
 
         var state = try await loadState()
         let device = state.deviceID
-        let devices = folder.readSnapshots(excluding: device).filter {
+        let devices = try folder.readSnapshots(excluding: device).filter {
             now().timeIntervalSince($0.publishedAt) < DeviceSyncPolicy.forgetDeviceAfter
         }
 
+        try folder.prepareInbox(for: device)
         var decisions: [CommandDecision] = []
-        let pending = folder.commands(for: device)
+        let pending = try folder.commands(for: device)
         if !pending.isEmpty {
             let accounts = await localAccounts()
             for (url, command) in pending {
@@ -117,7 +121,13 @@ public actor DeviceSyncService {
         )
         guard !isWithdrawn else { return nil }
         try folder.publish(snapshot)
-        return DeviceSyncPass(deviceID: device, devices: devices, decisions: decisions)
+        return DeviceSyncPass(
+            deviceID: device,
+            devices: devices,
+            commandsListed: pending.count,
+            commandsDecoded: pending.filter { $0.command != nil }.count,
+            decisions: decisions
+        )
     }
 
     /// Writes a command for `target` and returns what the sender should wait for.

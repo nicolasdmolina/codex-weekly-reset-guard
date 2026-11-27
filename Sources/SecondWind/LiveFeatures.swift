@@ -59,7 +59,11 @@ func connectLiveFeatures(
         model: model,
         interface: interface,
         alerts: alerts,
-        stateURL: supportDirectory.appendingPathComponent("sync-state.json", isDirectory: false)
+        stateURL: supportDirectory.appendingPathComponent("sync-state.json", isDirectory: false),
+        log: RedactedEventLog(
+            fileURL: supportDirectory.appendingPathComponent("sync-events.json", isDirectory: false),
+            maximumEntries: 1_000
+        )
     )
     interface.changeSync = { sync.setEnabled($0) }
     model.onSyncNow = { sync.syncNow() }

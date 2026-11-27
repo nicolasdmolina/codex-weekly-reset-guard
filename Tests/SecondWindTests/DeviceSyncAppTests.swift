@@ -149,3 +149,45 @@ private func miniSnapshot(autoRedeem: Bool, publishedAt: Date = now) -> DeviceSn
     #expect(text.title == "Codex weekly limit is low")
     #expect(text.body.hasPrefix("Work on Mac mini has 7% left."))
 }
+
+private struct SilentNotifier: AlertNotifier {
+    func deliver(_ delivery: AlertDelivery, now: Date) async throws {}
+    func cancel(_ ids: [String]) async {}
+    func permission() async -> NotificationPermissionStatus { .allowed }
+    func requestPermission() async -> NotificationPermissionStatus { .allowed }
+}
+
+@Test @MainActor func unreadableICloudFolderShowsFailureAndLogsTheErrorCode() async throws {
+    let root = FileManager.default.temporaryDirectory
+        .appendingPathComponent("SecondWindSyncCoordinator-\(UUID().uuidString)", isDirectory: true)
+    let shared = DeviceSyncFolder(root: root.appendingPathComponent("iCloud/Second Wind", isDirectory: true))
+    let model = GuardAppModel(referenceDate: now)
+    let interface = GuardInterfaceModel(isPreview: false, isReadOnly: false, preferenceDefaults: nil, syncStatus: .on)
+    interface.providerDidLoad(.codex)
+    interface.providerDidLoad(.claude)
+    let log = RedactedEventLog(fileURL: root.appendingPathComponent("support/sync-events.json"))
+    let coordinator = DeviceSyncCoordinator(
+        model: model,
+        interface: interface,
+        alerts: AlertRouter(stateURL: nil, notifier: SilentNotifier()),
+        stateURL: root.appendingPathComponent("support/sync-state.json"),
+        log: log,
+        locateFolder: { shared }
+    )
+
+    await coordinator.pass()
+    #expect(interface.syncStatus == .on)
+    let ok = try #require(try await log.entries().last)
+    #expect(ok.kind == .syncPass)
+    #expect(ok.fields == ["result": "ok", "devices": "0", "commandsListed": "0", "commandsDecoded": "0", "decisions": ""])
+
+    let devices = shared.root.appendingPathComponent("devices")
+    #expect(chmod(devices.path, 0o000) == 0)
+    defer { _ = chmod(devices.path, 0o700) }
+    await coordinator.pass()
+    #expect(interface.syncStatus == .failed(DeviceSyncCoordinator.unreadableMessage))
+    let failed = try #require(try await log.entries().last)
+    #expect(failed.fields["result"] == "failed")
+    #expect(failed.fields["errorDomain"] == NSCocoaErrorDomain)
+    #expect(failed.fields["errorCode"] == String(NSFileReadNoPermissionError))
+}

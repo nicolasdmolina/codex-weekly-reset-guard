@@ -164,8 +164,9 @@ public struct RemoteCommand: Codable, Equatable, Sendable, Identifiable {
 public enum DeviceSyncPolicy {
     /// A snapshot or reading older than this is stale: shown with its age, never alerted from.
     public static let staleAfter: TimeInterval = 10 * 60
-    /// A host refuses a command older than this, and the sender stops waiting for it.
-    public static let commandLifetime: TimeInterval = 10 * 60
+    /// A host refuses a command older than this, and the sender stops waiting for it. Long enough
+    /// for iCloud Drive to deliver a file to a Mac that was briefly asleep or offline.
+    public static let commandLifetime: TimeInterval = 30 * 60
     /// How far ahead of the host's clock a command may claim to be.
     public static let allowedClockSkew: TimeInterval = 2 * 60
     /// A Mac that has not published for this long is no longer listed.

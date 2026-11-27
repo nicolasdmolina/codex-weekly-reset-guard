@@ -20,9 +20,12 @@ struct GuardPopoverView: View {
 
     private func shell(now: Date) -> some View {
         let summary = PopoverSummary.make(model: model, interface: interface, now: now)
+        let enrollment = interface.page == .accounts ? model.enrollmentPhase : nil
         return VStack(spacing: 0) {
             if interface.page == .settings {
                 settingsHeader
+            } else if let enrollment, enrollment != .choose || model.hasAccounts {
+                enrollmentHeader(enrollment)
             } else {
                 header(summary)
             }
@@ -121,11 +124,65 @@ struct GuardPopoverView: View {
         .frame(height: 54)
     }
 
+    /// The title never moves: the back button keeps its slot even on the step that has none.
+    private func enrollmentHeader(_ phase: EnrollmentPhase) -> some View {
+        let canGoBack: Bool = switch phase {
+        case .choose, .email: !model.isAddingProfile
+        case let .waiting(_, checking): !checking
+        case .problem: true
+        case .connected: false
+        }
+        let backLabel: String = switch phase {
+        case .waiting, .problem: "Cancel sign-in"
+        default: "Back"
+        }
+        return HStack(spacing: SW.Space.sm) {
+            Button {
+                model.enrollmentBack()
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(SWIconButtonStyle())
+            .keyboardShortcut(.cancelAction)
+            .help(backLabel)
+            .accessibilityLabel(backLabel)
+            .opacity(canGoBack ? 1 : 0)
+            .disabled(!canGoBack)
+            .accessibilityHidden(!canGoBack)
+            Text("Add account")
+                .font(.system(size: 15, weight: .semibold))
+            Spacer(minLength: SW.Space.sm)
+            if model.isPreview {
+                Text("Preview")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(SW.Palette.textSecondary)
+                    .padding(.horizontal, SW.Space.sm)
+                    .padding(.vertical, SW.Space.xxs + 1)
+                    .background(SW.Palette.surfaceRaised, in: Capsule())
+            }
+        }
+        .padding(.leading, SW.Space.md)
+        .padding(.trailing, SW.Space.lg)
+        .padding(.vertical, SW.Space.md)
+        .frame(height: 54)
+    }
+
     // MARK: Content
 
     @ViewBuilder
     private func scrollingContent(now: Date) -> some View {
-        if isStaticRender {
+        if interface.page == .accounts, let phase = model.enrollmentPhase {
+            VStack(spacing: 0) {
+                // Before a sign-in starts the list's notices still apply, such as a provider that
+                // failed to load and so has a greyed-out row.
+                if phase.account == nil { enrollmentNotices }
+                EnrollmentFlowView(model: model, interface: interface, phase: phase, isStaticRender: isStaticRender, now: now)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        } else if isStaticRender {
             pageContent(now: now)
                 .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
                 .clipped()
@@ -175,6 +232,27 @@ struct GuardPopoverView: View {
         }
     }
 
+    @ViewBuilder
+    private var enrollmentNotices: some View {
+        let notices = interface.notices
+        if model.isReadOnly || !notices.isEmpty || model.banner != nil {
+            VStack(spacing: SW.Space.sm) {
+                if model.isReadOnly {
+                    NoticeRow(symbol: "eye", text: "Diagnostics mode. Resets, sign-in and launch at login are off.", tone: .neutral)
+                }
+                ForEach(notices) { notice in
+                    NoticeRow(symbol: notice.symbol, text: notice.text, tone: notice.tone) {
+                        interface.dismissNotice(notice.id)
+                    }
+                }
+                if let banner = model.banner {
+                    NoticeRow(symbol: "info.circle", text: banner, tone: .neutral)
+                }
+            }
+            .padding([.horizontal, .top], SW.Space.lg)
+        }
+    }
+
     private func accountsContent(now: Date) -> some View {
         VStack(alignment: .leading, spacing: SW.Space.lg) {
             if model.isReadOnly {
@@ -203,10 +281,6 @@ struct GuardPopoverView: View {
             }
             if let banner = model.banner {
                 NoticeRow(symbol: "info.circle", text: banner, tone: .neutral)
-            }
-
-            if !model.hasAccounts || model.isShowingAddProfile {
-                EnrollmentPanel(model: model, isStaticRender: isStaticRender)
             }
 
             if !model.profiles.isEmpty {
@@ -251,24 +325,22 @@ struct GuardPopoverView: View {
             }
         }
         .padding(SW.Space.lg)
-        .animation(SW.Motion.easeOut(SW.Motion.standard, reduceMotion: isStaticRender), value: model.isShowingAddProfile)
     }
 
     // MARK: Footer
 
     private func footer(now: Date) -> some View {
         HStack(spacing: SW.Space.sm) {
-            if interface.page == .accounts && model.hasAccounts && !model.isShowingAddProfile && !model.isReadOnly {
+            if interface.page == .accounts && model.enrollmentPhase == nil && !model.isReadOnly {
                 Button {
-                    model.enrollmentError = nil
-                    model.isShowingAddProfile = true
+                    model.beginEnrollment()
                 } label: {
                     Label("Add account", systemImage: "plus")
                 }
                 .buttonStyle(SWQuietButtonStyle())
             }
             Spacer()
-            if let checked = model.lastCheckedAt {
+            if let checked = model.lastCheckedAt, model.enrollmentPhase == nil || interface.page != .accounts {
                 Text("Checked \(relativeDescription(checked, reference: now))")
                     .font(.system(size: 11))
                     .foregroundStyle(SW.Palette.textTertiary)
@@ -924,7 +996,7 @@ private struct HeadlineFigure: View {
 
 /// One limit window: label, meter, figure and renewal time. A window the provider did not
 /// report says so in words and never draws an empty meter, which would read as zero.
-private struct WindowRow: View {
+struct WindowRow: View {
     let window: WindowDisplay
     let convention: QuotaConvention
     let resetStyle: ResetTimeStyle
@@ -951,6 +1023,7 @@ private struct WindowRow: View {
                 Text("\(convention.percent(remaining: remaining))%")
                     .font(.system(size: 11.5, weight: .medium))
                     .monospacedDigit()
+                    .contentTransition(.numericText(value: remaining))
                     .foregroundStyle(window.state == .current ? (window.isWarning ? SW.Palette.caution : SW.Palette.textPrimary) : SW.Palette.textTertiary)
                     .frame(width: 34, alignment: .trailing)
             } else {
@@ -1264,110 +1337,6 @@ private struct FeedbackLine: View {
             }
             Spacer(minLength: SW.Space.xs)
             DismissButton(action: onDismiss)
-        }
-    }
-}
-
-// MARK: - Enrollment
-
-private struct EnrollmentPanel: View {
-    @ObservedObject var model: GuardAppModel
-    let isStaticRender: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: SW.Space.md) {
-            VStack(alignment: .leading, spacing: SW.Space.xs) {
-                Text(model.hasAccounts ? "Add an account" : "Watch your first account")
-                    .font(.system(size: 15, weight: .semibold))
-                Text(providerExplanation)
-                    .font(.system(size: 12))
-                    .foregroundStyle(SW.Palette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            SegmentedChoice(
-                selection: $model.enrollmentProvider,
-                options: ProviderKind.allCases,
-                title: \.title,
-                accessibilityLabel: "Service",
-                isStatic: isStaticRender
-            )
-
-            VStack(alignment: .leading, spacing: SW.Space.sm) {
-                field(
-                    label: "Email",
-                    placeholder: "you@example.com",
-                    text: $model.profileEmail,
-                    accessibility: "\(model.enrollmentProvider.title) account email"
-                )
-                field(
-                    label: "Name",
-                    placeholder: "Personal, work…",
-                    text: $model.profileDisplayName,
-                    accessibility: "Account name, optional"
-                )
-            }
-
-            if let error = model.enrollmentError {
-                StatusLine(symbol: "exclamationmark.circle.fill", text: error, tone: .critical)
-            }
-
-            HStack(spacing: SW.Space.sm) {
-                Spacer()
-                if model.hasAccounts {
-                    Button("Cancel") { model.isShowingAddProfile = false }
-                        .buttonStyle(SWQuietButtonStyle())
-                        .disabled(model.isAddingProfile)
-                }
-                Button(model.isAddingProfile ? "Adding…" : "Add \(model.enrollmentProvider.title) account") {
-                    model.addProfile()
-                }
-                .buttonStyle(SWPrimaryButtonStyle(isLarge: true))
-                .disabled(!model.isReady || model.isAddingProfile || model.isReadOnly)
-                .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(SW.Space.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(SW.Palette.surface, in: RoundedRectangle(cornerRadius: SW.Radius.medium, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: SW.Radius.medium, style: .continuous)
-                .strokeBorder(SW.Palette.hairline)
-        }
-    }
-
-    private var providerExplanation: String {
-        switch model.enrollmentProvider {
-        case .codex:
-            "Signs in to Codex in its own private folder."
-        case .claude:
-            "Signs in to Claude Code in its own private folder."
-        }
-    }
-
-    @ViewBuilder
-    private func field(label: String, placeholder: String, text: Binding<String>, accessibility: String) -> some View {
-        HStack(spacing: SW.Space.sm) {
-            Text(label)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(SW.Palette.textSecondary)
-                .frame(width: 44, alignment: .leading)
-            if isStaticRender {
-                Text(placeholder)
-                    .font(.system(size: 13))
-                    .foregroundStyle(SW.Palette.textTertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, SW.Space.sm)
-                    .frame(height: 28)
-                    .background(SW.Palette.canvas, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(SW.Palette.hairline))
-            } else {
-                TextField(placeholder, text: text)
-                    .textFieldStyle(.roundedBorder)
-                    .textContentType(label == "Email" ? .emailAddress : nil)
-                    .accessibilityLabel(accessibility)
-                    .onSubmit { model.addProfile() }
-            }
         }
     }
 }

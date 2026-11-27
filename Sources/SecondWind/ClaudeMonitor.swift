@@ -636,8 +636,21 @@ extension GuardAppModel {
             status: status,
             detail: detail,
             signInURL: profile.signInURL,
-            quota: profile.quota
+            quota: profile.quota,
+            signIn: signInState(profile.status, detail: detail)
         )
+    }
+
+    private static func signInState(_ status: ClaudeConnectionStatus, detail: String) -> SignInState {
+        switch status {
+        case .checking: .checking
+        case .notSignedIn: .signedOut
+        case .signingIn: .waiting
+        case .verified: .connected
+        case let .identityMismatch(found): .wrongAccount(found: found)
+        case .notSubscription: .noPlan
+        case .stopped, .failed: .failed(detail)
+        }
     }
 
     static func windowLabel(_ scope: ClaudeUsageWindow.Scope) -> String {
@@ -671,14 +684,12 @@ func makeClaudeMonitor(model: GuardAppModel, configuration: ClaudeMonitorConfigu
             do {
                 guard let monitor else { throw ClaudeMonitorError.unknownProfile }
                 let id = try await monitor.addProfile(email: email, displayName: displayName)
-                model?.profileEmail = ""
-                model?.profileDisplayName = ""
-                model?.isShowingAddProfile = false
                 model?.enrollmentError = nil
+                // Claude Code opens the browser itself, a moment after the sign-in starts.
+                model?.enrollmentDidStartSignIn(AccountRef(provider: .claude, id: id), url: nil, awaitingStart: true)
                 Task { _ = await alerts.requestPermission() }
                 Task { await monitor.connect(profileID: id) }
             } catch {
-                model?.isShowingAddProfile = true
                 model?.enrollmentError = (error as? LocalizedError)?.errorDescription
                     ?? "Could not save the Claude account."
             }

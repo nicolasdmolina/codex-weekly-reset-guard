@@ -15,6 +15,8 @@ enum SW {
         static let surface = adaptive(light: 0xFFFFFF, dark: 0x262626)
         static let surfaceRaised = adaptive(light: 0xEDEDEA, dark: 0x303030)
         static let hairline = adaptive(light: 0x000000, dark: 0xFFFFFF, lightAlpha: 0.08, darkAlpha: 0.08)
+        /// Text field outlines: firmer than a hairline so an empty field still reads as one.
+        static let fieldBorder = adaptive(light: 0x000000, dark: 0xFFFFFF, lightAlpha: 0.2, darkAlpha: 0.18)
         static let track = adaptive(light: 0x000000, dark: 0xFFFFFF, lightAlpha: 0.11, darkAlpha: 0.10)
         static let textPrimary = adaptive(light: 0x171717, dark: 0xFAFAFA)
         static let textSecondary = adaptive(light: 0x5C5C5C, dark: 0xB4B4B4)

@@ -52,6 +52,7 @@ struct GuardProfilePresentation: Identifiable, Equatable, Sendable {
     /// Quota evidence with per-account timestamps. Nil only in previews that predate it.
     var quota: QuotaAccountRecord? = nil
     var removalKeepsResetRecord = false
+    var signIn: SignInState = .connected
 
     var isConnected: Bool { identityVerified && status != .disconnected }
 }
@@ -124,6 +125,7 @@ struct ClaudeProfilePresentation: Identifiable, Equatable, Sendable {
     var signInURL: URL?
     /// Quota evidence with per-account timestamps. Nil only in previews that predate it.
     var quota: QuotaAccountRecord? = nil
+    var signIn: SignInState = .connected
 
     var tightestWindow: ClaudeWindowPresentation? {
         windows.min { $0.remainingPercent < $1.remainingPercent }
@@ -141,10 +143,15 @@ struct GuardHistoryEvent: Identifiable, Equatable, Sendable {
 
 @MainActor
 final class GuardAppModel: ObservableObject {
-    @Published var profiles: [GuardProfilePresentation]
-    @Published var claudeProfiles: [ClaudeProfilePresentation]
+    @Published var profiles: [GuardProfilePresentation] {
+        didSet { refreshSignIns() }
+    }
+    @Published var claudeProfiles: [ClaudeProfilePresentation] {
+        didSet { refreshSignIns() }
+    }
     @Published var isCheckingClaude = false
-    @Published var enrollmentProvider: ProviderKind = .codex
+    /// The add-account flow, kept here so it survives the popover closing for the browser.
+    @Published var enrollment: EnrollmentFlow?
     @Published var history: [GuardHistoryEvent]
     @Published var isChecking = false
     @Published var lastCheckedAt: Date?
@@ -152,11 +159,11 @@ final class GuardAppModel: ObservableObject {
     @Published var isPreview: Bool
     let isReadOnly: Bool
     @Published var isReady = false
-    @Published var isShowingAddProfile = false
     @Published var isAddingProfile = false
     @Published var profileEmail = ""
-    @Published var profileDisplayName = ""
     @Published var enrollmentError: String?
+    /// Accounts whose row started a sign-in, with whether it has been seen under way.
+    var pendingReconnects: [AccountRef: Bool] = [:]
     /// Synthetic previews use one reference clock for every relative date label.
     let referenceDate: Date?
 
@@ -167,6 +174,10 @@ final class GuardAppModel: ObservableObject {
     var onAddClaudeProfile: ((String, String) -> Void)?
     var onConnectClaude: ((String) -> Void)?
     var onCancelClaudeSignIn: ((String) -> Void)?
+    /// Removes an account the add-account flow created but never finished connecting.
+    var onDiscardUnfinishedAccount: ((AccountRef) async throws -> Void)?
+    /// A sign-in finished one way or the other. True when it belongs to the add-account flow.
+    var onSignInSettled: ((AccountRef, Bool) -> Void)?
     var onAccountActionFailure: ((AccountRef, String) -> Void)?
     /// Called after each provider's snapshot is applied with that provider's full roster in
     /// display order, including never-read accounts as empty records.
@@ -263,28 +274,8 @@ final class GuardAppModel: ObservableObject {
             banner = "Preview only. No sign-in was started."
             return
         }
+        if let ref = AccountRef(provider: .codex, rawID: profileID) { pendingReconnects[ref] = false }
         onReconnect?(profileID)
-    }
-
-    func addProfile() {
-        guard isReady, !isAddingProfile else { return }
-        guard MonitorPersistence.isValidEmail(profileEmail) else {
-            enrollmentError = enrollmentProvider == .codex
-                ? MonitorPersistenceError.invalidExpectedIdentity.localizedDescription
-                : ClaudeMonitorError.invalidEmail.localizedDescription
-            return
-        }
-        guard !isPreview else {
-            enrollmentError = "Preview only. Account setup is available in the installed app."
-            return
-        }
-        enrollmentError = nil
-        isAddingProfile = true
-        let email = MonitorPersistence.normalizedEmail(profileEmail)
-        switch enrollmentProvider {
-        case .codex: onAddProfile?(email, profileDisplayName)
-        case .claude: onAddClaudeProfile?(email, profileDisplayName)
-        }
     }
 
     func connectClaude(profileID: String) {
@@ -293,6 +284,7 @@ final class GuardAppModel: ObservableObject {
             banner = "Preview only. No sign-in was started."
             return
         }
+        if let ref = AccountRef(provider: .claude, rawID: profileID) { pendingReconnects[ref] = false }
         onConnectClaude?(profileID)
     }
 

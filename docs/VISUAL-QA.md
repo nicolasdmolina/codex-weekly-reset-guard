@@ -6,9 +6,14 @@ Run `./scripts/native_release_check.sh` to regenerate these synthetic fixtures:
 
 | Fixture | State |
 | --- | --- |
-| `onboarding.png` | Empty first-run account form |
-| `onboarding-error.png` | Invalid-email feedback |
-| `connect.png` | One new profile requiring sign-in, Auto-redeem off |
+| `onboarding.png` | First run: choose Codex or Claude |
+| `onboarding-error.png` | The email step with invalid-email feedback |
+| `add-choose.png` | Adding a second account from the footer |
+| `add-email.png` | The Claude email step, filled in |
+| `add-waiting.png` | Waiting for the browser sign-in, with reopen and copy-link actions |
+| `add-wrong-account.png` | A Claude sign-in that returned another account |
+| `add-connected.png`, `add-connected-claude.png` | The first reading after sign-in, with Auto-redeem off and a Max plan |
+| `connect.png` | One profile requiring sign-in, Auto-redeem off |
 | `paused.png` | One verified account with Auto-redeem off |
 | `healthy.png` | Two healthy accounts |
 | `near.png` | Weekly-threshold confirmation |
@@ -25,6 +30,7 @@ Run `./scripts/native_release_check.sh` to regenerate these synthetic fixtures:
 | `reveal.png`, `provider-failed.png` | An account highlighted after a notification and a provider that could not load |
 
 Images are generated under ignored `qa-artifacts/` and contain synthetic data.
+Set `SECOND_WIND_PREVIEW_APPEARANCE=light` to render the light theme instead.
 The static renderer substitutes styled fields for AppKit-backed controls;
 interactive `--preview <state>` uses native controls and scrolling without a
 production runtime. Preview actions cannot connect accounts or redeem credits.

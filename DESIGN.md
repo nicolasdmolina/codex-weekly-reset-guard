@@ -31,6 +31,20 @@ tick marks 3% remaining on a Codex weekly window with Auto-redeem enabled and
 10% on other windows. An absent window reads “Not reported” and has no meter.
 Stale figures dim. Reduce Motion removes the refill animation.
 
+## Adding an account
+
+- A page, not a card: choose the service, enter one email, sign in in the browser,
+  then see the account's first reading. The name comes from the email ("Personal"
+  for a consumer mailbox, otherwise the organisation) and is editable on the result.
+- After the service list, every step keeps the service tile, the header title and
+  the one filled button in the same place. Steps cross-fade; the tile gains a
+  spinning ring while waiting and a badge for the result.
+- The popover closes while the browser has focus and reopens on its own when the
+  sign-in settles. Back on a sign-in step cancels it and discards the unfinished
+  account; the typed email is kept.
+- A wrong account names both addresses. Claude can watch the signed-in account
+  instead. Auto-redeem is offered on the result and starts off.
+
 ## Behaviour
 
 - Background refresh never dismisses or reorders the open popover.

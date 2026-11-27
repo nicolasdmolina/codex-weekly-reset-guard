@@ -2030,11 +2030,12 @@ private enum GeneralBannerAction: Sendable {
         return firstReads > 0 && secondReads > 0 && !snapshot.isChecking
     })
     let profileID = try #require(await controller.snapshot().profiles.first?.id)
-    let generalMessage: String
+    // Enrolling sets no general banner: the add-account flow starts the sign-in itself.
+    let generalMessage: String?
     switch action {
     case .enroll:
         _ = try await controller.addProfile(expectedEmail: "third@example.com", displayName: "Third")
-        generalMessage = "Profile added. Connect it to verify the account, then choose whether to enable Auto-redeem."
+        generalMessage = nil
     case .pause:
         _ = try await controller.setEnabled(profileID: profileID, enabled: false)
         generalMessage = "Automatic weekly reset paused."

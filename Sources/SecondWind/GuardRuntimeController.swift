@@ -442,13 +442,14 @@ actor GuardRuntimeController {
     }
 
     @discardableResult
-    func addProfile(expectedEmail: String, displayName: String) async throws -> GuardRuntimeSnapshot {
+    func addProfile(expectedEmail: String, displayName: String, id: UUID = UUID()) async throws -> GuardRuntimeSnapshot {
         guard initialized else { throw GuardRuntimeError.runtimeNotInitialized }
         guard lifecycle == .running else { throw GuardRuntimeError.runtimeStopped }
         do {
             adoptPersistentState(try await persistence.addProfile(
                 expectedEmail: expectedEmail,
                 displayName: displayName,
+                id: id,
                 now: now()
             ))
         } catch {
@@ -462,7 +463,6 @@ actor GuardRuntimeController {
             throw error
         }
         installEnrolledProfilePresentations()
-        banner = "Profile added. Connect it to verify the account, then choose whether to enable Auto-redeem."
         await publish()
         return latestSnapshot
     }
@@ -1861,7 +1861,8 @@ extension GuardAppModel {
                 autoResetEnabled: profile.autoResetEnabled,
                 identityVerified: profile.connectionStatus == .verified,
                 quota: profile.quota,
-                removalKeepsResetRecord: profile.removalKeepsResetRecord
+                removalKeepsResetRecord: profile.removalKeepsResetRecord,
+                signIn: Self.signInState(for: profile)
             )
         }
         history = snapshot.history.map { event in
@@ -1878,6 +1879,16 @@ extension GuardAppModel {
         isReady = snapshot.hasLoadedProfiles
         if snapshot.hasLoadedProfiles {
             onQuotaRecordsChanged?(.codex, snapshot.profiles.map(\.quota))
+        }
+    }
+
+    private static func signInState(for profile: GuardRuntimeProfileSnapshot) -> SignInState {
+        switch profile.connectionStatus {
+        case .connecting: .waiting
+        case .verified: .connected
+        case .authenticationRequired: .signedOut
+        case .identityMismatch: .wrongAccount(found: nil)
+        case .failed: .failed(profile.detail)
         }
     }
 
@@ -1954,21 +1965,29 @@ func makeGuardRuntimeController(
     model.onCheckNow = { [weak controller] in
         Task { _ = await controller?.checkNow() }
     }
+    // One step from the user's side: save the account, then open its isolated browser sign-in.
     model.onAddProfile = { [weak controller, weak model] email, displayName in
         Task { @MainActor in
             defer { model?.isAddingProfile = false }
+            let ref = AccountRef(provider: .codex, id: UUID())
             do {
                 guard let controller else { throw GuardRuntimeError.runtimeStopped }
-                _ = try await controller.addProfile(expectedEmail: email, displayName: displayName)
-                model?.profileEmail = ""
-                model?.profileDisplayName = ""
-                model?.isShowingAddProfile = false
+                _ = try await controller.addProfile(expectedEmail: email, displayName: displayName, id: ref.id)
                 model?.enrollmentError = nil
             } catch {
-                model?.isShowingAddProfile = true
                 model?.enrollmentError = error is MonitorPersistenceError
                     ? error.localizedDescription
-                    : "Could not confirm the profile was saved. Check the profile list before trying again."
+                    : "Could not confirm the account was saved. Check the account list before trying again."
+                return
+            }
+            do {
+                guard let url = try await controller?.beginConnection(profileID: ref.id) else {
+                    throw GuardRuntimeError.runtimeStopped
+                }
+                model?.enrollmentDidStartSignIn(ref, url: url, awaitingStart: false)
+                NSWorkspace.shared.open(url)
+            } catch {
+                model?.enrollmentDidFailToStart(ref, message: "Could not open the Codex sign-in page.")
             }
         }
     }
@@ -1997,8 +2016,18 @@ func makeGuardRuntimeController(
                 guard let url = try await controller?.beginConnection(profileID: profileID) else {
                     return
                 }
+                let ref = AccountRef(provider: .codex, id: profileID)
+                if model?.enrollment?.step == .signIn(ref) {
+                    model?.enrollmentDidStartSignIn(ref, url: url, awaitingStart: false)
+                }
                 NSWorkspace.shared.open(url)
             } catch {
+                let ref = AccountRef(provider: .codex, id: profileID)
+                if model?.enrollment?.step == .signIn(ref) {
+                    model?.enrollmentDidFailToStart(ref, message: "Could not open the Codex sign-in page.")
+                    return
+                }
+                model?.pendingReconnects[ref] = nil
                 model?.reportActionFailure(
                     "Could not start the isolated Codex sign-in.",
                     for: AccountRef(provider: .codex, id: profileID)

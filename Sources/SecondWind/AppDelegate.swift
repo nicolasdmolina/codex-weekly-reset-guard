@@ -33,6 +33,15 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         super.init()
         // Attached before launch finishes, so a notification click that arrives first still resolves.
         self.interface.attach(model)
+        // The browser takes focus during sign-in and the transient popover closes. When the
+        // sign-in settles, bring Second Wind back in front with the result.
+        model.onSignInSettled = { [weak self] account, inFlow in
+            guard let self, !self.model.isPreview else { return }
+            // After the snapshot that settled it has been applied, never inside it.
+            DispatchQueue.main.async {
+                if inFlow { self.showPopover() } else { self.reveal(account) }
+            }
+        }
     }
 
     func applicationDidFinishLaunching(_ notification: Notification) {
@@ -165,6 +174,8 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     /// highlighted once its provider has loaded. A removed account or an unloaded provider
     /// shows a notice instead.
     func reveal(_ target: AccountRef) {
+        // An account alert outranks an add-account flow that has not started a sign-in.
+        if model.enrollment?.hasStartedSignIn == false { model.enrollment = nil }
         showPopover()
         interface.reveal(target)
     }
@@ -185,6 +196,12 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
             popover.show(relativeTo: button.bounds, of: button, preferredEdge: .minY)
         }
         popover.contentViewController?.view.window?.makeKey()
+    }
+
+    /// A service list left open is dropped when the popover closes; a typed email or a sign-in
+    /// under way is kept, since the user often leaves to copy an address or finish in the browser.
+    func popoverDidClose(_ notification: Notification) {
+        if model.hasAccounts, model.enrollment?.step == .choose { model.enrollment = nil }
     }
 
     // MARK: Lifecycle

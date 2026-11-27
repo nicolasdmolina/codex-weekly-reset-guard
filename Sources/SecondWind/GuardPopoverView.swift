@@ -48,16 +48,18 @@ struct GuardPopoverView: View {
                 Text("Second Wind")
                     .font(.system(size: 15, weight: .semibold))
                 HStack(spacing: SW.Space.xs) {
-                    if let symbol = summary.symbol {
+                    if let symbol = summarySymbol(summary) {
                         Image(systemName: symbol)
                             .font(.system(size: 10.5, weight: .semibold))
-                            .foregroundStyle(SW.Palette.accent)
+                            .foregroundStyle(summary.tone == .neutral ? SW.Palette.textSecondary : summary.tone.color)
                     }
                     Text(summary.text)
                         .font(.system(size: 12))
                         .foregroundStyle(summary.tone == .neutral ? SW.Palette.textSecondary : summary.tone.color)
                         .lineLimit(1)
+                        .minimumScaleFactor(0.85)
                 }
+                .frame(height: 16)
             }
             Spacer(minLength: SW.Space.sm)
             if model.isPreview || model.isReadOnly {
@@ -74,6 +76,17 @@ struct GuardPopoverView: View {
         .padding(.horizontal, SW.Space.lg)
         .padding(.vertical, SW.Space.md)
         .accessibilityElement(children: .contain)
+    }
+
+    /// Colour never carries a status alone: each summary tone has its own symbol.
+    private func summarySymbol(_ summary: PopoverSummary) -> String? {
+        if let symbol = summary.symbol { return symbol }
+        switch summary.tone {
+        case .good: return "checkmark.circle.fill"
+        case .caution: return "exclamationmark.triangle.fill"
+        case .critical: return "exclamationmark.circle.fill"
+        case .neutral: return model.hasAccounts ? "clock" : nil
+        }
     }
 
     private var settingsHeader: some View {
@@ -197,7 +210,7 @@ struct GuardPopoverView: View {
             }
 
             if !model.profiles.isEmpty {
-                AccountSection(title: "Codex", detail: "Auto-redeem at 3%") {
+                AccountSection(title: "Codex", detail: model.profiles.contains(where: \.autoResetEnabled) ? "Auto-redeem at 3%" : "Auto-redeem off") {
                     ForEach(Array(model.profiles.enumerated()), id: \.element.id) { index, profile in
                         if index > 0 { RowDivider() }
                         CodexAccountRow(
@@ -420,6 +433,7 @@ private struct AccountRow<Details: View, Actions: View>: View {
     var body: some View {
         VStack(alignment: .leading, spacing: SW.Space.sm + 2) {
             heading
+            if case .renaming = editor { feedback }
             if case .confirmingRemoval = editor {
                 RemovalConfirmation(
                     name: name,
@@ -446,14 +460,12 @@ private struct AccountRow<Details: View, Actions: View>: View {
                 }
                 details
                 HStack(alignment: .center, spacing: SW.Space.sm) {
-                    StatusLine(symbol: status.symbol, text: status.text, tone: status.tone)
+                    StatusLine(symbol: status.symbol, text: status.text, tone: status.tone, age: status.age)
                     Spacer(minLength: SW.Space.xs)
                     actions
                 }
             }
-            if let ref, let feedback = interface.accountFeedback[ref] {
-                FeedbackLine(feedback: feedback) { interface.dismissFeedback(for: ref) }
-            }
+            if !isRenaming { feedback }
         }
         .padding(SW.Space.md)
         .background(SW.Palette.accent.opacity(isHighlighted ? 0.10 : 0))
@@ -462,6 +474,20 @@ private struct AccountRow<Details: View, Actions: View>: View {
         .id(ref)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(name), \(provider.title), \(status.title)")
+    }
+
+    private var isRenaming: Bool {
+        if case .renaming = editor { return true }
+        return false
+    }
+
+    /// A failed action's result sits beside the control it belongs to: under the rename field
+    /// while renaming, otherwise at the foot of the row.
+    @ViewBuilder
+    private var feedback: some View {
+        if let ref, let feedback = interface.accountFeedback[ref] {
+            FeedbackLine(feedback: feedback) { interface.dismissFeedback(for: ref) }
+        }
     }
 
     // MARK: Heading
@@ -582,6 +608,8 @@ struct StatusPresentation {
     let title: String
     let text: String
     let tone: SWTone
+    /// How old the reading is, drawn quieter than the message so it never dangles on its own line.
+    var age: String? = nil
 }
 
 private struct CodexAccountRow: View {
@@ -673,9 +701,10 @@ private struct CodexAccountRow: View {
                 symbol: "questionmark.circle",
                 title: "Saved resets not confirmed",
                 text: profile.autoResetEnabled
-                    ? "Quota updated \(age). Auto-redeem waits until Codex reports saved resets."
-                    : "Quota updated \(age). Saved resets did not load.",
-                tone: .neutral
+                    ? "Auto-redeem waits until Codex reports saved resets."
+                    : "Saved resets did not load.",
+                tone: .neutral,
+                age: "updated \(age)"
             )
         }
         return StatusComposer.compose(
@@ -788,13 +817,14 @@ enum StatusComposer {
         providerName: String,
         now: Date
     ) -> StatusPresentation {
-        let updated = quota.age.lastSuccess.map { " Updated \(QuotaTimeFormat.age(of: $0, reference: now))." } ?? ""
+        let updated = quota.age.lastSuccess.map { "updated \(QuotaTimeFormat.age(of: $0, reference: now))" }
         if tone != .critical, quota.isBlocked {
             return StatusPresentation(
                 symbol: "hand.raised.fill",
                 title: "Usage blocked",
-                text: "\(providerName) says usage is blocked.\(updated)",
-                tone: .caution
+                text: "\(providerName) says usage is blocked.",
+                tone: .caution,
+                age: updated
             )
         }
         if tone != .critical, quota.awaitingRefill {
@@ -812,15 +842,17 @@ enum StatusComposer {
                 return StatusPresentation(
                     symbol: "questionmark.circle",
                     title: "Usage not confirmed",
-                    text: "\(providerName) did not say whether usage is allowed. Updated \(age).",
-                    tone: .neutral
+                    text: "\(providerName) did not say whether usage is allowed.",
+                    tone: .neutral,
+                    age: "updated \(age)"
                 )
             }
             return StatusPresentation(
                 symbol: symbol,
                 title: title,
-                text: isRoutine ? "\(title) · updated \(age)" : "\(sentence(base)) Updated \(age).",
-                tone: tone
+                text: isRoutine ? "\(title) · updated \(age)" : sentence(base),
+                tone: tone,
+                age: isRoutine ? nil : "updated \(age)"
             )
         case let .stale(date):
             guard tone != .critical else { break }
@@ -843,8 +875,9 @@ enum StatusComposer {
                 return StatusPresentation(
                     symbol: symbol,
                     title: title,
-                    text: "\(sentence(base)) Last good reading \(QuotaTimeFormat.age(of: lastSuccess, reference: now)).",
-                    tone: tone
+                    text: sentence(base),
+                    tone: tone,
+                    age: "last good reading \(QuotaTimeFormat.age(of: lastSuccess, reference: now))"
                 )
             }
         case .never:
@@ -1031,6 +1064,7 @@ private struct InventoryLine: View {
                     .font(.system(size: 8.5, weight: .bold))
                     .foregroundStyle(SW.Palette.textTertiary)
                     .rotationEffect(.degrees(isExpanded ? 90 : 0))
+                    .baselineOffset(0.5)
             }
             Spacer(minLength: 0)
         }
@@ -1073,7 +1107,7 @@ private struct InventoryLine: View {
         switch inventory {
         case let .unknown(lastCount, checkedAt):
             guard let lastCount, let checkedAt else { return "Saved resets unknown" }
-            return "Saved resets unknown · \(lastCount) when checked \(QuotaTimeFormat.age(of: checkedAt, reference: now))"
+            return "Saved resets not reported · \(lastCount) when checked \(QuotaTimeFormat.age(of: checkedAt, reference: now))"
         case let .known(count, listed, datesReported, checkedAt, isCurrent):
             var parts: [String] = []
             if count == 0 {
@@ -1125,17 +1159,23 @@ private struct HeadroomMeter: View {
             let tick = (convention == .remaining ? threshold : 100 - threshold) / 100
             ZStack(alignment: .leading) {
                 Capsule().fill(SW.Palette.track)
+                    .frame(height: SW.Size.meterHeight)
                 Capsule()
                     .fill(fillColor)
-                    .frame(width: max(fraction > 0 ? SW.Size.meterHeight : 0, width * fraction))
+                    .frame(width: width * fraction, height: SW.Size.meterHeight)
+                // One 1 pt mark at track height: cut through the fill where the fill covers it, so
+                // it reads the same on any row tint, and drawn on the empty track where it does not.
+                let covered = width * tick < width * fraction - 1
                 Rectangle()
-                    .fill(SW.Palette.textTertiary.opacity(0.7))
-                    .frame(width: 1, height: SW.Size.meterHeight + 4)
+                    .fill(covered ? Color.black : SW.Palette.textTertiary)
+                    .frame(width: 1, height: SW.Size.meterHeight)
                     .offset(x: width * tick)
+                    .blendMode(covered ? .destinationOut : .normal)
             }
+            .compositingGroup()
             .frame(height: geometry.size.height)
         }
-        .frame(height: SW.Size.meterHeight + 4)
+        .frame(height: SW.Size.meterHeight)
         .animation(animate ? SW.Motion.easeOut(SW.Motion.slow, reduceMotion: reduceMotion) : nil, value: remaining)
         .animation(animate ? SW.Motion.easeOut(SW.Motion.standard, reduceMotion: reduceMotion) : nil, value: convention)
         .accessibilityHidden(true)
@@ -1184,12 +1224,12 @@ private struct RemovalConfirmation: View {
         VStack(alignment: .leading, spacing: SW.Space.sm) {
             Text("Remove \(name) from Second Wind?")
                 .font(.system(size: 12.5, weight: .semibold))
-            Text("Second Wind stops watching this account and deletes its own copy of the sign-in. Your \(provider == .codex ? "Codex" : "Claude Code") sign-in elsewhere is not touched. You can add the account again later.")
+            Text("Second Wind deletes only its own copy of the sign-in. Your \(provider == .codex ? "Codex" : "Claude Code") sign-in elsewhere stays.")
                 .font(.system(size: 11.5))
                 .foregroundStyle(SW.Palette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)
             if keepsResetRecord {
-                Text("A reset for this account is still being confirmed. Second Wind keeps that record so the same reset is never sent twice if you add the account again.")
+                Text("A reset is still being confirmed, so its record stays and it is never sent twice.")
                     .font(.system(size: 11.5))
                     .foregroundStyle(SW.Palette.textSecondary)
                     .fixedSize(horizontal: false, vertical: true)
@@ -1205,8 +1245,7 @@ private struct RemovalConfirmation: View {
                     .disabled(isBusy)
             }
         }
-        .padding(SW.Space.md)
-        .background(SW.Palette.surfaceRaised.opacity(0.6), in: RoundedRectangle(cornerRadius: SW.Radius.small, style: .continuous))
+        .padding(.top, SW.Space.xs)
         .accessibilityElement(children: .contain)
     }
 }
@@ -1274,24 +1313,25 @@ private struct EnrollmentPanel: View {
             }
 
             HStack(spacing: SW.Space.sm) {
+                Spacer()
+                if model.hasAccounts {
+                    Button("Cancel") { model.isShowingAddProfile = false }
+                        .buttonStyle(SWQuietButtonStyle())
+                        .disabled(model.isAddingProfile)
+                }
                 Button(model.isAddingProfile ? "Adding…" : "Add \(model.enrollmentProvider.title) account") {
                     model.addProfile()
                 }
                 .buttonStyle(SWPrimaryButtonStyle(isLarge: true))
                 .disabled(!model.isReady || model.isAddingProfile || model.isReadOnly)
                 .keyboardShortcut(.defaultAction)
-                if model.hasAccounts {
-                    Button("Cancel") { model.isShowingAddProfile = false }
-                        .buttonStyle(SWQuietButtonStyle())
-                        .disabled(model.isAddingProfile)
-                }
             }
         }
-        .padding(SW.Space.lg)
+        .padding(SW.Space.md)
         .frame(maxWidth: .infinity, alignment: .leading)
-        .background(SW.Palette.surface, in: RoundedRectangle(cornerRadius: SW.Radius.large, style: .continuous))
+        .background(SW.Palette.surface, in: RoundedRectangle(cornerRadius: SW.Radius.medium, style: .continuous))
         .overlay {
-            RoundedRectangle(cornerRadius: SW.Radius.large, style: .continuous)
+            RoundedRectangle(cornerRadius: SW.Radius.medium, style: .continuous)
                 .strokeBorder(SW.Palette.hairline)
         }
     }
@@ -1299,9 +1339,9 @@ private struct EnrollmentPanel: View {
     private var providerExplanation: String {
         switch model.enrollmentProvider {
         case .codex:
-            "Signs in to Codex in its own private folder. Auto-redeem starts off; turn it on per account."
+            "Signs in to Codex in its own private folder."
         case .claude:
-            "Signs in to Claude Code in its own private folder and reads /usage. Alerts you at 10% left."
+            "Signs in to Claude Code in its own private folder."
         }
     }
 
@@ -1360,7 +1400,7 @@ struct SegmentedChoice<Value: Hashable>: View {
                         .background {
                             if isSelected {
                                 RoundedRectangle(cornerRadius: 6, style: .continuous)
-                                    .fill(SW.Palette.surfaceRaised)
+                                    .fill(SW.Palette.controlThumb)
                                     .shadow(color: .black.opacity(0.18), radius: 1.5, y: 1)
                                     .matchedGeometryEffect(id: "selection", in: selectionSpace)
                             }
@@ -1372,7 +1412,7 @@ struct SegmentedChoice<Value: Hashable>: View {
             }
         }
         .padding(SW.Space.xxs)
-        .background(SW.Palette.canvas, in: RoundedRectangle(cornerRadius: SW.Radius.small, style: .continuous))
+        .background(SW.Palette.controlTrack, in: RoundedRectangle(cornerRadius: SW.Radius.small, style: .continuous))
         .opacity(isEnabled ? 1 : 0.5)
         .accessibilityElement(children: .contain)
         .accessibilityLabel(accessibilityLabel)
@@ -1399,6 +1439,8 @@ private struct ActivityList: View {
                         Text(event.summary)
                             .font(.system(size: 12))
                             .lineLimit(2)
+                            .fixedSize(horizontal: false, vertical: true)
+                            .layoutPriority(1)
                         Spacer(minLength: SW.Space.xs)
                         Text("\(event.profileName) · \(event.occurredAt.formatted(date: .omitted, time: .shortened))")
                             .font(.system(size: 11))
@@ -1433,7 +1475,8 @@ struct NoticeRow: View {
         .foregroundStyle(SW.Palette.textSecondary)
         .padding(.horizontal, SW.Space.md)
         .padding(.vertical, SW.Space.sm + 2)
-        .background(SW.Palette.surfaceRaised, in: RoundedRectangle(cornerRadius: SW.Radius.small, style: .continuous))
+        .background(SW.Palette.surface, in: RoundedRectangle(cornerRadius: SW.Radius.small, style: .continuous))
+        .overlay(RoundedRectangle(cornerRadius: SW.Radius.small, style: .continuous).strokeBorder(SW.Palette.hairline))
     }
 }
 
@@ -1441,11 +1484,20 @@ struct StatusLine: View {
     let symbol: String
     let text: String
     let tone: SWTone
+    var age: String? = nil
 
     var body: some View {
         Label {
-            Text(text)
-                .fixedSize(horizontal: false, vertical: true)
+            VStack(alignment: .leading, spacing: 1) {
+                Text(text)
+                    .fixedSize(horizontal: false, vertical: true)
+                if let age {
+                    Text(age.prefix(1).uppercased() + age.dropFirst())
+                        .font(.system(size: 11))
+                        .foregroundStyle(SW.Palette.textTertiary)
+                        .lineLimit(1)
+                }
+            }
         } icon: {
             Image(systemName: symbol)
                 .foregroundStyle(tone.color)
@@ -1454,6 +1506,7 @@ struct StatusLine: View {
         .foregroundStyle(tone == .neutral || tone == .good ? SW.Palette.textSecondary : tone.color)
         .labelStyle(TightLabelStyle())
     }
+
 }
 
 private struct DismissButton: View {
@@ -1482,6 +1535,7 @@ struct StaticToggle: View {
         Capsule()
             .fill(isOn ? SW.Palette.accent : SW.Palette.track)
             .frame(width: 26, height: 15)
+            .overlay(Capsule().strokeBorder(isOn ? Color.clear : SW.Palette.hairline))
             .overlay(alignment: isOn ? .trailing : .leading) {
                 Circle()
                     .fill(.white)

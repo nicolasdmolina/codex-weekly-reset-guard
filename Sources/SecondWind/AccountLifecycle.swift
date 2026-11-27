@@ -19,7 +19,7 @@ enum AccountLifecycleError: Error, Equatable, LocalizedError, Sendable {
         case .invalidName:
             "Enter a name with at least one letter or number."
         case .busy:
-            "Second Wind is checking or signing in to this account. Try again in a moment."
+            "It is busy checking or signing in. Try again in a moment."
         case .readOnly:
             "Diagnostics mode cannot change accounts."
         case .unavailable:

@@ -35,7 +35,7 @@ struct SettingsPanel: View {
 
             VStack(alignment: .leading, spacing: SW.Space.sm) {
                 AccountSection(title: "Alerts", detail: nil) {
-                    SettingsRow(title: "Saved reset expiring", detail: "Codex · a day and an hour before") {
+                    SettingsRow(title: "Saved reset expiring", detail: "Codex · 24 hours and 1 hour before") {
                         alertToggle(\.savedResetExpiry, label: "Saved reset expiring")
                     }
                     RowDivider()

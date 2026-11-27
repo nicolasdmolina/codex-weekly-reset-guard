@@ -295,6 +295,7 @@ struct PopoverSummary: Equatable {
         let lowest = currentWindows.min()
         let figure = lowest.map { convention.percent(remaining: $0) }
         let unconfirmed = accounts.filter { !$0.display.isConfirmed }.count
+        let signingIn = model.claudeProfiles.filter { $0.status == .signingIn }.count
         let failed = interface.failedProviders
         let loading = ProviderKind.allCases.filter { interface.providerStates[$0] == .loading }
         let attention = model.attentionCount
@@ -346,6 +347,8 @@ struct PopoverSummary: Equatable {
             summary.tone = .caution
         } else if let provider = loading.first {
             summary.text = "Loading \(provider.title) accounts…"
+        } else if unconfirmed > 0, unconfirmed == signingIn {
+            summary.text = "Finishing sign-in"
         } else if unconfirmed > 0 {
             summary.text = unconfirmed == 1 ? "1 account not confirmed" : "\(unconfirmed) accounts not confirmed"
         } else {

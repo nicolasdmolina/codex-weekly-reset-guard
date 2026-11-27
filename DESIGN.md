@@ -37,12 +37,18 @@ Stale figures dim. Reduce Motion removes the refill animation.
   account's first reading. Nothing is typed: the first sign-in supplies the email,
   and the name comes from it ("Personal" for a consumer mailbox, otherwise the
   organisation) and is editable on the result.
-- After the service list, every step keeps the service tile, the header title and
-  the one filled button in the same place. Steps cross-fade; the tile gains a
-  spinning ring while waiting and a badge for the result.
+- After the service list, every step shares one service tile that never fades.
+  While waiting, an accent stroke travels round its border; a badge shows the
+  result. Waiting and problem steps keep their message and actions together near
+  the middle; the result lifts the tile to make room for the reading and pins Done
+  to the bottom. Steps cross-fade under the tile.
+- The header names the service being added ("Add Codex account"). While a
+  sign-in is under way or stopped it shows a named Cancel that ends it and
+  discards the unfinished account; the back chevron appears only where it
+  navigates.
 - The popover closes while the browser has focus and reopens on its own when the
-  sign-in settles. Back on a sign-in step cancels it and discards the unfinished
-  account; the typed email is kept.
+  sign-in succeeds or hits a problem the user must act on. A sign-in that simply
+  ends unfinished waits for the next click instead of taking focus.
 - An account already in the list is caught at its first sign-in. A private window
   is the main recovery: the link is copied, not opened in the same browser
   session. Auto-redeem is offered on the result and starts off.

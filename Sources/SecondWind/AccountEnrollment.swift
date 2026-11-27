@@ -345,7 +345,9 @@ extension GuardAppModel {
             if !flow.isStarting, flow.startFailure == nil {
                 if state.isSettled, !flow.hasSettled {
                     flow.hasSettled = true
-                    announce = true
+                    // A sign-in that simply ended unfinished (often a timeout long after the
+                    // user moved on) waits for the next click rather than taking focus.
+                    announce = state != .signedOut
                 } else if state.isUnderWay {
                     flow.hasSettled = false
                 }
@@ -368,7 +370,7 @@ extension GuardAppModel {
                 if !sawStart { pendingReconnects[ref] = true }
             } else if sawStart {
                 pendingReconnects[ref] = nil
-                onSignInSettled?(ref, false)
+                if state != .signedOut { onSignInSettled?(ref, false) }
             }
         }
     }

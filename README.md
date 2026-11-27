@@ -129,7 +129,7 @@ changes to its contents.
 3. Check the first reading. For Codex, leave **Auto-redeem** off to only monitor,
    or turn it on for that account. The name comes from the email; rename it there
    or later from its menu. If your browser is still signed in to an account you
-   already added, use **Use a private window**.
+   already added, use **Copy link for a private window**.
 4. Add more accounts from **Add account**. To start the app when you log in, open **Settings** and enable **Open at login**.
 
 Keep the app running and the Mac awake and online for monitoring. It cannot
@@ -172,7 +172,8 @@ thresholds measure what is available now. A job can still use more than you expe
 Second Wind runs the official `claude` executable with `CLAUDE_CONFIG_DIR` set to
 the account's private folder:
 
-- `claude auth login --claudeai --email <email>` to sign in.
+- `claude auth login --claudeai` to sign in. The account it signs in with becomes
+  the one that folder must keep using.
 - `claude auth status --json` to confirm the account and plan.
 - `claude -p /usage --output-format json --no-session-persistence` every five
   minutes to read limits. This is Claude Code's local usage command; it does not

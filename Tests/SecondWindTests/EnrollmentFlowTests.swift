@@ -276,3 +276,18 @@ private func settle(_ condition: () -> Bool) async {
     model.claudeProfiles = [account]
     #expect(copied.count == 1)
 }
+
+@Test @MainActor func aSignInThatEndsUnfinishedDoesNotTakeFocus() {
+    let model = liveModel(profiles: [codexAccount(signIn: .waiting)])
+    var announcements = 0
+    model.onSignInSettled = { _, _ in announcements += 1 }
+    model.enrollmentDidStartSignIn(codexRef, url: nil, awaitingStart: false)
+    model.profiles = [codexAccount(signIn: .signedOut)]
+    #expect(model.enrollmentPhase == .problem(.codex, codexRef, .signedOut), "The next click still shows it")
+    #expect(announcements == 0)
+    model.profiles = [codexAccount(signIn: .alreadyAdded(found: nil))]
+    model.retryEnrollment()
+    model.profiles = [codexAccount(signIn: .waiting)]
+    model.profiles = [codexAccount(signIn: .alreadyAdded(found: nil))]
+    #expect(announcements == 1, "A result the user must act on still comes forward")
+}

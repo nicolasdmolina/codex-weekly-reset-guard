@@ -129,8 +129,8 @@ struct GuardPopoverView: View {
     /// The title never moves: the back button keeps its slot even on the step that has none.
     private func enrollmentHeader(_ phase: EnrollmentPhase) -> some View {
         let canGoBack: Bool = switch phase {
-        case .choose, .email: !model.isAddingProfile
-        case let .waiting(_, checking): !checking
+        case .choose: true
+        case let .waiting(_, account, checking): account != nil && !checking
         case .problem, .connected: true
         }
         let backLabel: String = switch phase {

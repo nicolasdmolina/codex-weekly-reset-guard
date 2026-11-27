@@ -25,7 +25,7 @@ if [[ "$SHOULD_RENDER_PREVIEWS" == true ]]; then
   "$DEBUG_BIN_PATH/SecondWind" --render-all-previews "$ARTIFACTS"
   for preview in onboarding onboarding-error connect paused healthy near redeemed auth-error overview claude-low claude-signin \
     monitor-low freshness inventory used-exact settings settings-denied rename remove reveal provider-failed usage-blocked \
-    add-email add-waiting add-wrong-account add-connected add-connected-claude; do
+    add-waiting add-already-added add-connected add-connected-claude; do
     test -s "$ARTIFACTS/$preview.png"
   done
 fi

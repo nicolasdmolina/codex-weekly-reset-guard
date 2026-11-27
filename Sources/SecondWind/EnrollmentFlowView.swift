@@ -32,9 +32,8 @@ struct EnrollmentFlowView: View {
     private var tile: (provider: ProviderKind, state: ServiceTile.State)? {
         switch phase {
         case .choose: nil
-        case let .email(provider): (provider, .plain)
-        case let .waiting(ref, _): (ref.provider, .waiting)
-        case let .problem(ref, _): (ref.provider, .problem)
+        case let .waiting(provider, _, _): (provider, .waiting)
+        case let .problem(provider, _, _): (provider, .problem)
         case let .connected(ref): (ref.provider, .connected)
         }
     }
@@ -53,7 +52,6 @@ struct EnrollmentFlowView: View {
     private var screenKey: String {
         switch phase {
         case .choose: "choose"
-        case let .email(provider): "email-\(provider.rawValue)"
         case .waiting: "waiting"
         case .connected: "connected"
         case .problem: "problem"
@@ -65,14 +63,12 @@ struct EnrollmentFlowView: View {
         switch phase {
         case .choose:
             ChooseServiceScreen(model: model, interface: interface)
-        case let .email(provider):
-            EmailScreen(model: model, provider: provider, isStaticRender: isStaticRender)
-        case let .waiting(ref, checking):
-            WaitingScreen(model: model, account: ref, isChecking: checking, isStaticRender: isStaticRender)
+        case let .waiting(provider, ref, checking):
+            WaitingScreen(model: model, provider: provider, account: ref, isChecking: checking)
         case let .connected(ref):
             ConnectedScreen(model: model, interface: interface, account: ref, isStaticRender: isStaticRender, now: now)
-        case let .problem(ref, state):
-            ProblemScreen(model: model, interface: interface, account: ref, state: state, isStaticRender: isStaticRender)
+        case let .problem(provider, ref, state):
+            ProblemScreen(model: model, interface: interface, provider: provider, account: ref, state: state)
         }
     }
 }
@@ -238,13 +234,13 @@ private struct ChooseServiceScreen: View {
             }
             VStack(spacing: 0) {
                 ForEach(Array(ProviderKind.allCases.enumerated()), id: \.element) { index, provider in
-                    if index > 0 { RowDivider().padding(.leading, 46) }
+                    if index > 0 { RowDivider().padding(.leading, 58) }
                     ProviderChoiceRow(
                         provider: provider,
                         detail: detail(for: provider),
                         isAvailable: isAvailable(provider)
                     ) {
-                        model.chooseEnrollmentProvider(provider)
+                        model.startEnrollment(provider)
                     }
                 }
             }
@@ -264,20 +260,21 @@ private struct ChooseServiceScreen: View {
     }
 
     private func isAvailable(_ provider: ProviderKind) -> Bool {
-        if model.isReadOnly { return false }
         if case .failed = interface.providerStates[provider] { return false }
-        return true
+        return model.canAdd(provider) && !model.isAddingProfile
     }
 
     private func detail(for provider: ProviderKind) -> String {
         if case .failed = interface.providerStates[provider] { return "Could not load" }
         return switch provider {
-        case .codex: "Paid ChatGPT plan"
-        case .claude: "Pro or Max plan"
+        case .codex: "Sign in with ChatGPT"
+        case .claude: "Sign in with Claude Pro or Max"
         }
     }
 }
 
+/// One service. Choosing it opens that service's sign-in in the browser, so the row ends in
+/// the same arrow the browser buttons use.
 private struct ProviderChoiceRow: View {
     let provider: ProviderKind
     let detail: String
@@ -298,10 +295,10 @@ private struct ProviderChoiceRow: View {
                         .foregroundStyle(SW.Palette.textSecondary)
                 }
                 Spacer(minLength: SW.Space.sm)
-                Image(systemName: "chevron.right")
+                Image(systemName: "arrow.up.forward")
                     .font(.system(size: 11, weight: .semibold))
-                    .foregroundStyle(SW.Palette.textTertiary)
-                    .offset(x: isHovering && isAvailable ? 2 : 0)
+                    .foregroundStyle(isHovering && isAvailable ? SW.Palette.textSecondary : SW.Palette.textTertiary)
+                    .offset(x: isHovering && isAvailable ? 1.5 : 0, y: isHovering && isAvailable ? -1.5 : 0)
             }
             .padding(.horizontal, SW.Space.md)
             .frame(height: 58)
@@ -314,8 +311,8 @@ private struct ProviderChoiceRow: View {
         .onHover { hovering in
             withAnimation(.easeOut(duration: SW.Motion.quick)) { isHovering = hovering }
         }
-        .accessibilityLabel("\(provider.title), \(detail)")
-        .accessibilityHint("Add a \(provider.title) account")
+        .accessibilityLabel("Add a \(provider.title) account")
+        .accessibilityHint("Opens the \(provider.signInAccountName) sign-in in your browser")
     }
 }
 
@@ -327,101 +324,21 @@ private struct PressableRowStyle: ButtonStyle {
     }
 }
 
-// MARK: - Email
-
-private struct EmailScreen: View {
-    @ObservedObject var model: GuardAppModel
-    let provider: ProviderKind
-    let isStaticRender: Bool
-    @FocusState private var isFocused: Bool
-
-    var body: some View {
-        StepFrame {
-            VStack(spacing: 0) {
-                StepTitle(text: "Sign in with \(provider.signInAccountName)")
-                VStack(alignment: .leading, spacing: SW.Space.xs + 2) {
-                    field
-                    // The error row keeps its height, so nothing below it moves.
-                    StatusLine(symbol: "exclamationmark.circle.fill", text: model.enrollmentError ?? " ", tone: .critical)
-                        .opacity(model.enrollmentError == nil ? 0 : 1)
-                        .accessibilityHidden(model.enrollmentError == nil)
-                }
-                .padding(.top, SW.Space.xl)
-            }
-        } actions: {
-            PrimaryAction(
-                title: model.isAddingProfile ? "Opening browser…" : "Continue in browser",
-                opensBrowser: !model.isAddingProfile,
-                isEnabled: model.canAdd(provider) && !model.isAddingProfile
-            ) {
-                model.addProfile()
-            }
-        }
-    }
-
-    @ViewBuilder
-    private var field: some View {
-        let shape = RoundedRectangle(cornerRadius: SW.Radius.small, style: .continuous)
-        let hasError = model.enrollmentError != nil
-        let isActive = isFocused || isStaticRender
-        Group {
-            if isStaticRender {
-                Text(model.profileEmail.isEmpty ? "you@example.com" : model.profileEmail)
-                    .foregroundStyle(model.profileEmail.isEmpty ? SW.Palette.textTertiary : SW.Palette.textPrimary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-            } else {
-                TextField(
-                    "Email",
-                    text: $model.profileEmail,
-                    prompt: Text("you@example.com").foregroundStyle(SW.Palette.textTertiary)
-                )
-                .textFieldStyle(.plain)
-                .textContentType(.emailAddress)
-                .autocorrectionDisabled()
-                .focused($isFocused)
-                .onSubmit { model.addProfile() }
-                .onChange(of: model.profileEmail) { _, _ in model.enrollmentError = nil }
-                .onAppear { isFocused = true }
-                .disabled(model.isAddingProfile)
-            }
-        }
-        .font(.system(size: 13))
-        .padding(.horizontal, SW.Space.md - 2)
-        .frame(height: 32)
-        .background(SW.Palette.surface, in: shape)
-        .overlay {
-            shape.strokeBorder(
-                hasError ? SW.Palette.critical : (isActive ? SW.Palette.accent : SW.Palette.fieldBorder),
-                lineWidth: isActive || hasError ? 1.5 : 1
-            )
-        }
-        .accessibilityLabel("\(provider.signInAccountName) email")
-    }
-}
-
 // MARK: - Waiting
 
 private struct WaitingScreen: View {
     @ObservedObject var model: GuardAppModel
-    let account: AccountRef
+    let provider: ProviderKind
+    /// Nil while the new account is still being saved.
+    let account: AccountRef?
     let isChecking: Bool
-    let isStaticRender: Bool
 
     var body: some View {
-        let url = isChecking ? nil : model.signInURL(for: account)
+        let url = isChecking ? nil : account.flatMap { model.signInURL(for: $0) }
         StepFrame {
             VStack(spacing: 0) {
-                StepTitle(text: isChecking ? "Reading your limits" : "Finish in your browser")
-                StepMessage(text: message)
-                if !isChecking, !email.isEmpty {
-                    // On its own line so a long address is trimmed, never broken mid-word.
-                    emphasised(email)
-                        .font(.system(size: 12.5))
-                        .lineLimit(1)
-                        .truncationMode(.middle)
-                        .frame(maxWidth: 300)
-                        .padding(.top, 1)
-                }
+                StepTitle(text: title)
+                StepMessage(text: Text(message))
             }
         } actions: {
             if let url {
@@ -434,12 +351,14 @@ private struct WaitingScreen: View {
         }
     }
 
-    private var email: String { model.enrollment?.email ?? "" }
+    private var title: String {
+        if isChecking { return "Reading your limits" }
+        return account == nil ? "Opening your browser" : "Finish in your browser"
+    }
 
-    private var message: Text {
-        if isChecking { return Text("Signed in. One moment.") }
-        if email.isEmpty { return Text("Sign in with the account you added.") }
-        return Text("Sign in as")
+    private var message: String {
+        if isChecking { return "Signed in. One moment." }
+        return "Sign in to \(provider.signInAccountName) with the account you want to watch."
     }
 }
 
@@ -471,9 +390,10 @@ private struct CopyLinkButton: View {
 private struct ProblemScreen: View {
     @ObservedObject var model: GuardAppModel
     @ObservedObject var interface: GuardInterfaceModel
-    let account: AccountRef
+    let provider: ProviderKind
+    /// Nil when the new account could not even be saved.
+    let account: AccountRef?
     let state: SignInState
-    let isStaticRender: Bool
 
     var body: some View {
         StepFrame {
@@ -490,37 +410,21 @@ private struct ProblemScreen: View {
                 }
                 .buttonStyle(FlowLinkButtonStyle())
             } else {
-                PrimaryAction(title: "Try again", opensBrowser: true) { model.retryEnrollmentSignIn() }
-                if case let .wrongAccount(found?) = state, account.provider == .claude {
-                    Button("Watch this account instead") { model.adoptSignedInAccount(found) }
-                        .buttonStyle(FlowLinkButtonStyle())
-                        .accessibilityLabel("Watch \(found) instead")
-                } else if offersDifferentEmail {
-                    Button("Use a different email") { model.cancelEnrollment(returningTo: account.provider) }
-                        .buttonStyle(FlowLinkButtonStyle())
-                }
+                PrimaryAction(title: "Try again", opensBrowser: account != nil) { model.retryEnrollment() }
             }
         }
     }
 
-    private var email: String { model.enrollment?.email ?? "" }
-
     /// Codex reports a failed check separately from a failed sign-in; the account keeps
     /// checking on its own.
     private var readFailedAfterSignIn: Bool {
-        guard account.provider == .codex, case .failed = state else { return false }
+        guard provider == .codex, account != nil, case .failed = state else { return false }
         return model.enrollment?.startFailure == nil
-    }
-
-    private var offersDifferentEmail: Bool {
-        switch state {
-        case .wrongAccount, .noPlan: true
-        default: false
-        }
     }
 
     private var title: String {
         switch state {
+        case .alreadyAdded: "Already in Second Wind"
         case .wrongAccount: "Wrong account"
         case .noPlan: "No Pro or Max plan"
         case .signedOut: "Sign-in didn't finish"
@@ -530,13 +434,15 @@ private struct ProblemScreen: View {
 
     private var message: Text {
         switch state {
+        case let .alreadyAdded(found):
+            let who = found.map(emphasised) ?? Text("That account")
+            return who + Text(" is already being watched. Switch to another account in your browser, then try again.")
         case let .wrongAccount(found):
-            let expected = email.isEmpty ? Text("the account you added") : emphasised(email)
-            let signedIn = found.map { Text("You signed in as ") + emphasised($0) + Text(", not ") + expected + Text(".") }
-                ?? Text("That sign-in wasn't ") + expected + Text(".")
-            return signedIn + Text(" Sign out in your browser, then try again.")
+            let signedIn = found.map { Text("You signed in as ") + emphasised($0) + Text(".") }
+                ?? Text("That was a different account.")
+            return signedIn + Text(" Switch accounts in your browser, then try again.")
         case .noPlan:
-            return (email.isEmpty ? Text("This account") : emphasised(email)) + Text(" has no Claude plan limits to watch.")
+            return Text("That Claude account has no Pro or Max plan, so there are no limits to watch. Sign in with another account.")
         case .signedOut:
             return Text("The browser page was closed or timed out.")
         case let .failed(reason):
@@ -611,8 +517,7 @@ private struct ConnectedScreen: View {
     private var plan: String? { codex?.planName ?? claude?.planName }
 
     private var identity: String {
-        let email = model.enrollment?.email ?? ""
-        return email.isEmpty ? (codex?.accountHint ?? claude?.accountHint ?? "") : email
+        codex?.email ?? claude?.email ?? codex?.accountHint ?? claude?.accountHint ?? ""
     }
 
     // MARK: Name
@@ -918,7 +823,8 @@ struct AddAccountMenu: View {
         } else {
             Menu {
                 ForEach(ProviderKind.allCases) { provider in
-                    Button(provider.title) { model.chooseEnrollmentProvider(provider) }
+                    Button(provider.title) { model.startEnrollment(provider) }
+                        .disabled(!model.canAdd(provider))
                 }
             } label: {
                 label

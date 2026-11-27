@@ -214,47 +214,38 @@ struct NativePopoverTests {
         #expect(await harness.waitUntil { harness.interface.scrollTarget == nil })
     }
 
-    @Test func nativeEnrollmentTypesTheEmailAndContinuesOnReturn() async {
+    @Test func nativeEnrollmentGoesFromServiceToResultWithoutAField() async {
         let harness = await NativeHarness(.onboarding)
         defer { harness.close() }
         harness.snapshot("native-09-enroll-choose")
-        #expect(harness.textField() == nil, "The service list has no field")
+        #expect(harness.textField() == nil, "Adding an account asks for nothing")
 
         // Rows are SwiftUI buttons with no accessibility tree here; the row press calls this.
-        harness.model.chooseEnrollmentProvider(.codex)
-        await harness.settle()
-        #expect(harness.textField() != nil, "The email step shows a real field")
-        await harness.pressKey("\u{1b}", keyCode: 53)
-        #expect(harness.model.enrollmentPhase == .choose, "Escape goes back to the service list")
-
-        harness.model.chooseEnrollmentProvider(.codex)
-        await harness.settle()
-        await harness.type("sample@")
-        await harness.pressKey("\r", keyCode: 36)
-        #expect(harness.model.enrollmentError != nil, "Return checks the address")
-        #expect(harness.model.enrollmentPhase == .email(.codex))
-        harness.snapshot("native-10-enroll-email-error")
-
-        await harness.type("sample@gmail.com")
-        #expect(harness.model.enrollmentError == nil, "Editing clears the error")
-        await harness.pressKey("\r", keyCode: 36)
+        harness.model.startEnrollment(.codex)
         let waiting = await harness.waitUntil {
-            if case .waiting? = harness.model.enrollmentPhase { true } else { false }
+            if case .waiting(_, _?, _)? = harness.model.enrollmentPhase { true } else { false }
         }
-        #expect(waiting, "Return continues to the browser sign-in")
-        harness.snapshot("native-11-enroll-waiting")
+        #expect(waiting, "Choosing the service starts its sign-in")
+        #expect(harness.textField() == nil)
+        harness.snapshot("native-10-enroll-waiting")
 
+        // Escape cancels the sign-in and drops the unfinished account.
+        await harness.pressKey("\u{1b}", keyCode: 53)
+        #expect(harness.model.enrollmentPhase == .choose)
+        #expect(harness.model.profiles.isEmpty)
+
+        harness.model.startEnrollment(.codex)
         let connected = await harness.waitUntil(6) {
             if case .connected? = harness.model.enrollmentPhase { true } else { false }
         }
         #expect(connected, "The preview's synthetic sign-in finishes")
         await harness.settle(1.4)
-        #expect(harness.model.profiles.first?.displayName == "Personal")
-        harness.snapshot("native-12-enroll-connected")
+        #expect(harness.model.profiles.first?.displayName == "Personal", "The name comes from the signed-in email")
+        harness.snapshot("native-11-enroll-connected")
 
         await harness.pressKey("\r", keyCode: 36)
         #expect(harness.model.enrollmentPhase == nil, "Return on the result closes the flow")
         #expect(harness.interface.highlighted != nil, "The new account is highlighted in the list")
-        harness.snapshot("native-13-enroll-done")
+        harness.snapshot("native-12-enroll-done")
     }
 }

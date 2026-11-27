@@ -314,6 +314,55 @@ func removalDropsARedemptionThatNeedsNoRecovery(phase: RedemptionAttemptPhase) a
     #expect(state.retainedRedemptions?.count == 1)
 }
 
+@Test func anAccountAddedWithoutAnEmailTakesItsFirstSignInsIdentityAndKeptRecord() async throws {
+    let fixture = try AccountFixture()
+    defer { fixture.remove() }
+    let persistence = fixture.persistence()
+    _ = try await persistence.loadOrBootstrap(now: fixture.now)
+    let pending = try await saveAttempt(.retryable, for: fixture.first, in: fixture, persistence: persistence)
+    try await persistence.removeProfile(fixture.first.id, now: fixture.now)
+
+    let newID = UUID()
+    let added = try await persistence.addProfile(expectedEmail: nil, displayName: "New account", id: newID, now: fixture.now)
+    #expect(added.profiles.first(where: { $0.id == newID })?.expectedEmail == nil)
+    #expect(added.monitorState(for: newID)?.attempt == nil, "Nothing attaches before the identity is known")
+    #expect(added.retainedRedemptions?.count == 1)
+    // An account with no identity can never be switched on.
+    await #expect(throws: MonitorPersistenceError.invalidExpectedIdentity) {
+        try await persistence.setProfileEnabled(newID, enabled: true, now: fixture.now)
+    }
+
+    let pinned = try await persistence.pinIdentity(newID, email: " First@Example.com ", displayName: "Personal", now: fixture.now)
+    let profile = try #require(pinned.profiles.first(where: { $0.id == newID }))
+    #expect(profile.expectedEmail == "first@example.com")
+    #expect(profile.displayName == "Personal")
+    #expect(!profile.isEnabled)
+    #expect(pinned.monitorState(for: newID)?.attempt?.idempotencyKey == pending.idempotencyKey)
+    #expect(pinned.monitorState(for: newID)?.attempt?.profileID == GuardPersistentState.key(for: newID))
+    #expect(pinned.retainedRedemptions == nil)
+    // The identity survives a restart and never changes afterwards.
+    let reloaded = try await fixture.persistence().loadOrBootstrap(now: fixture.now)
+    #expect(reloaded.profiles.first(where: { $0.id == newID })?.expectedEmail == "first@example.com")
+    #expect(reloaded.monitorState(for: newID)?.attempt?.idempotencyKey == pending.idempotencyKey)
+    _ = try await persistence.pinIdentity(newID, email: "first@example.com", now: fixture.now)
+    await #expect(throws: MonitorPersistenceError.invalidExpectedIdentity) {
+        try await persistence.pinIdentity(newID, email: "someone-else@example.com", now: fixture.now)
+    }
+}
+
+@Test func aFirstSignInAsAnAccountAlreadyListedIsADuplicate() async throws {
+    let fixture = try AccountFixture()
+    defer { fixture.remove() }
+    let persistence = fixture.persistence()
+    _ = try await persistence.loadOrBootstrap(now: fixture.now)
+    let newID = UUID()
+    _ = try await persistence.addProfile(expectedEmail: nil, displayName: "New account", id: newID, now: fixture.now)
+    await #expect(throws: MonitorPersistenceError.duplicateExpectedIdentity) {
+        try await persistence.pinIdentity(newID, email: "SECOND@example.com", now: fixture.now)
+    }
+    #expect(try await persistence.snapshot().profiles.first(where: { $0.id == newID })?.expectedEmail == nil)
+}
+
 @Test func anInterruptedFolderDeleteFinishesOnNextLaunch() async throws {
     let fixture = try AccountFixture()
     defer { fixture.remove() }

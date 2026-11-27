@@ -12,7 +12,10 @@ enum SignInState: Equatable, Sendable {
     case connected
     /// Not signed in: never started, cancelled or did not finish.
     case signedOut
+    /// A reconnect signed in with a different account from the one this profile watches.
     case wrongAccount(found: String?)
+    /// A new profile's first sign-in was an account another profile already watches.
+    case alreadyAdded(found: String?)
     /// Claude only: the sign-in has no Pro or Max plan, so there are no limits to read.
     case noPlan
     case failed(String)
@@ -21,7 +24,7 @@ enum SignInState: Equatable, Sendable {
     var isSettled: Bool {
         switch self {
         case .waiting, .checking: false
-        case .connected, .signedOut, .wrongAccount, .noPlan, .failed: true
+        case .connected, .signedOut, .wrongAccount, .alreadyAdded, .noPlan, .failed: true
         }
     }
 
@@ -33,42 +36,53 @@ enum SignInState: Equatable, Sendable {
 struct EnrollmentFlow: Equatable {
     enum Step: Equatable {
         case choose
-        case email(ProviderKind)
+        /// Saving the new account and opening its sign-in.
+        case starting(ProviderKind)
+        /// The new account could not be saved, so no sign-in started.
+        case couldNotStart(ProviderKind, String)
         case signIn(AccountRef)
     }
 
     var step: Step
-    /// The address being added, shown in full while signing in: the one line that prevents a
-    /// sign-in with the browser's other account.
-    var email = ""
     /// Codex returns its sign-in page; Claude Code reports its own once it has opened it.
     var signInURL: URL?
-    /// From Continue or Try again until the account reports a sign-in under way, so the
+    /// From a start or Try again until the account reports a sign-in under way, so the
     /// signed-out state it starts in never reads as a failure.
     var isStarting = false
-    /// The sign-in page could not be opened at all.
+    /// The account was saved but its sign-in page could not be opened.
     var startFailure: String?
     /// The popover reopens once per settled sign-in, not on every later snapshot.
     var hasSettled = false
 
     var hasStartedSignIn: Bool {
-        if case .signIn = step { return true }
-        return false
+        switch step {
+        case .choose, .couldNotStart: false
+        case .starting, .signIn: true
+        }
     }
 }
 
 /// What the flow shows, derived from its step and the account's live sign-in state.
 enum EnrollmentPhase: Equatable {
     case choose
-    case email(ProviderKind)
-    case waiting(AccountRef, checking: Bool)
+    /// The account is nil while it is still being saved.
+    case waiting(ProviderKind, AccountRef?, checking: Bool)
     case connected(AccountRef)
-    case problem(AccountRef, SignInState)
+    case problem(ProviderKind, AccountRef?, SignInState)
 
     var account: AccountRef? {
         switch self {
-        case .choose, .email: nil
-        case let .waiting(ref, _), let .connected(ref), let .problem(ref, _): ref
+        case .choose: nil
+        case let .waiting(_, ref, _), let .problem(_, ref, _): ref
+        case let .connected(ref): ref
+        }
+    }
+
+    var provider: ProviderKind? {
+        switch self {
+        case .choose: nil
+        case let .waiting(provider, _, _), let .problem(provider, _, _): provider
+        case let .connected(ref): ref.provider
         }
     }
 }
@@ -90,12 +104,18 @@ extension ProviderKind {
     }
 }
 
-/// A starting name for a new account, so enrollment asks for one field instead of two.
+/// Names for new accounts. An account starts with a provisional name and takes one from its
+/// email at its first sign-in, so adding an account asks for nothing.
 enum AccountNaming {
+    /// Until the first sign-in says whose account this is.
+    static let provisionalName = "New account"
+
     private static let personalDomains: Set<String> = [
         "aol.com", "duck.com", "fastmail.com", "gmail.com", "gmx.com", "googlemail.com", "hey.com",
         "hotmail.com", "icloud.com", "live.com", "mac.com", "me.com", "msn.com", "outlook.com",
         "pm.me", "proton.me", "protonmail.com", "yahoo.com", "yandex.com", "zoho.com",
+        // Reserved documentation domains never name an organisation.
+        "example.com", "example.net", "example.org",
     ]
     /// Second-level labels that sit in front of a country code, as in "acme.co.uk".
     private static let genericSecondLevels: Set<String> = ["ac", "co", "com", "edu", "gov", "net", "org"]
@@ -136,18 +156,20 @@ extension GuardAppModel {
         switch flow.step {
         case .choose:
             return .choose
-        case let .email(provider):
-            return .email(provider)
+        case let .starting(provider):
+            return .waiting(provider, nil, checking: false)
+        case let .couldNotStart(provider, message):
+            return .problem(provider, nil, .failed(message))
         case let .signIn(ref):
-            if let failure = flow.startFailure { return .problem(ref, .failed(failure)) }
+            if let failure = flow.startFailure { return .problem(ref.provider, ref, .failed(failure)) }
             guard !flow.isStarting, let state = signInState(for: ref) else {
-                return .waiting(ref, checking: false)
+                return .waiting(ref.provider, ref, checking: false)
             }
             switch state {
-            case .waiting: return .waiting(ref, checking: false)
-            case .checking: return .waiting(ref, checking: true)
+            case .waiting: return .waiting(ref.provider, ref, checking: false)
+            case .checking: return .waiting(ref.provider, ref, checking: true)
             case .connected: return .connected(ref)
-            default: return .problem(ref, state)
+            default: return .problem(ref.provider, ref, state)
             }
         }
     }
@@ -174,65 +196,39 @@ extension GuardAppModel {
 
     // MARK: Moving through the flow
 
-    func chooseEnrollmentProvider(_ provider: ProviderKind) {
-        guard !isReadOnly else { return }
-        enrollmentError = nil
-        var flow = activeEnrollment ?? EnrollmentFlow(step: .choose)
-        flow.step = .email(provider)
-        enrollment = flow
-    }
-
-    /// One step back: email to the service list on first run, otherwise to the accounts.
-    func enrollmentBack() {
-        guard let flow = activeEnrollment, !isAddingProfile else { return }
-        enrollmentError = nil
-        switch flow.step {
-        case .email:
-            // With accounts the email step opens from a menu, so back returns to the list.
-            enrollment = hasAccounts ? nil : EnrollmentFlow(step: .choose)
-        case .choose:
-            enrollment = nil
-        case let .signIn(ref):
-            // Back from a sign-in drops the unfinished account and keeps the typed email.
-            if signInState(for: ref) != .connected { cancelEnrollment(returningTo: ref.provider) }
-        }
-    }
-
-    /// Continue: saves the account under a suggested name and opens its browser sign-in.
-    func addProfile() {
-        guard !isAddingProfile, !isReadOnly else { return }
-        let provider: ProviderKind = if case let .email(provider)? = activeEnrollment?.step { provider } else { .codex }
-        guard canAdd(provider) else { return }
-        guard MonitorPersistence.isValidEmail(profileEmail) else {
-            enrollmentError = "Enter a full email address, like you@example.com."
-            return
-        }
-        let email = MonitorPersistence.normalizedEmail(profileEmail)
-        let taken = provider == .codex ? profiles.map(\.displayName) : claudeProfiles.map(\.displayName)
-        let name = AccountNaming.suggestedName(
-            for: email,
-            taken: taken,
-            maximumLength: GuardInterfaceModel.maximumNameLength(for: provider)
-        )
-        enrollmentError = nil
-        var flow = activeEnrollment ?? EnrollmentFlow(step: .email(provider))
-        flow.email = email
-        enrollment = flow
+    /// Saves a new account for the service and opens its browser sign-in. Whose account it is
+    /// comes from that sign-in, so nothing is asked first.
+    func startEnrollment(_ provider: ProviderKind) {
+        guard canAdd(provider), !isAddingProfile else { return }
+        enrollment = EnrollmentFlow(step: .starting(provider))
         if isPreview {
-            simulateEnrollment(provider: provider, email: email, name: name)
+            simulateEnrollment(provider: provider)
             return
         }
         isAddingProfile = true
         switch provider {
-        case .codex: onAddProfile?(email, name)
-        case .claude: onAddClaudeProfile?(email, name)
+        case .codex: onAddProfile?()
+        case .claude: onAddClaudeProfile?()
+        }
+    }
+
+    /// One step back: the service list to the accounts. Back from a sign-in cancels it and
+    /// drops the unfinished account; from the result it is the same as Done.
+    func enrollmentBack() {
+        guard let flow = activeEnrollment, !isAddingProfile else { return }
+        switch flow.step {
+        case .choose, .couldNotStart:
+            enrollment = hasAccounts ? nil : EnrollmentFlow(step: .choose)
+        case .starting:
+            break
+        case let .signIn(ref):
+            if signInState(for: ref) == .connected { finishEnrollment() } else { cancelEnrollment() }
         }
     }
 
     /// Called by a provider once the account is saved and its sign-in has started (or is about
     /// to: Claude Code opens the browser itself a moment later).
     func enrollmentDidStartSignIn(_ ref: AccountRef, url: URL?, awaitingStart: Bool) {
-        profileEmail = ""
         var flow = activeEnrollment ?? EnrollmentFlow(step: .signIn(ref))
         flow.step = .signIn(ref)
         flow.signInURL = url
@@ -245,7 +241,6 @@ extension GuardAppModel {
 
     /// The account was saved but its sign-in page could not be opened.
     func enrollmentDidFailToStart(_ ref: AccountRef, message: String) {
-        profileEmail = ""
         var flow = activeEnrollment ?? EnrollmentFlow(step: .signIn(ref))
         flow.step = .signIn(ref)
         flow.isStarting = false
@@ -253,30 +248,42 @@ extension GuardAppModel {
         enrollment = flow
     }
 
-    /// A fresh sign-in for the flow's account after a problem.
-    func retryEnrollmentSignIn() {
-        guard var flow = enrollment, case let .signIn(ref) = flow.step else { return }
-        flow.isStarting = true
-        flow.startFailure = nil
-        flow.hasSettled = false
-        flow.signInURL = nil
-        enrollment = flow
-        if isPreview {
-            simulateSignIn(ref)
-            return
-        }
-        let raw = ref.id.uuidString.lowercased()
-        switch ref.provider {
-        case .codex: onReconnect?(raw)
-        case .claude: onConnectClaude?(raw)
+    /// The account could not be saved at all.
+    func enrollmentCouldNotStart(_ provider: ProviderKind, message: String) {
+        enrollment = EnrollmentFlow(step: .couldNotStart(provider, message))
+    }
+
+    /// Try again after a problem: a fresh sign-in for the same new account, or a fresh start if
+    /// none was saved.
+    func retryEnrollment() {
+        guard var flow = enrollment else { return }
+        switch flow.step {
+        case let .couldNotStart(provider, _):
+            startEnrollment(provider)
+        case let .signIn(ref):
+            flow.isStarting = true
+            flow.startFailure = nil
+            flow.hasSettled = false
+            flow.signInURL = nil
+            enrollment = flow
+            if isPreview {
+                simulateSignIn(ref)
+                return
+            }
+            let raw = ref.id.uuidString.lowercased()
+            switch ref.provider {
+            case .codex: onReconnect?(raw)
+            case .claude: onConnectClaude?(raw)
+            }
+        case .choose, .starting:
+            break
         }
     }
 
     /// Stops the sign-in and drops the account it created, which the user never saw in the
     /// list. A failed removal leaves the account listed with its own Connect button.
-    func cancelEnrollment(returningTo provider: ProviderKind? = nil) {
+    func cancelEnrollment() {
         guard let flow = activeEnrollment else { return }
-        enrollmentError = nil
         guard case let .signIn(ref) = flow.step else {
             enrollment = hasAccounts ? nil : EnrollmentFlow(step: .choose)
             return
@@ -286,12 +293,7 @@ extension GuardAppModel {
             onCancelClaudeSignIn?(raw)
         }
         let othersRemain = profiles.contains { $0.id != raw } || claudeProfiles.contains { $0.id != raw }
-        if let provider {
-            profileEmail = flow.email
-            enrollment = EnrollmentFlow(step: .email(provider))
-        } else {
-            enrollment = othersRemain ? nil : EnrollmentFlow(step: .choose)
-        }
+        enrollment = othersRemain ? nil : EnrollmentFlow(step: .choose)
         if isPreview {
             profiles.removeAll { $0.id == raw }
             claudeProfiles.removeAll { $0.id == raw }
@@ -308,15 +310,6 @@ extension GuardAppModel {
                 )
             }
         }
-    }
-
-    /// The sign-in came back as another Claude account the user may want instead: drop the
-    /// unfinished one and add that account. Its browser session is already signed in.
-    func adoptSignedInAccount(_ email: String) {
-        guard case let .signIn(ref)? = enrollment?.step else { return }
-        cancelEnrollment(returningTo: ref.provider)
-        profileEmail = email
-        addProfile()
     }
 
     /// Done: closes the flow and returns the new account so the list can highlight it.
@@ -364,14 +357,13 @@ extension GuardAppModel {
     // MARK: Preview
 
     /// Preview only: walks the flow with synthetic accounts and never touches a provider.
-    private func simulateEnrollment(provider: ProviderKind, email: String, name: String) {
+    private func simulateEnrollment(provider: ProviderKind) {
         let ref = AccountRef(provider: provider, id: UUID())
-        let hint = PreviewFixtures.maskedHint(email)
         switch provider {
         case .codex:
-            profiles.append(PreviewFixtures.enrollingCodex(ref.id, name: name, hint: hint))
+            profiles.append(PreviewFixtures.enrollingCodex(ref.id, name: AccountNaming.provisionalName, hint: "Expected Codex account"))
         case .claude:
-            claudeProfiles.append(PreviewFixtures.enrollingClaude(ref.id, name: name, hint: hint))
+            claudeProfiles.append(PreviewFixtures.enrollingClaude(ref.id, name: AccountNaming.provisionalName, hint: "Claude account"))
         }
         enrollmentDidStartSignIn(ref, url: PreviewFixtures.signInURL(for: provider), awaitingStart: false)
         simulateSignIn(ref)
@@ -393,14 +385,17 @@ extension GuardAppModel {
             try? await Task.sleep(for: .seconds(2.6))
             guard let self, self.signInState(for: ref) == .waiting else { return }
             self.lastCheckedAt = self.referenceDate ?? Date()
+            let email = ref.provider == .codex ? "sample@gmail.com" : "studio@example.com"
             switch ref.provider {
             case .codex:
                 if let index = self.profiles.firstIndex(where: { $0.id == raw }) {
-                    self.profiles[index] = PreviewFixtures.connectedCodex(self.profiles[index])
+                    let taken = self.profiles.filter { $0.id != raw }.map(\.displayName)
+                    self.profiles[index] = PreviewFixtures.connectedCodex(self.profiles[index], email: email, taken: taken)
                 }
             case .claude:
                 if let index = self.claudeProfiles.firstIndex(where: { $0.id == raw }) {
-                    self.claudeProfiles[index] = PreviewFixtures.connectedClaude(self.claudeProfiles[index])
+                    let taken = self.claudeProfiles.filter { $0.id != raw }.map(\.displayName)
+                    self.claudeProfiles[index] = PreviewFixtures.connectedClaude(self.claudeProfiles[index], email: email, taken: taken)
                 }
             }
         }

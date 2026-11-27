@@ -446,12 +446,11 @@ private func laterPauseSupersedesEnableWaitingForIdentity(action: FailedPauseAct
     model.onCheckNow = { liveCalls += 1 }
     model.onReconnect = { _ in liveCalls += 1 }
     model.onToggleAutoReset = { _, _ in liveCalls += 1 }
-    model.onAddProfile = { _, _ in liveCalls += 1 }
-    model.profileEmail = "new@example.com"
+    model.onAddProfile = { liveCalls += 1 }
     model.checkNow()
     model.reconnect(profileID: model.profiles[0].id)
     model.setAutoReset(profileID: model.profiles[0].id, enabled: false)
-    model.addProfile()
+    model.startEnrollment(.codex)
     #expect(liveCalls == 0)
     #expect(!model.isAddingProfile)
 }
@@ -2130,18 +2129,20 @@ private final class LockedURLs: @unchecked Sendable {
     _ = try await controller.start()
     #expect(await waitOnMain { model.isReady })
 
-    model.chooseEnrollmentProvider(.codex)
-    model.profileEmail = "New@Example.com"
-    model.addProfile()
-    // One Continue saves the account and opens its sign-in; there is no second Connect step.
-    #expect(await waitOnMain { if case .waiting? = model.enrollmentPhase { true } else { false } })
+    // Choosing the service saves the account and opens its sign-in; nothing is asked first.
+    model.startEnrollment(.codex)
+    #expect(await waitOnMain { if case .waiting(_, _?, _)? = model.enrollmentPhase { true } else { false } })
     #expect(opened.values.map(\.host) == ["example.com"])
-    #expect(model.profiles.first?.displayName == "Example")
+    #expect(model.profiles.first?.displayName == AccountNaming.provisionalName)
+    #expect(model.profiles.first?.email == nil)
     #expect(model.profiles.first?.signIn == .waiting)
     #expect(settled.isEmpty)
 
     await session.completeLogin()
     #expect(await waitOnMain { if case .connected? = model.enrollmentPhase { true } else { false } })
+    // The first sign-in supplied the identity and the name.
+    #expect(model.profiles.first?.email == "new@example.com")
+    #expect(model.profiles.first?.displayName == "Personal")
     #expect(model.profiles.first?.planName == "Pro")
     #expect(model.profiles.first?.autoResetEnabled == false, "Auto-redeem stays off until the user turns it on")
     _ = await controller.checkNow()
@@ -2162,23 +2163,52 @@ private final class LockedURLs: @unchecked Sendable {
         _ = try await controller.removeProfile(profileID: ref.id)
     }
 
-    model.chooseEnrollmentProvider(.codex)
-    model.profileEmail = "wrong@example.com"
-    model.addProfile()
-    #expect(await waitOnMain { if case .waiting? = model.enrollmentPhase { true } else { false } })
+    model.startEnrollment(.codex)
+    #expect(await waitOnMain { if case .waiting(_, _?, _)? = model.enrollmentPhase { true } else { false } })
 
-    // Back while the browser is still open: the unfinished account goes, the email stays.
+    // Back while the browser is still open: the unfinished account goes.
     model.enrollmentBack()
-    #expect(model.enrollmentPhase == .email(.codex))
-    #expect(model.profileEmail == "wrong@example.com")
+    #expect(model.enrollmentPhase == .choose)
     #expect(await waitOnMain { model.profiles.isEmpty }, "The unfinished account was removed")
 
-    model.profileEmail = "new@example.com"
-    model.addProfile()
-    #expect(await waitOnMain { if case .waiting? = model.enrollmentPhase { true } else { false } },
+    model.startEnrollment(.codex)
+    #expect(await waitOnMain { if case .waiting(_, _?, _)? = model.enrollmentPhase { true } else { false } },
             "A fresh sign-in starts after the cancelled one")
     #expect(opened.values.count == 2)
     await session.completeLogin()
     #expect(await waitOnMain { if case .connected? = model.enrollmentPhase { true } else { false } })
+    await controller.stop()
+}
+
+@Test @MainActor func aSecondSignInAsAWatchedAccountIsCaughtAndCannotRedeem() async throws {
+    let fixture = try RuntimeFixture(seedProfiles: false)
+    defer { fixture.remove() }
+    let session = DiagnosticGuardSession(email: "new@example.com", now: fixture.now, deliversLoginCompletion: true)
+    let (model, controller, _) = enrollmentHarness(fixture, session: session)
+    _ = try await controller.start()
+    #expect(await waitOnMain { model.isReady })
+
+    model.startEnrollment(.codex)
+    #expect(await waitOnMain { if case .waiting(_, _?, _)? = model.enrollmentPhase { true } else { false } })
+    await session.completeLogin()
+    #expect(await waitOnMain { if case .connected? = model.enrollmentPhase { true } else { false } })
+    model.finishEnrollment()
+
+    // The browser is still signed in to the same account, so the second sign-in returns it.
+    model.startEnrollment(.codex)
+    #expect(await waitOnMain { if case .waiting(_, _?, _)? = model.enrollmentPhase { true } else { false } })
+    let second = try #require(model.enrollmentPhase?.account)
+    await session.completeLogin()
+    #expect(await waitOnMain { if case .problem(_, _, .alreadyAdded)? = model.enrollmentPhase { true } else { false } })
+    let snapshot = await controller.snapshot()
+    let duplicate = try #require(snapshot.profiles.first(where: { $0.id == second.id }))
+    #expect(duplicate.email == nil, "The duplicate never takes the identity")
+    #expect(duplicate.connectionStatus == .alreadyWatched)
+    do {
+        _ = try await controller.setEnabled(profileID: second.id, enabled: true)
+        Issue.record("An account without an identity must not enable Auto-redeem")
+    } catch {}
+    #expect(await controller.snapshot().profiles.first(where: { $0.id == second.id })?.autoResetEnabled == false)
+    #expect(await session.consumeCount() == 0)
     await controller.stop()
 }

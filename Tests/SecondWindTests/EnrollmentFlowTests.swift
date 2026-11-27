@@ -58,60 +58,50 @@ private func settle(_ condition: () -> Bool) async {
 @Test @MainActor func firstRunOpensOnTheServiceListAndCannotBackOutOfIt() {
     let model = liveModel()
     #expect(model.enrollmentPhase == .choose)
-    model.chooseEnrollmentProvider(.claude)
-    #expect(model.enrollmentPhase == .email(.claude))
-    model.enrollmentBack()
-    #expect(model.enrollmentPhase == .choose)
     model.enrollmentBack()
     #expect(model.enrollmentPhase == .choose)
 }
 
-@Test @MainActor func addingWithAccountsOpensOnTheEmailStepAndBacksOutToTheList() {
-    let model = liveModel(profiles: [codexAccount(signIn: .connected)])
-    #expect(model.enrollmentPhase == nil)
-    // The footer menu names the service, so the list of services is skipped.
-    model.chooseEnrollmentProvider(.claude)
-    #expect(model.enrollmentPhase == .email(.claude))
-    model.enrollmentBack()
-    #expect(model.enrollmentPhase == nil)
-}
-
-@Test @MainActor func continueSendsTheEmailAndASuggestedNameToTheChosenService() {
+@Test @MainActor func choosingAServiceStartsItsSignInWithoutAskingAnything() {
     let model = liveModel()
     var codexCalls = 0
-    var claudeCall: (String, String)?
-    model.onAddProfile = { _, _ in codexCalls += 1 }
-    model.onAddClaudeProfile = { claudeCall = ($0, $1) }
-    model.chooseEnrollmentProvider(.claude)
-    model.profileEmail = "  Ana@Acme.com "
-    model.addProfile()
+    var claudeCalls = 0
+    model.onAddProfile = { codexCalls += 1 }
+    model.onAddClaudeProfile = { claudeCalls += 1 }
+    model.startEnrollment(.claude)
     #expect(codexCalls == 0)
-    #expect(claudeCall?.0 == "ana@acme.com")
-    #expect(claudeCall?.1 == "Acme")
+    #expect(claudeCalls == 1)
     #expect(model.isAddingProfile)
-    #expect(model.enrollment?.email == "ana@acme.com")
+    // Saving: the browser is about to open, and there is nothing to go back to yet.
+    #expect(model.enrollmentPhase == .waiting(.claude, nil, checking: false))
+    model.startEnrollment(.claude)
+    #expect(claudeCalls == 1, "A second press while saving starts nothing")
 }
 
-@Test @MainActor func anInvalidEmailStaysOnTheEmailStep() {
-    let model = liveModel()
+@Test @MainActor func anAccountThatCouldNotBeSavedOffersAFreshStart() {
+    let model = liveModel(profiles: [codexAccount(signIn: .connected)])
     var calls = 0
-    model.onAddProfile = { _, _ in calls += 1 }
-    model.chooseEnrollmentProvider(.codex)
-    model.profileEmail = "sample@"
-    model.addProfile()
-    #expect(calls == 0)
-    #expect(model.enrollmentError != nil)
-    #expect(model.enrollmentPhase == .email(.codex))
+    model.onAddProfile = { calls += 1 }
+    model.startEnrollment(.codex)
+    model.isAddingProfile = false
+    model.enrollmentCouldNotStart(.codex, message: "Could not save the new account.")
+    #expect(model.enrollmentPhase == .problem(.codex, nil, .failed("Could not save the new account.")))
+    model.retryEnrollment()
+    #expect(calls == 2)
+    model.isAddingProfile = false
+    model.enrollmentCouldNotStart(.codex, message: "Could not save the new account.")
+    model.enrollmentBack()
+    #expect(model.enrollmentPhase == nil, "With accounts listed, back returns to the list")
 }
 
 @Test @MainActor func claudeReadsAsWaitingUntilItsSignInStartsAndAnnouncesTheResultOnce() {
     let model = liveModel(claudeProfiles: [claudeAccount(signIn: .signedOut)])
     var announcements: [(AccountRef, Bool)] = []
     model.onSignInSettled = { announcements.append(($0, $1)) }
-    model.chooseEnrollmentProvider(.claude)
+    model.enrollment = EnrollmentFlow(step: .starting(.claude))
     model.enrollmentDidStartSignIn(claudeRef, url: nil, awaitingStart: true)
     // Saved but not yet signing in: never a failure.
-    #expect(model.enrollmentPhase == .waiting(claudeRef, checking: false))
+    #expect(model.enrollmentPhase == .waiting(.claude, claudeRef, checking: false))
     #expect(announcements.isEmpty)
 
     model.claudeProfiles = [claudeAccount(signIn: .waiting)]
@@ -127,36 +117,36 @@ private func settle(_ condition: () -> Bool) async {
     #expect(model.enrollmentPhase == nil)
 }
 
-@Test @MainActor func aWrongAccountOffersARetryThatStartsAFreshSignIn() {
+@Test @MainActor func anAccountAlreadyWatchedOffersAFreshSignIn() {
     let model = liveModel(profiles: [codexAccount(signIn: .waiting)])
     var reconnects: [String] = []
     model.onReconnect = { reconnects.append($0) }
     model.enrollmentDidStartSignIn(codexRef, url: URL(string: "https://auth.example.com/start"), awaitingStart: false)
     #expect(model.signInURL(for: codexRef)?.host == "auth.example.com")
-    model.profiles = [codexAccount(signIn: .wrongAccount(found: nil))]
-    #expect(model.enrollmentPhase == .problem(codexRef, .wrongAccount(found: nil)))
+    model.profiles = [codexAccount(signIn: .alreadyAdded(found: nil))]
+    #expect(model.enrollmentPhase == .problem(.codex, codexRef, .alreadyAdded(found: nil)))
 
-    model.retryEnrollmentSignIn()
+    model.retryEnrollment()
     #expect(reconnects == [codexRef.id.uuidString.lowercased()])
     // The stale result is not shown again while the new sign-in starts.
-    #expect(model.enrollmentPhase == .waiting(codexRef, checking: false))
+    #expect(model.enrollmentPhase == .waiting(.codex, codexRef, checking: false))
     #expect(model.signInURL(for: codexRef) == nil)
 }
 
 @Test @MainActor func aSignInPageThatNeverOpenedIsAProblemNotAWait() {
     let model = liveModel(profiles: [codexAccount(signIn: .signedOut)])
     model.enrollmentDidFailToStart(codexRef, message: "Could not open the Codex sign-in page.")
-    #expect(model.enrollmentPhase == .problem(codexRef, .failed("Could not open the Codex sign-in page.")))
+    #expect(model.enrollmentPhase == .problem(.codex, codexRef, .failed("Could not open the Codex sign-in page.")))
 }
 
-@Test @MainActor func cancellingStopsTheSignInAndDiscardsTheUnfinishedAccount() async {
+@Test @MainActor func backDuringASignInStopsItAndDiscardsTheUnfinishedAccount() async {
     let model = liveModel(claudeProfiles: [claudeAccount(signIn: .waiting)])
     var cancelled: [String] = []
     var discarded: [AccountRef] = []
     model.onCancelClaudeSignIn = { cancelled.append($0) }
     model.onDiscardUnfinishedAccount = { discarded.append($0) }
     model.enrollmentDidStartSignIn(claudeRef, url: nil, awaitingStart: false)
-    model.cancelEnrollment()
+    model.enrollmentBack()
     #expect(cancelled == [claudeRef.id.uuidString.lowercased()])
     // With no other account the flow goes back to the start, not to an empty list.
     #expect(model.enrollment == EnrollmentFlow(step: .choose))
@@ -164,23 +154,15 @@ private func settle(_ condition: () -> Bool) async {
     #expect(discarded == [claudeRef])
 }
 
-@Test @MainActor func usingADifferentEmailReturnsToTheEmailStepPrefilled() async {
-    let model = liveModel(
-        profiles: [codexAccount(codexRef, signIn: .connected)],
-        claudeProfiles: [claudeAccount(signIn: .noPlan)]
-    )
-    var discarded: [AccountRef] = []
-    model.onDiscardUnfinishedAccount = { discarded.append($0) }
-    model.chooseEnrollmentProvider(.claude)
-    model.profileEmail = "studio@example.com"
-    model.enrollmentDidStartSignIn(claudeRef, url: nil, awaitingStart: false)
-    model.enrollment?.email = "studio@example.com"
-    #expect(model.enrollmentPhase == .problem(claudeRef, .noPlan))
-    model.cancelEnrollment(returningTo: .claude)
-    #expect(model.enrollmentPhase == .email(.claude))
-    #expect(model.profileEmail == "studio@example.com")
-    await settle { !discarded.isEmpty }
-    #expect(discarded == [claudeRef])
+@Test @MainActor func backFromTheResultIsDone() {
+    let model = liveModel(profiles: [codexAccount(signIn: .connected)])
+    var discarded = 0
+    model.onDiscardUnfinishedAccount = { _ in discarded += 1 }
+    model.enrollmentDidStartSignIn(codexRef, url: nil, awaitingStart: false)
+    #expect(model.enrollmentPhase == .connected(codexRef))
+    model.enrollmentBack()
+    #expect(model.enrollmentPhase == nil)
+    #expect(discarded == 0, "A connected account is kept")
 }
 
 @Test @MainActor func aRowReconnectAnnouncesOnlyAfterItsSignInWasSeenUnderWay() {
@@ -202,17 +184,15 @@ private func settle(_ condition: () -> Bool) async {
 @Test @MainActor func previewEnrollmentWalksTheFlowWithoutAProvider() {
     let model = PreviewFixtures.model(for: .onboarding)
     var liveCalls = 0
-    model.onAddProfile = { _, _ in liveCalls += 1 }
-    model.onAddClaudeProfile = { _, _ in liveCalls += 1 }
+    model.onAddProfile = { liveCalls += 1 }
+    model.onAddClaudeProfile = { liveCalls += 1 }
     model.onDiscardUnfinishedAccount = { _ in liveCalls += 1 }
-    model.chooseEnrollmentProvider(.codex)
-    model.profileEmail = "sample@gmail.com"
-    model.addProfile()
-    guard case let .waiting(ref, _)? = model.enrollmentPhase else {
+    model.startEnrollment(.codex)
+    guard case let .waiting(_, ref?, _)? = model.enrollmentPhase else {
         Issue.record("Expected the preview to wait for a synthetic sign-in")
         return
     }
-    #expect(model.profiles.first?.displayName == "Personal")
+    #expect(model.profiles.first?.displayName == AccountNaming.provisionalName)
     model.cancelEnrollment()
     #expect(model.signInState(for: ref) == nil)
     #expect(model.enrollmentPhase == .choose)
@@ -233,20 +213,18 @@ private func settle(_ condition: () -> Bool) async {
     #expect(state(.notSignedIn) == .signedOut)
     #expect(state(.identityMismatch(found: "other@example.com")) == .wrongAccount(found: "other@example.com"))
     #expect(state(.notSubscription) == .noPlan)
+    #expect(state(.duplicate(found: "other@example.com")) == .alreadyAdded(found: "other@example.com"))
 }
 
 @Test @MainActor func claudeCanBeAddedWhileCodexIsStillLoading() {
     let model = GuardAppModel()
     var claudeCalls = 0
     var codexCalls = 0
-    model.onAddClaudeProfile = { _, _ in claudeCalls += 1 }
-    model.onAddProfile = { _, _ in codexCalls += 1 }
-    model.chooseEnrollmentProvider(.codex)
-    model.profileEmail = "sample@gmail.com"
-    model.addProfile()
+    model.onAddClaudeProfile = { claudeCalls += 1 }
+    model.onAddProfile = { codexCalls += 1 }
+    model.startEnrollment(.codex)
     #expect(codexCalls == 0)
-    model.chooseEnrollmentProvider(.claude)
-    model.addProfile()
+    model.startEnrollment(.claude)
     #expect(claudeCalls == 1)
 }
 

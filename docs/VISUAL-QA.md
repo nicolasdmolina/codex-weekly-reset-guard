@@ -7,10 +7,9 @@ Run `./scripts/native_release_check.sh` to regenerate these synthetic fixtures:
 | Fixture | State |
 | --- | --- |
 | `onboarding.png` | First run: choose Codex or Claude |
-| `onboarding-error.png` | The email step with invalid-email feedback |
-| `add-email.png` | The Codex email step, filled in |
+| `onboarding-error.png` | A first sign-in whose browser page was closed |
 | `add-waiting.png` | Waiting for the browser sign-in, with reopen and copy-link actions |
-| `add-wrong-account.png` | A Claude sign-in that returned another account |
+| `add-already-added.png` | A new Claude sign-in that returned an account already in the list |
 | `add-connected.png`, `add-connected-claude.png` | The first reading after sign-in, with Auto-redeem off and a Max plan |
 | `connect.png` | One profile requiring sign-in, Auto-redeem off |
 | `paused.png` | One verified account with Auto-redeem off |

@@ -39,12 +39,10 @@ enum PreviewKind: String, CaseIterable {
     case providerFailed = "provider-failed"
     /// Codex blocked ordinary usage at healthy percentages; another account's access is unknown.
     case usageBlocked = "usage-blocked"
-    /// The Codex email step, filled in.
-    case addEmail = "add-email"
     /// A new Codex account waiting on its browser sign-in.
     case addWaiting = "add-waiting"
-    /// A Claude sign-in that came back as a different account.
-    case addWrongAccount = "add-wrong-account"
+    /// A new Claude account whose first sign-in was an account already in the list.
+    case addAlreadyAdded = "add-already-added"
     /// A new Codex account connected, with its first reading and Auto-redeem still off.
     case addConnected = "add-connected"
     /// A new Claude Max account connected, with its plan and three limits.
@@ -94,57 +92,53 @@ enum PreviewFixtures {
         case .onboarding:
             model = GuardAppModel(isPreview: true, referenceDate: reference)
         case .onboardingError:
-            model = GuardAppModel(isPreview: true, referenceDate: reference)
-            model.enrollment = EnrollmentFlow(step: .email(.codex))
-            model.profileEmail = "sample@example"
-            model.enrollmentError = "Enter a full email address, like you@example.com."
-        case .addEmail:
-            model = GuardAppModel(isPreview: true, referenceDate: reference)
-            model.enrollment = EnrollmentFlow(step: .email(.codex))
-            model.profileEmail = "personal@example.com"
+            // First run: the browser page was closed before the sign-in finished.
+            var enrolling = enrollingCodex(ID.personal, name: AccountNaming.provisionalName, hint: "Expected Codex account")
+            enrolling.signIn = .signedOut
+            model = GuardAppModel(profiles: [enrolling], isPreview: true, referenceDate: reference)
+            model.enrollment = EnrollmentFlow(step: .signIn(AccountRef(provider: .codex, id: ID.personal)), hasSettled: true)
         case .addWaiting:
-            var enrolling = enrollingCodex(ID.personal, name: "Personal", hint: "p•••@example.com")
-            enrolling.signIn = .waiting
+            let enrolling = enrollingCodex(ID.personal, name: AccountNaming.provisionalName, hint: "Expected Codex account")
             model = GuardAppModel(profiles: [enrolling], isPreview: true, referenceDate: reference)
             model.enrollment = EnrollmentFlow(
                 step: .signIn(AccountRef(provider: .codex, id: ID.personal)),
-                email: "personal@example.com",
                 signInURL: signInURL(for: .codex)
             )
-        case .addWrongAccount:
-            var enrolling = enrollingClaude(ID.studio, name: "Studio", hint: "s•••@example.com")
+        case .addAlreadyAdded:
+            var enrolling = enrollingClaude(ID.studio, name: AccountNaming.provisionalName, hint: "Claude account")
             enrolling.status = .attention
-            enrolling.detail = "Signed in as someone@example.org. Reconnect with the expected account."
-            enrolling.signIn = .wrongAccount(found: "someone@example.org")
-            model = GuardAppModel(profiles: [personalHealthy()], claudeProfiles: [enrolling], isPreview: true, referenceDate: reference)
-            model.enrollment = EnrollmentFlow(
-                step: .signIn(AccountRef(provider: .claude, id: ID.studio)),
-                email: "studio@example.com",
-                hasSettled: true
+            enrolling.detail = "That Claude account is already in Second Wind."
+            enrolling.signIn = .alreadyAdded(found: "personal@example.com")
+            var existing = studio(session: 42, weekly: 71, status: .healthy, detail: "Checked every 5 minutes.")
+            existing = ClaudeProfilePresentation(
+                id: ID.removed.uuidString.lowercased(), displayName: "Personal", accountHint: "p•••@example.com",
+                planName: "Pro", windows: existing.windows, status: .healthy, detail: existing.detail, signInURL: nil
             )
+            model = GuardAppModel(claudeProfiles: [existing, enrolling], isPreview: true, referenceDate: reference)
+            model.enrollment = EnrollmentFlow(step: .signIn(AccountRef(provider: .claude, id: ID.studio)), hasSettled: true)
         case .addConnected:
             model = GuardAppModel(
-                profiles: [connectedCodex(enrollingCodex(ID.personal, name: "Personal", hint: "p•••@example.com"))],
+                profiles: [connectedCodex(
+                    enrollingCodex(ID.personal, name: AccountNaming.provisionalName, hint: "Expected Codex account"),
+                    email: "personal@example.com",
+                    taken: []
+                )],
                 isPreview: true,
                 referenceDate: reference
             )
-            model.enrollment = EnrollmentFlow(
-                step: .signIn(AccountRef(provider: .codex, id: ID.personal)),
-                email: "personal@example.com",
-                hasSettled: true
-            )
+            model.enrollment = EnrollmentFlow(step: .signIn(AccountRef(provider: .codex, id: ID.personal)), hasSettled: true)
         case .addConnectedClaude:
             model = GuardAppModel(
                 profiles: [personalHealthy()],
-                claudeProfiles: [connectedClaude(enrollingClaude(ID.studio, name: "Studio", hint: "s•••@example.com"))],
+                claudeProfiles: [connectedClaude(
+                    enrollingClaude(ID.studio, name: AccountNaming.provisionalName, hint: "Claude account"),
+                    email: "studio@example.com",
+                    taken: []
+                )],
                 isPreview: true,
                 referenceDate: reference
             )
-            model.enrollment = EnrollmentFlow(
-                step: .signIn(AccountRef(provider: .claude, id: ID.studio)),
-                email: "studio@example.com",
-                hasSettled: true
-            )
+            model.enrollment = EnrollmentFlow(step: .signIn(AccountRef(provider: .claude, id: ID.studio)), hasSettled: true)
         case .connect:
             model = GuardAppModel(profiles: [
                 codex(
@@ -411,32 +405,41 @@ enum PreviewFixtures {
     }
 
     /// The same account after a successful sign-in and first reading.
-    static func connectedCodex(_ profile: GuardProfilePresentation) -> GuardProfilePresentation {
+    /// The same account after its first sign-in: it takes the email it signed in with and a
+    /// name from that email, then shows its first reading.
+    static func connectedCodex(_ profile: GuardProfilePresentation, email: String, taken: [String]) -> GuardProfilePresentation {
         guard let id = UUID(uuidString: profile.id) else { return profile }
+        let name = profile.displayName == AccountNaming.provisionalName
+            ? AccountNaming.suggestedName(for: email, taken: taken, maximumLength: 60)
+            : profile.displayName
         var connected = codex(
-            id, profile.displayName, hint: profile.accountHint, status: .healthy, detail: "Checked every 60 seconds.",
+            id, name, hint: maskedHint(email), status: .healthy, detail: "Checked every 60 seconds.",
             autoReset: false,
             record: codexRecord(id, session: 82, weekly: 61, weeklyResetHours: 144, saved: 2, expiresInDays: 14, observedSecondsAgo: 2)
         )
         connected.signIn = .connected
         connected.planName = "Plus"
+        connected.email = email
         return connected
     }
 
-    static func connectedClaude(_ profile: ClaudeProfilePresentation) -> ClaudeProfilePresentation {
-        var connected = studio(session: 64, weekly: 71, sonnet: 88, status: .healthy, detail: "Checked every 5 minutes.", observedMinutesAgo: 0)
-        connected = ClaudeProfilePresentation(
-            id: profile.id, displayName: profile.displayName, accountHint: profile.accountHint,
-            planName: connected.planName, windows: connected.windows, status: .healthy, detail: connected.detail,
-            signInURL: nil, quota: connected.quota.map { record in
+    static func connectedClaude(_ profile: ClaudeProfilePresentation, email: String, taken: [String]) -> ClaudeProfilePresentation {
+        let name = profile.displayName == AccountNaming.provisionalName
+            ? AccountNaming.suggestedName(for: email, taken: taken, maximumLength: 48)
+            : profile.displayName
+        let sample = studio(session: 64, weekly: 71, sonnet: 88, status: .healthy, detail: "Checked every 5 minutes.", observedMinutesAgo: 0)
+        return ClaudeProfilePresentation(
+            id: profile.id, displayName: name, accountHint: maskedHint(email),
+            planName: sample.planName, windows: sample.windows, status: .healthy, detail: sample.detail,
+            signInURL: nil, quota: sample.quota.map { record in
                 QuotaAccountRecord(
                     provider: .claude,
                     accountID: UUID(uuidString: profile.id) ?? ID.studio,
                     lastSuccess: record.lastSuccess
                 )
-            }
+            },
+            email: email
         )
-        return connected
     }
 
     // MARK: Accounts
@@ -619,9 +622,9 @@ enum PreviewFixtures {
         for kind in PreviewKind.allCases {
             let model = model(for: kind)
             let expectedCount: Int = switch kind {
-            case .onboarding, .onboardingError, .addEmail: 0
+            case .onboarding: 0
             case .connect, .paused, .claudeSignIn, .settings, .settingsDenied, .providerFailed,
-                 .addWaiting, .addConnected: 1
+                 .onboardingError, .addWaiting, .addConnected: 1
             case .freshness, .reveal: 3
             default: 2
             }

@@ -55,6 +55,8 @@ struct GuardProfilePresentation: Identifiable, Equatable, Sendable {
     var signIn: SignInState = .connected
     /// The ChatGPT plan, such as "Plus", once a sign-in has reported it.
     var planName: String? = nil
+    /// The full email once the first sign-in has supplied it.
+    var email: String? = nil
 
     var isConnected: Bool { identityVerified && status != .disconnected }
 }
@@ -128,6 +130,8 @@ struct ClaudeProfilePresentation: Identifiable, Equatable, Sendable {
     /// Quota evidence with per-account timestamps. Nil only in previews that predate it.
     var quota: QuotaAccountRecord? = nil
     var signIn: SignInState = .connected
+    /// The full email once the first sign-in has supplied it.
+    var email: String? = nil
 
     var tightestWindow: ClaudeWindowPresentation? {
         windows.min { $0.remainingPercent < $1.remainingPercent }
@@ -162,8 +166,6 @@ final class GuardAppModel: ObservableObject {
     let isReadOnly: Bool
     @Published var isReady = false
     @Published var isAddingProfile = false
-    @Published var profileEmail = ""
-    @Published var enrollmentError: String?
     /// Accounts whose row started a sign-in, with whether it has been seen under way.
     var pendingReconnects: [AccountRef: Bool] = [:]
     /// Synthetic previews use one reference clock for every relative date label.
@@ -172,8 +174,9 @@ final class GuardAppModel: ObservableObject {
     var onCheckNow: (() -> Void)?
     var onToggleAutoReset: ((String, Bool) -> Void)?
     var onReconnect: ((String) -> Void)?
-    var onAddProfile: ((String, String) -> Void)?
-    var onAddClaudeProfile: ((String, String) -> Void)?
+    /// Saves a new account with no identity yet and opens its sign-in.
+    var onAddProfile: (() -> Void)?
+    var onAddClaudeProfile: (() -> Void)?
     var onConnectClaude: ((String) -> Void)?
     var onCancelClaudeSignIn: ((String) -> Void)?
     /// Removes an account the add-account flow created but never finished connecting.

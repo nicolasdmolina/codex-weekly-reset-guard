@@ -31,6 +31,17 @@ struct SettingsPanel: View {
                     )
                     .frame(width: 176)
                 }
+                RowDivider()
+                SettingsRow(title: "Percentage in menu bar") {
+                    if isStaticRender {
+                        StaticToggle(isOn: interface.preferences.showsMenuBarPercent, label: "Percentage in menu bar")
+                    } else {
+                        Toggle("Percentage in menu bar", isOn: $interface.preferences.showsMenuBarPercent)
+                            .labelsHidden()
+                            .toggleStyle(.switch)
+                            .controlSize(.mini)
+                    }
+                }
             }
 
             VStack(alignment: .leading, spacing: SW.Space.sm) {

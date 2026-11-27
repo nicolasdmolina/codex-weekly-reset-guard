@@ -17,6 +17,8 @@
   versions cannot load an account whose first sign-in has not finished.
 - Codex accounts show their ChatGPT plan beside the name.
 - A Claude account can be added while Codex is still loading.
+- **Percentage in menu bar** in Settings can hide the “% left” figure next to
+  the menu bar icon. It stays on by default.
 
 ## 0.3.3
 

@@ -49,9 +49,13 @@ enum ResetTimeStyle: String, CaseIterable, Sendable {
 struct DisplayPreferences: Equatable, Sendable {
     var quota: QuotaConvention = .remaining
     var resetTimes: ResetTimeStyle = .relative
+    /// The figure beside the menu bar icon ("54% left"). On unless the user turns it off for a
+    /// more compact menu bar; the popover, tooltip and VoiceOver still give the figure.
+    var showsMenuBarPercent = true
 
     private static let quotaKey = "display.quotaConvention"
     private static let resetTimesKey = "display.resetTimeStyle"
+    private static let menuBarPercentKey = "display.showsMenuBarPercent"
 
     /// Unknown or missing stored values fall back to the defaults.
     static func load(from defaults: UserDefaults?) -> DisplayPreferences {
@@ -62,12 +66,16 @@ struct DisplayPreferences: Equatable, Sendable {
         if let raw = defaults?.string(forKey: resetTimesKey), let value = ResetTimeStyle(rawValue: raw) {
             preferences.resetTimes = value
         }
+        if let value = defaults?.object(forKey: menuBarPercentKey) as? Bool {
+            preferences.showsMenuBarPercent = value
+        }
         return preferences
     }
 
     func save(to defaults: UserDefaults?) {
         defaults?.set(quota.rawValue, forKey: Self.quotaKey)
         defaults?.set(resetTimes.rawValue, forKey: Self.resetTimesKey)
+        defaults?.set(showsMenuBarPercent, forKey: Self.menuBarPercentKey)
     }
 }
 

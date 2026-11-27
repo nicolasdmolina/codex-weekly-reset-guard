@@ -250,7 +250,9 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         image?.isTemplate = true
         button.image = image
         button.imagePosition = .imageLeading
-        if let title = summary.menuBarTitle {
+        // The icon alone when the user keeps the menu bar compact; the tooltip and VoiceOver
+        // value below still carry the figure.
+        if let title = summary.menuBarTitle, interface.preferences.showsMenuBarPercent {
             // An unconfirmed figure is dimmed rather than hidden: it is still the best number
             // available, but it does not claim to be current.
             // A confident figure keeps the system's own title colour, which follows highlight and

@@ -160,8 +160,7 @@ struct GuardPopoverView: View {
             .disabled(!canGoBack)
             .accessibilityHidden(!canGoBack)
             Text("Add account")
-                .font(.system(size: 13, weight: .semibold))
-                .foregroundStyle(SW.Palette.textSecondary)
+                .font(.system(size: 13.5, weight: .semibold))
             Spacer(minLength: SW.Space.sm)
             if model.isPreview {
                 Text("Preview")
@@ -175,7 +174,8 @@ struct GuardPopoverView: View {
         .padding(.leading, SW.Space.md)
         .padding(.trailing, SW.Space.lg)
         .padding(.vertical, SW.Space.md)
-        .frame(height: 54)
+        // Same height as the app header it replaces, so the divider never jumps.
+        .frame(height: 61)
     }
 
     // MARK: Content
@@ -340,12 +340,7 @@ struct GuardPopoverView: View {
     private func footer(now: Date) -> some View {
         HStack(spacing: SW.Space.sm) {
             if interface.page == .accounts && model.enrollmentPhase == nil && !model.isReadOnly {
-                Button {
-                    model.beginEnrollment()
-                } label: {
-                    Label("Add account", systemImage: "plus")
-                }
-                .buttonStyle(SWQuietButtonStyle())
+                AddAccountMenu(model: model, title: "Add account", showsIcon: true, isStaticRender: isStaticRender)
             }
             Spacer()
             if let checked = model.lastCheckedAt, model.enrollmentPhase == nil || interface.page != .accounts {

@@ -198,12 +198,6 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         popover.contentViewController?.view.window?.makeKey()
     }
 
-    /// A service list left open is dropped when the popover closes; a typed email or a sign-in
-    /// under way is kept, since the user often leaves to copy an address or finish in the browser.
-    func popoverDidClose(_ notification: Notification) {
-        if model.hasAccounts, model.enrollment?.step == .choose { model.enrollment = nil }
-    }
-
     // MARK: Lifecycle
 
     func applicationShouldTerminateAfterLastWindowClosed(_ sender: NSApplication) -> Bool {

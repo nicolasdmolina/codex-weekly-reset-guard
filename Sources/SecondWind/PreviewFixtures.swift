@@ -39,8 +39,6 @@ enum PreviewKind: String, CaseIterable {
     case providerFailed = "provider-failed"
     /// Codex blocked ordinary usage at healthy percentages; another account's access is unknown.
     case usageBlocked = "usage-blocked"
-    /// Adding a second account: the service list under the Add account header.
-    case addChoose = "add-choose"
     /// The Codex email step, filled in.
     case addEmail = "add-email"
     /// A new Codex account waiting on its browser sign-in.
@@ -100,9 +98,6 @@ enum PreviewFixtures {
             model.enrollment = EnrollmentFlow(step: .email(.codex))
             model.profileEmail = "nicky@example"
             model.enrollmentError = "Enter a full email address, like you@example.com."
-        case .addChoose:
-            model = GuardAppModel(profiles: [personalHealthy()], isPreview: true, referenceDate: reference)
-            model.enrollment = EnrollmentFlow(step: .choose)
         case .addEmail:
             model = GuardAppModel(isPreview: true, referenceDate: reference)
             model.enrollment = EnrollmentFlow(step: .email(.codex))
@@ -626,7 +621,7 @@ enum PreviewFixtures {
             let expectedCount: Int = switch kind {
             case .onboarding, .onboardingError, .addEmail: 0
             case .connect, .paused, .claudeSignIn, .settings, .settingsDenied, .providerFailed,
-                 .addChoose, .addWaiting, .addConnected: 1
+                 .addWaiting, .addConnected: 1
             case .freshness, .reveal: 3
             default: 2
             }

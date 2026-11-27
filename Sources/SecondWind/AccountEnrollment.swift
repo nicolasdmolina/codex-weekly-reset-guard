@@ -174,12 +174,6 @@ extension GuardAppModel {
 
     // MARK: Moving through the flow
 
-    func beginEnrollment() {
-        guard !isReadOnly else { return }
-        enrollmentError = nil
-        enrollment = EnrollmentFlow(step: .choose)
-    }
-
     func chooseEnrollmentProvider(_ provider: ProviderKind) {
         guard !isReadOnly else { return }
         enrollmentError = nil
@@ -188,13 +182,14 @@ extension GuardAppModel {
         enrollment = flow
     }
 
-    /// One step back: email to the service list, the list to the accounts.
+    /// One step back: email to the service list on first run, otherwise to the accounts.
     func enrollmentBack() {
         guard let flow = activeEnrollment, !isAddingProfile else { return }
         enrollmentError = nil
         switch flow.step {
         case .email:
-            enrollment = EnrollmentFlow(step: .choose)
+            // With accounts the email step opens from a menu, so back returns to the list.
+            enrollment = hasAccounts ? nil : EnrollmentFlow(step: .choose)
         case .choose:
             enrollment = nil
         case let .signIn(ref):

@@ -132,6 +132,66 @@ private struct PrimaryAction: View {
     }
 }
 
+/// A full-width bordered button for the bottom slot when the step's main action is not the
+/// one thing to do, as while waiting on the browser.
+private struct SecondaryAction: View {
+    let title: String
+    var opensBrowser = false
+    let action: () -> Void
+
+    var body: some View {
+        Button(action: action) {
+            HStack(spacing: SW.Space.xs + 1) {
+                Text(title)
+                if opensBrowser {
+                    Image(systemName: "arrow.up.forward")
+                        .font(.system(size: 10.5, weight: .bold))
+                }
+            }
+            .font(.system(size: 13, weight: .semibold))
+            .frame(maxWidth: .infinity)
+        }
+        .buttonStyle(FlowBorderedButtonStyle())
+    }
+}
+
+private struct FlowBorderedButtonStyle: ButtonStyle {
+    @State private var isHovering = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        let shape = RoundedRectangle(cornerRadius: SW.Radius.small - 2, style: .continuous)
+        configuration.label
+            .foregroundStyle(SW.Palette.textPrimary)
+            .frame(height: 30)
+            .background(SW.Palette.surfaceRaised.opacity(configuration.isPressed ? 1 : (isHovering ? 0.8 : 0.5)), in: shape)
+            .overlay(shape.strokeBorder(SW.Palette.fieldBorder))
+            .contentShape(shape)
+            .onHover { isHovering = $0 }
+    }
+}
+
+/// The step's one other action, under the primary button: plain words that still read as a
+/// control, with a pill on hover.
+struct FlowLinkButtonStyle: ButtonStyle {
+    @Environment(\.isEnabled) private var isEnabled
+    @State private var isHovering = false
+
+    func makeBody(configuration: Configuration) -> some View {
+        configuration.label
+            .font(.system(size: 12.5, weight: .medium))
+            .foregroundStyle(isEnabled ? SW.Palette.textPrimary : SW.Palette.textTertiary)
+            .lineLimit(1)
+            .padding(.horizontal, SW.Space.sm + 2)
+            .frame(height: 24)
+            .background(
+                SW.Palette.surfaceRaised.opacity(configuration.isPressed ? 1 : (isHovering ? 0.7 : 0)),
+                in: RoundedRectangle(cornerRadius: SW.Radius.small - 2, style: .continuous)
+            )
+            .contentShape(Rectangle())
+            .onHover { isHovering = $0 }
+    }
+}
+
 private struct StepTitle: View {
     let text: String
 
@@ -356,7 +416,8 @@ private struct WaitingScreen: View {
             }
         } actions: {
             if let url {
-                PrimaryAction(title: "Reopen in browser", opensBrowser: true) {
+                // The travelling outline is the only moving teal while the browser has the user.
+                SecondaryAction(title: "Reopen in browser", opensBrowser: true) {
                     if !model.isPreview { NSWorkspace.shared.open(url) }
                 }
                 CopyLinkButton(url: url)
@@ -386,11 +447,10 @@ private struct CopyLinkButton: View {
                 didCopy = false
             }
         } label: {
-            Label(didCopy ? "Copied" : "Copy link for another browser", systemImage: didCopy ? "checkmark" : "link")
-                .labelStyle(TightLabelStyle())
+            Text(didCopy ? "Link copied" : "Copy link for another browser")
                 .contentTransition(.opacity)
         }
-        .buttonStyle(SWQuietButtonStyle())
+        .buttonStyle(FlowLinkButtonStyle())
         .help("Paste into a private window to sign in without the browser's current account")
         .accessibilityLabel(didCopy ? "Link copied" : "Copy sign-in link")
     }
@@ -411,26 +471,19 @@ private struct ProblemScreen: View {
                 StepMessage(text: message)
             }
         } actions: {
-            PrimaryAction(title: retryTitle, opensBrowser: true) { model.retryEnrollmentSignIn() }
+            PrimaryAction(title: "Try again", opensBrowser: true) { model.retryEnrollmentSignIn() }
             if case let .wrongAccount(found?) = state, account.provider == .claude {
                 Button("Watch \(found) instead") { model.adoptSignedInAccount(found) }
-                    .buttonStyle(SWQuietButtonStyle())
-                    .lineLimit(1)
+                    .buttonStyle(FlowLinkButtonStyle())
                     .truncationMode(.middle)
             } else if offersDifferentEmail {
                 Button("Use a different email") { model.cancelEnrollment(returningTo: account.provider) }
-                    .buttonStyle(SWQuietButtonStyle())
+                    .buttonStyle(FlowLinkButtonStyle())
             }
         }
     }
 
     private var email: String { model.enrollment?.email ?? "" }
-
-    /// After a wrong account the button names the right one; otherwise it simply retries.
-    private var retryTitle: String {
-        if case .wrongAccount = state, !email.isEmpty { return "Sign in as \(email)" }
-        return "Sign in again"
-    }
 
     private var offersDifferentEmail: Bool {
         switch state {
@@ -451,9 +504,10 @@ private struct ProblemScreen: View {
     private var message: Text {
         switch state {
         case let .wrongAccount(found):
-            let signedIn = found.map { Text("You signed in as ") + emphasised($0) + Text(".") }
-                ?? Text("That sign-in used a different \(account.provider.signInAccountName) account.")
-            return signedIn + Text(" Sign out of it in your browser first.")
+            let expected = email.isEmpty ? Text("the account you added") : emphasised(email)
+            let signedIn = found.map { Text("You signed in as ") + emphasised($0) + Text(", not ") + expected + Text(".") }
+                ?? Text("That sign-in wasn't ") + expected + Text(".")
+            return signedIn + Text(" Sign out in your browser, then try again.")
         case .noPlan:
             return (email.isEmpty ? Text("This account") : emphasised(email)) + Text(" has no Claude plan limits to watch.")
         case .signedOut:
@@ -496,7 +550,7 @@ private struct ConnectedScreen: View {
                     StatusLine(symbol: "exclamationmark.circle.fill", text: renameError, tone: .critical)
                         .padding(.top, SW.Space.xxs)
                 } else {
-                    (Text("Connected as ") + emphasised(identity))
+                    (Text("Connected as ") + emphasised(identity) + Text(plan.map { " · \($0)" } ?? ""))
                         .font(.system(size: 12))
                         .foregroundStyle(SW.Palette.textSecondary)
                         .lineLimit(1)
@@ -511,8 +565,7 @@ private struct ConnectedScreen: View {
                 if isRenaming { commitName() }
                 if let ref = model.finishEnrollment() { interface.reveal(ref) }
             }
-            Button("Add another account") { model.beginEnrollment() }
-                .buttonStyle(SWQuietButtonStyle())
+            AddAccountMenu(model: model, title: "Add another account", isStaticRender: isStaticRender)
         }
         .onAppear {
             guard !hasFilled else { return }
@@ -528,6 +581,7 @@ private struct ConnectedScreen: View {
     }
 
     private var name: String { codex?.displayName ?? claude?.displayName ?? account.provider.title }
+    private var plan: String? { codex?.planName ?? claude?.planName }
 
     private var identity: String {
         let email = model.enrollment?.email ?? ""
@@ -573,33 +627,20 @@ private struct ConnectedScreen: View {
 
     @ViewBuilder
     private var nameAccessories: some View {
-        let plan = codex?.planName ?? claude?.planName
-        if plan != nil || (!isStaticRender && !model.isReadOnly) {
-            HStack(spacing: SW.Space.xs) {
-                if let plan {
-                    Text(plan)
-                        .font(.system(size: 10.5, weight: .semibold))
-                        .foregroundStyle(SW.Palette.textSecondary)
-                        .padding(.horizontal, SW.Space.xs + 2)
-                        .padding(.vertical, 1)
-                        .overlay(Capsule().strokeBorder(SW.Palette.fieldBorder))
-                }
-                if !isStaticRender && !model.isReadOnly {
-                    Button {
-                        draftName = name
-                        renameError = nil
-                        isRenaming = true
-                    } label: {
-                        Image(systemName: "pencil")
-                            .font(.system(size: 11.5, weight: .semibold))
-                            .frame(width: 22, height: 22)
-                            .contentShape(Rectangle())
-                    }
-                    .buttonStyle(SWIconButtonStyle())
-                    .help("Rename")
-                    .accessibilityLabel("Rename \(name)")
-                }
+        if !isStaticRender && !model.isReadOnly {
+            Button {
+                draftName = name
+                renameError = nil
+                isRenaming = true
+            } label: {
+                Image(systemName: "pencil")
+                    .font(.system(size: 11.5, weight: .semibold))
+                    .frame(width: 22, height: 22)
+                    .contentShape(Rectangle())
             }
+            .buttonStyle(SWIconButtonStyle())
+            .help("Rename")
+            .accessibilityLabel("Rename \(name)")
         }
     }
 
@@ -761,7 +802,7 @@ struct ServiceTile: View {
             // Drawn over the layout, so the tile sits in the same place with or without it.
             .overlay {
                 if state == .waiting {
-                    SignInTrace(size: size + 12, cornerRadius: size * 0.27 + 6, isStatic: isStaticRender)
+                    SignInTrace(size: size, cornerRadius: size * 0.27, isStatic: isStaticRender)
                         .transition(.opacity)
                 }
             }
@@ -809,8 +850,7 @@ struct ServiceTile: View {
     }
 }
 
-/// A short accent stroke travelling round the tile's outline while the browser has the user.
-/// It follows the tile's own rounded corners, so the gap to the tile stays even all the way round.
+/// A short accent stroke travelling round the tile's border while the browser has the user.
 private struct SignInTrace: View {
     let size: CGFloat
     let cornerRadius: CGFloat
@@ -823,18 +863,60 @@ private struct SignInTrace: View {
     var body: some View {
         let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
         let segment = perimeter * 0.22
-        ZStack {
-            shape.stroke(SW.Palette.track, lineWidth: 2)
-            shape.stroke(
+        // Drawn on the tile's own border, so there is no second frame around it.
+        shape
+            .inset(by: 0.75)
+            .stroke(
                 SW.Palette.accent,
-                style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [segment, perimeter - segment], dashPhase: travelled)
+                style: StrokeStyle(lineWidth: 1.5, lineCap: .round, dash: [segment, perimeter - segment], dashPhase: travelled)
             )
-        }
-        .frame(width: size, height: size)
+            .frame(width: size, height: size)
         .onAppear {
             guard !isStatic, !reduceMotion else { return }
             withAnimation(.linear(duration: 1.6).repeatForever(autoreverses: false)) { travelled = -perimeter }
         }
         .accessibilityHidden(true)
+    }
+}
+
+/// Adding an account once one exists: a native menu straight to the email step for the chosen
+/// service. The full service list is only for the first account.
+struct AddAccountMenu: View {
+    @ObservedObject var model: GuardAppModel
+    let title: String
+    var showsIcon = false
+    let isStaticRender: Bool
+
+    var body: some View {
+        if isStaticRender {
+            label
+                .font(.system(size: showsIcon ? 12 : 12.5, weight: .medium))
+                .foregroundStyle(showsIcon ? SW.Palette.textSecondary : SW.Palette.textPrimary)
+                .padding(.horizontal, SW.Space.sm)
+                .frame(height: 24)
+        } else {
+            Menu {
+                ForEach(ProviderKind.allCases) { provider in
+                    Button(provider.title) { model.chooseEnrollmentProvider(provider) }
+                }
+            } label: {
+                label
+            }
+            .menuStyle(.borderlessButton)
+            .menuIndicator(.hidden)
+            .fixedSize()
+            .tint(showsIcon ? SW.Palette.textSecondary : SW.Palette.textPrimary)
+            .disabled(model.isReadOnly)
+            .accessibilityLabel(title)
+        }
+    }
+
+    @ViewBuilder
+    private var label: some View {
+        if showsIcon {
+            Label(title, systemImage: "plus")
+        } else {
+            Text(title)
+        }
     }
 }

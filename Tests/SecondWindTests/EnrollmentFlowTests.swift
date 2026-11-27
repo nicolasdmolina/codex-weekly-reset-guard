@@ -66,11 +66,12 @@ private func settle(_ condition: () -> Bool) async {
     #expect(model.enrollmentPhase == .choose)
 }
 
-@Test @MainActor func addingWithAccountsOpensFromTheFooterAndBacksOutToTheList() {
+@Test @MainActor func addingWithAccountsOpensOnTheEmailStepAndBacksOutToTheList() {
     let model = liveModel(profiles: [codexAccount(signIn: .connected)])
     #expect(model.enrollmentPhase == nil)
-    model.beginEnrollment()
-    #expect(model.enrollmentPhase == .choose)
+    // The footer menu names the service, so the list of services is skipped.
+    model.chooseEnrollmentProvider(.claude)
+    #expect(model.enrollmentPhase == .email(.claude))
     model.enrollmentBack()
     #expect(model.enrollmentPhase == nil)
 }

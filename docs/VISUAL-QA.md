@@ -8,7 +8,6 @@ Run `./scripts/native_release_check.sh` to regenerate these synthetic fixtures:
 | --- | --- |
 | `onboarding.png` | First run: choose Codex or Claude |
 | `onboarding-error.png` | The email step with invalid-email feedback |
-| `add-choose.png` | Adding a second account from the footer |
 | `add-email.png` | The Codex email step, filled in |
 | `add-waiting.png` | Waiting for the browser sign-in, with reopen and copy-link actions |
 | `add-wrong-account.png` | A Claude sign-in that returned another account |

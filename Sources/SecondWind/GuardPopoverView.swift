@@ -303,7 +303,8 @@ struct GuardPopoverView: View {
             }
 
             if !model.profiles.isEmpty {
-                AccountSection(title: "Codex", detail: model.profiles.contains(where: \.autoResetEnabled) ? "Auto-redeem at 3%" : "Auto-redeem off") {
+                // Each card shows its own Auto-redeem switch, so the section header repeats nothing.
+                AccountSection(title: "Codex", detail: nil) {
                     ForEach(Array(model.profiles.enumerated()), id: \.element.id) { index, profile in
                         if index > 0 { RowDivider() }
                         CodexAccountRow(

@@ -367,8 +367,10 @@ private struct WaitingScreen: View {
             if let url {
                 if isPrivateWindow {
                     SecondaryAction(title: "Copy link again") { model.copyPrivateWindowLink(url) }
-                    Button("Open in this browser instead") {
+                    Button {
                         if !model.isPreview { NSWorkspace.shared.open(url) }
+                    } label: {
+                        BrowserLinkLabel(title: "Open in this browser instead")
                     }
                     .buttonStyle(FlowLinkButtonStyle())
                 } else {
@@ -392,7 +394,7 @@ private struct WaitingScreen: View {
         if isChecking { return "Signed in. One moment." }
         if isPrivateWindow {
             return model.enrollment?.hasCopiedLink == true
-                ? "Open a private window (⇧⌘N in most browsers), paste the link and sign in with the other account."
+                ? "Open a private or incognito window (\(model.isPreview ? "⇧⌘N" : PrivateWindowShortcut.forDefaultBrowser)), paste the link and sign in with the account you want to add."
                 : "One moment."
         }
         return "Sign in to \(provider.signInAccountName) with the account you want to watch."
@@ -413,7 +415,7 @@ private struct CopyLinkButton: View {
                 didCopy = false
             }
         } label: {
-            Text(didCopy ? "Link copied" : "Copy link for another browser")
+            Text(didCopy ? "Link copied" : "Copy link for a private window")
                 .contentTransition(.opacity)
         }
         .buttonStyle(FlowLinkButtonStyle())
@@ -450,8 +452,10 @@ private struct ProblemScreen: View {
                 // The browser is still signed in to the listed account; a private window is the
                 // way past it, so it leads.
                 PrimaryAction(title: "Copy link for a private window") { model.retryEnrollment(inPrivateWindow: true) }
-                Button("Try again in this browser") { model.retryEnrollment() }
-                    .buttonStyle(FlowLinkButtonStyle())
+                Button { model.retryEnrollment() } label: {
+                    BrowserLinkLabel(title: "Try again in this browser")
+                }
+                .buttonStyle(FlowLinkButtonStyle())
             } else {
                 PrimaryAction(title: "Try again", opensBrowser: account != nil) { model.retryEnrollment() }
                 if account != nil {
@@ -704,7 +708,8 @@ private struct ConnectedScreen: View {
                     VStack(alignment: .leading, spacing: 1) {
                         Text("Auto-redeem")
                             .font(.system(size: 12, weight: .medium))
-                        Text(["At 3% weekly left", savedResets(quota?.inventory)].compactMap { $0 }.joined(separator: " · "))
+                        // What turning it on will do, and with how many resets.
+                        Text(["Uses a saved reset at 3% weekly left", savedResets(quota?.inventory)].compactMap { $0 }.joined(separator: " · "))
                             .font(.system(size: 11))
                             .foregroundStyle(SW.Palette.textTertiary)
                     }
@@ -735,11 +740,7 @@ private struct ConnectedScreen: View {
 
     private func savedResets(_ inventory: InventoryDisplay?) -> String? {
         guard case let .known(count, _, _, _, _)? = inventory else { return nil }
-        return switch count {
-        case 0: "no saved resets"
-        case 1: "1 saved reset"
-        default: "\(count) saved resets"
-        }
+        return count == 0 ? "none saved" : "\(count) saved"
     }
 }
 
@@ -899,5 +900,29 @@ struct AddAccountMenu: View {
         } else {
             Text(title)
         }
+    }
+}
+
+/// A text action that opens the browser carries the same arrow as the browser buttons.
+private struct BrowserLinkLabel: View {
+    let title: String
+
+    var body: some View {
+        HStack(spacing: SW.Space.xs) {
+            Text(title)
+            Image(systemName: "arrow.up.forward")
+                .font(.system(size: 9.5, weight: .bold))
+        }
+    }
+}
+
+/// The private-window shortcut for the user's default browser: Firefox uses ⇧⌘P, Safari and
+/// Chromium browsers ⇧⌘N.
+enum PrivateWindowShortcut {
+    static var forDefaultBrowser: String {
+        guard let probe = URL(string: "https://example.com"),
+              let app = NSWorkspace.shared.urlForApplication(toOpen: probe),
+              let identifier = Bundle(url: app)?.bundleIdentifier?.lowercased() else { return "⇧⌘N" }
+        return identifier.contains("firefox") ? "⇧⌘P" : "⇧⌘N"
     }
 }

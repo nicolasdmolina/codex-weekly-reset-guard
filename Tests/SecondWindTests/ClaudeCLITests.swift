@@ -64,6 +64,16 @@ private struct FakeRunner: ClaudeCommandRunning {
     }
 }
 
+@Test(arguments: ["printf quota", "printf quota; exec /bin/sleep 30"])
+func processRunnerRejectsASingleOversizedWrite(command: String) async {
+    let runner = ProcessClaudeCommandRunner(executableURL: URL(fileURLWithPath: "/bin/sh"), maximumOutputBytes: 4)
+    await #expect(throws: ClaudeCLIError.outputTooLarge) {
+        try await runner.run(
+            arguments: ["-c", command], configDirectory: FileManager.default.temporaryDirectory, timeout: .seconds(5)
+        )
+    }
+}
+
 @Test func cliReadsSignedOutStatusAndUsage() async throws {
     let usage = #"{"type":"result","subtype":"success","is_error":false,"num_turns":0,"local_command":"usage","result":"Current session: 5% used"}"#
     let cli = ClaudeCLI(runner: FakeRunner(outputs: [

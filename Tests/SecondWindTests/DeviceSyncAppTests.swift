@@ -24,7 +24,7 @@ private func localWork(autoReset: Bool = false) -> GuardProfilePresentation {
     )
 }
 
-private func miniSnapshot(autoRedeem: Bool, publishedAt: Date = now) -> DeviceSnapshot {
+private func miniSnapshot(autoRedeem: Bool, publishedAt: Date = now, acceptsCommands: Bool = true) -> DeviceSnapshot {
     DeviceSnapshot(
         deviceID: mini,
         deviceName: "Mac mini",
@@ -33,8 +33,26 @@ private func miniSnapshot(autoRedeem: Bool, publishedAt: Date = now) -> DeviceSn
             profileID: remoteWorkID, provider: .codex, displayName: "Work", email: "Work@example.com",
             autoRedeemEnabled: autoRedeem, windows: []
         )],
-        appliedCommandIDs: []
+        appliedCommandIDs: [],
+        acceptsCommands: acceptsCommands
     )
+}
+
+@Test @MainActor func noCommandIsSentToAMacThatCannotReadCommands() {
+    let model = GuardAppModel(referenceDate: now)
+    let device = miniSnapshot(autoRedeem: false, acceptsCommands: false)
+    model.remoteDevices = [device]
+    var sent: [Bool] = []
+    model.onSetRemoteAutoReset = { _, _, enabled in sent.append(enabled) }
+    model.setRemoteAutoReset(device: device, account: device.accounts[0], enabled: true)
+    model.setRemoteAutoReset(device: device, account: device.accounts[0], enabled: false)
+    #expect(sent.isEmpty)
+    #expect(model.pendingRemoteCommands.isEmpty)
+
+    let accepting = miniSnapshot(autoRedeem: false, acceptsCommands: true)
+    model.remoteDevices = [accepting]
+    model.setRemoteAutoReset(device: accepting, account: accepting.accounts[0], enabled: true)
+    #expect(sent == [true])
 }
 
 @Test @MainActor func localSwitchRefusesAutoRedeemThatAnotherMacAlreadyRuns() {
@@ -157,7 +175,7 @@ private struct SilentNotifier: AlertNotifier {
     func requestPermission() async -> NotificationPermissionStatus { .allowed }
 }
 
-@Test @MainActor func unreadableICloudFolderShowsFailureAndLogsTheErrorCode() async throws {
+@Test @MainActor func unreadableICloudFolderStillPublishesAndLogsBothSteps() async throws {
     let root = FileManager.default.temporaryDirectory
         .appendingPathComponent("SecondWindSyncCoordinator-\(UUID().uuidString)", isDirectory: true)
     let shared = DeviceSyncFolder(root: root.appendingPathComponent("iCloud/Second Wind", isDirectory: true))
@@ -166,11 +184,12 @@ private struct SilentNotifier: AlertNotifier {
     interface.providerDidLoad(.codex)
     interface.providerDidLoad(.claude)
     let log = RedactedEventLog(fileURL: root.appendingPathComponent("support/sync-events.json"))
+    let stateURL = root.appendingPathComponent("support/sync-state.json")
     let coordinator = DeviceSyncCoordinator(
         model: model,
         interface: interface,
         alerts: AlertRouter(stateURL: nil, notifier: SilentNotifier()),
-        stateURL: root.appendingPathComponent("support/sync-state.json"),
+        stateURL: stateURL,
         log: log,
         locateFolder: { shared }
     )
@@ -179,15 +198,27 @@ private struct SilentNotifier: AlertNotifier {
     #expect(interface.syncStatus == .on)
     let ok = try #require(try await log.entries().last)
     #expect(ok.kind == .syncPass)
-    #expect(ok.fields == ["result": "ok", "devices": "0", "commandsListed": "0", "commandsDecoded": "0", "decisions": ""])
+    #expect(ok.fields == [
+        "publish": "ok", "read": "ok", "acceptsCommands": "true", "devices": "0",
+        "commandsListed": "0", "commandsDecoded": "0", "decisions": "",
+    ])
 
     let devices = shared.root.appendingPathComponent("devices")
-    #expect(chmod(devices.path, 0o000) == 0)
-    defer { _ = chmod(devices.path, 0o700) }
+    // Listing fails while writing still works, as on the Mac mini.
+    #expect(chmod(devices.path, 0o300) == 0)
     await coordinator.pass()
-    #expect(interface.syncStatus == .failed(DeviceSyncCoordinator.unreadableMessage))
+    #expect(chmod(devices.path, 0o700) == 0)
+    #expect(interface.syncStatus == .readFailed)
     let failed = try #require(try await log.entries().last)
-    #expect(failed.fields["result"] == "failed")
-    #expect(failed.fields["errorDomain"] == NSCocoaErrorDomain)
-    #expect(failed.fields["errorCode"] == String(NSFileReadNoPermissionError))
+    #expect(failed.fields["publish"] == "ok")
+    #expect(failed.fields["read"] == "failed")
+    #expect(failed.fields["acceptsCommands"] == "false")
+    #expect(failed.fields["readErrorDomain"] == NSCocoaErrorDomain)
+    #expect(failed.fields["readErrorCode"] == String(NSFileReadNoPermissionError))
+    #expect(failed.fields["readUnderlyingDomain"] == NSPOSIXErrorDomain)
+    #expect(failed.fields["readUnderlyingCode"] == String(EACCES))
+
+    let id = try #require(try await SecureStateStore<DeviceSyncState>(fileURL: stateURL).load()).deviceID
+    let published = try #require(try shared.readSnapshots(excluding: SyncDeviceID()).first { $0.deviceID == id })
+    #expect(!published.acceptsCommands)
 }

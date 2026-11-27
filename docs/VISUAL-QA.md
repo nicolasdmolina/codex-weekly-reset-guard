@@ -25,6 +25,7 @@ Run `./scripts/native_release_check.sh` to regenerate these synthetic fixtures:
 | `reveal.png`, `provider-failed.png` | An account highlighted after a notification and a provider that could not load |
 | `remote.png`, `remote-stale.png` | Accounts on a synced Mac with a change waiting, and a Mac that stopped updating with a change it did not make |
 | `settings-sync.png` | Sync turned on while iCloud Drive is off |
+| `remote-read-only.png` | A synced Mac that cannot read commands: its switches are read-only here |
 
 Images are generated under ignored `qa-artifacts/` and contain synthetic data.
 The static renderer substitutes styled fields for AppKit-backed controls;

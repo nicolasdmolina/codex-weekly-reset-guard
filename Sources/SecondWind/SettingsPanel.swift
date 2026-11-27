@@ -90,6 +90,13 @@ struct SettingsPanel: View {
                     case .unavailable:
                         StatusLine(symbol: "icloud.slash", text: "Turn on iCloud Drive on this Mac to sync.", tone: .caution)
                             .padding(.horizontal, SW.Space.xs)
+                    case .readFailed:
+                        StatusLine(
+                            symbol: "exclamationmark.circle.fill",
+                            text: "Second Wind can't read iCloud Drive on this Mac, so changes from your other Macs can't reach it.",
+                            tone: .caution
+                        )
+                        .padding(.horizontal, SW.Space.xs)
                     case let .failed(message):
                         StatusLine(symbol: "exclamationmark.circle.fill", text: message, tone: .critical)
                             .padding(.horizontal, SW.Space.xs)

@@ -28,6 +28,8 @@ enum SyncStatus: Equatable, Sendable {
     case on
     /// iCloud Drive is not on for this Mac.
     case unavailable
+    /// This Mac publishes but cannot read the folder, so other Macs cannot change it.
+    case readFailed
     case failed(String)
 }
 

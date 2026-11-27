@@ -76,6 +76,23 @@ private func command(_ enabled: Bool, profile: UUID = workID, issuedAt: Date = n
     }
 }
 
+@Test func olderSnapshotsWithoutTheCommandFlagDoNotAcceptCommands() throws {
+    let json = """
+    {"schemaVersion":1,"deviceID":"11111111-0000-4000-8000-000000000001","deviceName":"Mac mini",
+     "publishedAt":"2026-09-21T12:00:00Z","accounts":[],"appliedCommandIDs":[]}
+    """
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let decoded = try decoder.decode(DeviceSnapshot.self, from: Data(json.utf8))
+    #expect(!decoded.acceptsCommands)
+
+    var accepting = decoded
+    accepting.acceptsCommands = true
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    #expect(try decoder.decode(DeviceSnapshot.self, from: encoder.encode(accepting)).acceptsCommands)
+}
+
 @Test func remoteCommandRoundTripsAsAbsoluteState() throws {
     let original = command(true)
     let encoder = JSONEncoder()

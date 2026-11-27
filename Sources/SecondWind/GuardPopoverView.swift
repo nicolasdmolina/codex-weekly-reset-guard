@@ -874,22 +874,31 @@ private struct RemoteAccountRow: View {
     }
 
     private func autoRedeem(_ hostValue: Bool) -> some View {
-        let shown: Bool = if case let .pending(requested) = state { requested } else { hostValue }
-        return HStack(spacing: SW.Space.sm) {
-            Text("Auto-redeem")
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(SW.Palette.textSecondary)
-            Spacer(minLength: SW.Space.sm)
-            if isStaticRender {
-                StaticToggle(isOn: shown, label: "Auto-redeem")
-                    .opacity(isPending ? 0.5 : 1)
-            } else {
-                Toggle("Auto-redeem", isOn: Binding(get: { shown }, set: { onToggle($0) }))
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .disabled(isReadOnly || isPending || !device.freshness(at: now).isLive)
-                    .help("Asks \(device.deviceName) to change Auto-redeem for this account")
+        // A Mac that cannot read its command folder would never see a change sent from here.
+        let acceptsChanges = device.acceptsCommands
+        let shown: Bool = if acceptsChanges, case let .pending(requested) = state { requested } else { hostValue }
+        return VStack(alignment: .leading, spacing: SW.Space.xxs) {
+            HStack(spacing: SW.Space.sm) {
+                Text("Auto-redeem")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(SW.Palette.textSecondary)
+                Spacer(minLength: SW.Space.sm)
+                if isStaticRender {
+                    StaticToggle(isOn: shown, label: "Auto-redeem")
+                        .opacity(isPending || !acceptsChanges ? 0.5 : 1)
+                } else {
+                    Toggle("Auto-redeem", isOn: Binding(get: { shown }, set: { onToggle($0) }))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .disabled(isReadOnly || isPending || !acceptsChanges || !device.freshness(at: now).isLive)
+                        .help(acceptsChanges ? "Asks \(device.deviceName) to change Auto-redeem for this account" : "")
+                }
+            }
+            if !acceptsChanges {
+                Text("Change this on \(device.deviceName).")
+                    .font(.system(size: 11))
+                    .foregroundStyle(SW.Palette.textTertiary)
             }
         }
     }

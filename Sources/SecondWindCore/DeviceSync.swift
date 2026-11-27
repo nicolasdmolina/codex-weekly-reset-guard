@@ -119,6 +119,9 @@ public struct DeviceSnapshot: Codable, Equatable, Sendable {
     public var accounts: [SharedAccount]
     /// Commands this device has handled, newest last, bounded to `DeviceSyncPolicy.rememberedCommands`.
     public var appliedCommandIDs: [UUID]
+    /// True only when the pass that wrote this snapshot could list this device's command folder.
+    /// Absent in older files, which read as false.
+    public var acceptsCommands: Bool
 
     public init(
         schemaVersion: Int = DeviceSnapshot.currentSchemaVersion,
@@ -126,7 +129,8 @@ public struct DeviceSnapshot: Codable, Equatable, Sendable {
         deviceName: String,
         publishedAt: Date,
         accounts: [SharedAccount],
-        appliedCommandIDs: [UUID]
+        appliedCommandIDs: [UUID],
+        acceptsCommands: Bool = false
     ) {
         self.schemaVersion = schemaVersion
         self.deviceID = deviceID
@@ -134,6 +138,22 @@ public struct DeviceSnapshot: Codable, Equatable, Sendable {
         self.publishedAt = publishedAt
         self.accounts = accounts
         self.appliedCommandIDs = appliedCommandIDs
+        self.acceptsCommands = acceptsCommands
+    }
+
+    private enum CodingKeys: String, CodingKey {
+        case schemaVersion, deviceID, deviceName, publishedAt, accounts, appliedCommandIDs, acceptsCommands
+    }
+
+    public init(from decoder: any Decoder) throws {
+        let container = try decoder.container(keyedBy: CodingKeys.self)
+        schemaVersion = try container.decode(Int.self, forKey: .schemaVersion)
+        deviceID = try container.decode(SyncDeviceID.self, forKey: .deviceID)
+        deviceName = try container.decode(String.self, forKey: .deviceName)
+        publishedAt = try container.decode(Date.self, forKey: .publishedAt)
+        accounts = try container.decode([SharedAccount].self, forKey: .accounts)
+        appliedCommandIDs = try container.decode([UUID].self, forKey: .appliedCommandIDs)
+        acceptsCommands = try container.decodeIfPresent(Bool.self, forKey: .acceptsCommands) ?? false
     }
 
     public func freshness(at now: Date) -> SnapshotFreshness {

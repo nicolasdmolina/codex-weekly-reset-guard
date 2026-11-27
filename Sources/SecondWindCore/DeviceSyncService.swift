@@ -21,19 +21,41 @@ public struct DeviceSyncState: Codable, Equatable, Sendable {
     }
 }
 
+/// A failed file operation, kept as codes only so it can be logged without paths or names.
+public struct SyncFailure: Equatable, Sendable {
+    public var domain: String
+    public var code: Int
+    public var underlyingDomain: String?
+    public var underlyingCode: Int?
+
+    public init(_ error: Error) {
+        let error = error as NSError
+        domain = error.domain
+        code = error.code
+        let underlying = error.userInfo[NSUnderlyingErrorKey] as? NSError
+        underlyingDomain = underlying?.domain
+        underlyingCode = underlying?.code
+    }
+}
+
 public struct DeviceSyncPass: Equatable, Sendable {
     public var deviceID: SyncDeviceID
-    /// Other Macs' snapshots, newest-forgotten ones left out.
-    public var devices: [DeviceSnapshot]
+    /// Other Macs' snapshots, newest-forgotten ones left out. Nil when reading failed.
+    public var devices: [DeviceSnapshot]?
     /// Files found in this Mac's command folder, and how many of them were valid commands.
     public var commandsListed: Int
     public var commandsDecoded: Int
     public var decisions: [CommandDecision]
+    public var readFailure: SyncFailure?
+    public var publishFailure: SyncFailure?
+    /// What this pass published: true only when it listed its own command folder.
+    public var acceptsCommands: Bool
 }
 
 /// One sync pass: read the other Macs, handle commands addressed to this one, then publish this
-/// Mac's snapshot. The only side effect a command can have is `applyAutoRedeem`, which the app
-/// wires to the same function its own Auto-redeem switch uses.
+/// Mac's snapshot. Reading and publishing fail separately: a Mac that cannot read the folder
+/// still publishes, saying it does not accept commands. The only side effect a command can have
+/// is `applyAutoRedeem`, which the app wires to the same function its own Auto-redeem switch uses.
 public actor DeviceSyncService {
     public typealias AccountsProvider = @Sendable () async -> [SharedAccount]
     public typealias AutoRedeemApplier = @Sendable (_ profileID: UUID, _ enabled: Bool) async -> Bool
@@ -68,7 +90,8 @@ public actor DeviceSyncService {
         try await loadState().deviceID
     }
 
-    /// Returns nil when a pass is already running; that pass will publish.
+    /// Returns nil when a pass is already running; that pass will publish. Throws only when this
+    /// Mac's own local sync state cannot be read or saved.
     public func run() async throws -> DeviceSyncPass? {
         guard !isRunning, !isWithdrawn else { return nil }
         isRunning = true
@@ -76,14 +99,26 @@ public actor DeviceSyncService {
 
         var state = try await loadState()
         let device = state.deviceID
-        let devices = try folder.readSnapshots(excluding: device).filter {
-            now().timeIntervalSince($0.publishedAt) < DeviceSyncPolicy.forgetDeviceAfter
+        try? folder.prepareInbox(for: device)
+
+        // Commands are handled only when everything they depend on was read: the inbox, and the
+        // other Macs' snapshots that the double Auto-redeem guard checks.
+        var devices: [DeviceSnapshot]?
+        var pending: [(url: URL, command: RemoteCommand?)] = []
+        var readFailure: SyncFailure?
+        do {
+            devices = try folder.readSnapshots(excluding: device).filter {
+                now().timeIntervalSince($0.publishedAt) < DeviceSyncPolicy.forgetDeviceAfter
+            }
+            pending = try folder.commands(for: device)
+        } catch {
+            devices = nil
+            pending = []
+            readFailure = SyncFailure(error)
         }
 
-        try folder.prepareInbox(for: device)
         var decisions: [CommandDecision] = []
-        let pending = try folder.commands(for: device)
-        if !pending.isEmpty {
+        if let devices, !pending.isEmpty {
             let accounts = await localAccounts()
             for (url, command) in pending {
                 guard let command else {
@@ -112,21 +147,31 @@ public actor DeviceSyncService {
         }
 
         // Read after commands, so the acknowledgement carries the setting the host really has.
+        let acceptsCommands = readFailure == nil
         let snapshot = DeviceSnapshot(
             deviceID: device,
             deviceName: deviceName,
             publishedAt: now(),
             accounts: await localAccounts(),
-            appliedCommandIDs: state.handledCommandIDs
+            appliedCommandIDs: state.handledCommandIDs,
+            acceptsCommands: acceptsCommands
         )
         guard !isWithdrawn else { return nil }
-        try folder.publish(snapshot)
+        var publishFailure: SyncFailure?
+        do {
+            try folder.publish(snapshot)
+        } catch {
+            publishFailure = SyncFailure(error)
+        }
         return DeviceSyncPass(
             deviceID: device,
             devices: devices,
             commandsListed: pending.count,
             commandsDecoded: pending.filter { $0.command != nil }.count,
-            decisions: decisions
+            decisions: decisions,
+            readFailure: readFailure,
+            publishFailure: publishFailure,
+            acceptsCommands: acceptsCommands
         )
     }
 

@@ -99,17 +99,19 @@ private final class Counter: @unchecked Sendable {
     _ = try await pair.host.run()
     pair.clock.advance(5)
     let first = try #require(try await pair.viewer.run())
-    #expect(first.devices.map(\.deviceID) == [hostID])
-    #expect(first.devices[0].deviceName == "Mac mini")
-    #expect(first.devices[0].accounts.first { $0.profileID == workID }?.autoRedeemEnabled == false)
+    #expect(first.devices?.map(\.deviceID) == [hostID])
+    #expect(first.devices?[0].deviceName == "Mac mini")
+    #expect(first.devices?[0].acceptsCommands == true)
+    #expect(first.devices?[0].accounts.first { $0.profileID == workID }?.autoRedeemEnabled == false)
     let hostView = try #require(try await pair.host.run())
-    #expect(hostView.devices.map(\.deviceID) == [viewerID])
-    #expect(hostView.devices[0].accounts.isEmpty)
+    #expect(hostView.devices?.map(\.deviceID) == [viewerID])
+    #expect(hostView.devices?[0].accounts.isEmpty == true)
 
     // Viewer asks for Auto-redeem on Work.
     let sent = try await pair.viewer.send(.setAutoRedeem(profileID: workID, enabled: true), to: hostID)
     let pending = PendingRemoteCommand(commandID: sent.id, enabled: true, issuedAt: sent.issuedAt)
-    let waiting = try #require(try await pair.viewer.run()).devices[0]
+    let waitingPass = try #require(try await pair.viewer.run())
+    let waiting = try #require(waitingPass.devices?[0])
     let work = try #require(waiting.accounts.first { $0.profileID == workID })
     #expect(RemoteAccountState.classify(account: work, in: waiting, pending: pending, now: pair.clock.now) == .pending(enabled: true))
 
@@ -121,7 +123,8 @@ private final class Counter: @unchecked Sendable {
     #expect(try pair.shared.commands(for: hostID).isEmpty)
 
     pair.clock.advance(5)
-    let acknowledged = try #require(try await pair.viewer.run()).devices[0]
+    let acknowledgedPass = try #require(try await pair.viewer.run())
+    let acknowledged = try #require(acknowledgedPass.devices?[0])
     #expect(acknowledged.appliedCommandIDs.contains(sent.id))
     let updated = try #require(acknowledged.accounts.first { $0.profileID == workID })
     #expect(updated.autoRedeemEnabled == true)
@@ -172,7 +175,7 @@ private final class Counter: @unchecked Sendable {
     #expect(try pair.shared.commands(for: hostID).isEmpty)
 
     // Rejections are acknowledged too, so the sender stops waiting at once.
-    let seen = try #require(try await pair.viewer.run()).devices.first { $0.deviceID == hostID }
+    let seen = try #require(try await pair.viewer.run()).devices?.first { $0.deviceID == hostID }
     #expect(Set(seen?.appliedCommandIDs ?? []) == Set([expired.id, unknown.id, conflict.id]))
 }
 
@@ -204,18 +207,41 @@ private final class Counter: @unchecked Sendable {
 }
 
 @Test(arguments: ["devices", "commands"])
-func unreadableSyncFolderFailsThePassInsteadOfLookingSynced(_ blocked: String) async throws {
+func unreadableSyncFolderStillPublishesWithoutAcceptingCommands(_ blocked: String) async throws {
     let pair = try makePair()
     let hostID = try await pair.host.deviceID()
-    _ = try await pair.host.run()
+    let viewerID = try await pair.viewer.deviceID()
+    let ready = try #require(try await pair.host.run())
+    #expect(ready.acceptsCommands && ready.readFailure == nil && ready.publishFailure == nil)
+
+    // A command waits in the inbox; the host must not act on it while it cannot read everything.
+    let waiting = RemoteCommand(issuedBy: viewerID, issuedAt: start, action: .setAutoRedeem(profileID: workID, enabled: true))
+    try pair.shared.send(waiting, to: hostID)
     let directory = blocked == "devices"
         ? pair.shared.root.appendingPathComponent("devices")
         : pair.shared.root.appendingPathComponent("commands/\(hostID)")
-    #expect(chmod(directory.path, 0o000) == 0)
-    defer { _ = chmod(directory.path, 0o700) }
+    // Like the Mini: listing fails while writing still works. Write and search, but no read.
+    #expect(chmod(directory.path, blocked == "devices" ? 0o300 : 0o000) == 0)
+    pair.clock.advance(30)
+    let pass = try #require(try await pair.host.run())
+    #expect(chmod(directory.path, 0o700) == 0)
 
-    await #expect(throws: (any Error).self) { try await pair.host.run() }
+    #expect(pass.readFailure?.domain == NSCocoaErrorDomain)
+    #expect(pass.publishFailure == nil)
+    #expect(!pass.acceptsCommands)
+    #expect(pass.devices == nil)
+    #expect(pass.decisions.isEmpty)
     #expect(await pair.fake.applied.isEmpty)
+
+    // The snapshot was still published, newer, and says it does not accept commands.
+    let published = try #require(try pair.shared.readSnapshots(excluding: viewerID).first { $0.deviceID == hostID })
+    #expect(published.publishedAt == start.addingTimeInterval(30))
+    #expect(!published.acceptsCommands)
+
+    // Once readable again the command is handled and the flag comes back.
+    let recovered = try #require(try await pair.host.run())
+    #expect(recovered.acceptsCommands)
+    #expect(recovered.decisions == [.apply(profileID: workID, enabled: true)])
 }
 
 @Test func hostCreatesItsCommandFolderBeforeAnyoneSends() async throws {

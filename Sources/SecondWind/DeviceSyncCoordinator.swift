@@ -98,7 +98,7 @@ final class DeviceSyncCoordinator {
         }
     }
 
-    static let unreadableMessage = "Second Wind can't read iCloud Drive on this Mac. It keeps trying."
+    static let unwritableMessage = "Second Wind can't write to iCloud Drive on this Mac. It keeps trying."
 
     func pass() async {
         guard let interface, interface.syncEnabled else { return }
@@ -106,25 +106,49 @@ final class DeviceSyncCoordinator {
         guard !interface.providerStates.values.contains(.loading) else { return }
         guard let service = await makeService() else {
             interface.updateSyncStatus(.unavailable)
-            await record(["result": "unavailable"])
+            await record(["publish": "skipped", "read": "skipped", "icloudDrive": "missing"])
             return
         }
+        let result: DeviceSyncPass
         do {
-            guard let result = try await service.run() else { return }
-            guard interface.syncEnabled, self.service === service else { return }
-            apply(result)
-            interface.updateSyncStatus(.on)
-            await record([
-                "result": "ok",
-                "devices": String(result.devices.count),
-                "commandsListed": String(result.commandsListed),
-                "commandsDecoded": String(result.commandsDecoded),
-                "decisions": result.decisions.map(Self.describe).joined(separator: ","),
-            ])
+            guard let pass = try await service.run() else { return }
+            result = pass
         } catch {
-            interface.updateSyncStatus(.failed(Self.unreadableMessage))
-            let error = error as NSError
-            await record(["result": "failed", "errorDomain": error.domain, "errorCode": String(error.code)])
+            interface.updateSyncStatus(.failed(Self.unwritableMessage))
+            var fields = ["publish": "failed", "read": "skipped"]
+            Self.add(SyncFailure(error), prefix: "state", to: &fields)
+            await record(fields)
+            return
+        }
+        guard interface.syncEnabled, self.service === service else { return }
+        apply(result)
+        if result.publishFailure != nil {
+            interface.updateSyncStatus(.failed(Self.unwritableMessage))
+        } else if result.readFailure != nil {
+            interface.updateSyncStatus(.readFailed)
+        } else {
+            interface.updateSyncStatus(.on)
+        }
+        var fields = [
+            "publish": result.publishFailure == nil ? "ok" : "failed",
+            "read": result.readFailure == nil ? "ok" : "failed",
+            "acceptsCommands": String(result.acceptsCommands),
+            "devices": result.devices.map { String($0.count) } ?? "-",
+            "commandsListed": String(result.commandsListed),
+            "commandsDecoded": String(result.commandsDecoded),
+            "decisions": result.decisions.map(Self.describe).joined(separator: ","),
+        ]
+        if let failure = result.readFailure { Self.add(failure, prefix: "read", to: &fields) }
+        if let failure = result.publishFailure { Self.add(failure, prefix: "publish", to: &fields) }
+        await record(fields)
+    }
+
+    private static func add(_ failure: SyncFailure, prefix: String, to fields: inout [String: String]) {
+        fields["\(prefix)ErrorDomain"] = failure.domain
+        fields["\(prefix)ErrorCode"] = String(failure.code)
+        if let domain = failure.underlyingDomain, let code = failure.underlyingCode {
+            fields["\(prefix)UnderlyingDomain"] = domain
+            fields["\(prefix)UnderlyingCode"] = String(code)
         }
     }
 
@@ -174,8 +198,10 @@ final class DeviceSyncCoordinator {
     private func apply(_ pass: DeviceSyncPass) {
         guard let model else { return }
         let now = Date()
-        let seen = Set(pass.devices.map(\.deviceID))
-        var devices = pass.devices
+        // A failed read leaves what is on screen; snapshots age into stale on their own.
+        guard let read = pass.devices else { return }
+        let seen = Set(read.map(\.deviceID))
+        var devices = read
         for previous in model.remoteDevices where !seen.contains(previous.deviceID) {
             let missed = missedPasses[previous.deviceID, default: 0] + 1
             missedPasses[previous.deviceID] = missed
@@ -192,7 +218,7 @@ final class DeviceSyncCoordinator {
             return false
         }
         // Alerts come only from what this pass actually read.
-        for device in pass.devices where device.freshness(at: now).isLive {
+        for device in read where device.freshness(at: now).isLive {
             for account in device.accounts {
                 let reading = account.quotaRecord().reading(at: now, policy: .remote)
                 for low in reading.currentLowWindows {

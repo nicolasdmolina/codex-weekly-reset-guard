@@ -69,8 +69,10 @@ neither reads nor writes the shared folder. Turning it off removes this Mac's
 snapshot. The shared folder is `Second Wind/` in iCloud Drive. Every read and
 write goes through `NSFileCoordinator`. A `.name.icloud` placeholder starts its
 download and is read on a later pass. Passes run every 30 seconds and whenever
-the popover opens. A missing folder or file reads as empty. Any other listing or
-read failure fails the pass, and Settings says iCloud Drive cannot be read. Each
+the popover opens. A missing folder or file reads as empty. Reading and
+publishing fail separately. A Mac that cannot list the folder still publishes,
+with `acceptsCommands` false. Other Macs then show its Auto-redeem switches as
+read-only and never send it commands. Settings says which step failed. Each
 pass appends one redacted `syncPass` record to `sync-events.json`, with counts,
 decision kinds and any error domain and code.
 

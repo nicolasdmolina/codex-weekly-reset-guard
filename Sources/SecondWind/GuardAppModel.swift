@@ -323,7 +323,7 @@ final class GuardAppModel: ObservableObject {
 
     /// Sends an absolute Auto-redeem setting to the Mac that hosts the account.
     func setRemoteAutoReset(device: DeviceSnapshot, account: SharedAccount, enabled: Bool) {
-        guard !isReadOnly, account.provider == .codex else { return }
+        guard !isReadOnly, account.provider == .codex, device.acceptsCommands else { return }
         let key = Self.remoteKey(device: device.deviceID, account: account)
         let ref = AccountRef(provider: .codex, id: account.profileID)
         if case .pending = remoteState(of: account, in: device, now: referenceDate ?? Date()) { return }

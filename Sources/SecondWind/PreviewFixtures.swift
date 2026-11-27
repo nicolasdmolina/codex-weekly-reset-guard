@@ -45,6 +45,8 @@ enum PreviewKind: String, CaseIterable {
     case remoteStale = "remote-stale"
     /// Sync turned on while iCloud Drive is off.
     case settingsSync = "settings-sync"
+    /// A synced Mac that publishes but cannot read commands, so its switches are read-only here.
+    case remoteReadOnly = "remote-read-only"
 }
 
 @MainActor
@@ -323,6 +325,12 @@ enum PreviewFixtures {
             model.pendingRemoteCommands[GuardAppModel.remoteKey(device: ID.mini, account: mini.accounts[1])] =
                 PendingRemoteCommand(commandID: UUID(), enabled: true, issuedAt: reference.addingTimeInterval(-20 * 60))
             syncStatus = .on
+        case .remoteReadOnly:
+            model = GuardAppModel(isPreview: true, referenceDate: reference)
+            var mini = miniSnapshot(publishedSecondsAgo: 25, workAutoRedeem: false)
+            mini.acceptsCommands = false
+            model.remoteDevices = [mini]
+            syncStatus = .on
         case .settingsSync:
             syncStatus = .unavailable
             model = GuardAppModel(profiles: [personalHealthy()], isPreview: true, referenceDate: reference)
@@ -482,7 +490,8 @@ enum PreviewFixtures {
                     savedResetCount: 1
                 ),
             ],
-            appliedCommandIDs: []
+            appliedCommandIDs: [],
+            acceptsCommands: true
         )
     }
 
@@ -558,7 +567,7 @@ enum PreviewFixtures {
         for kind in PreviewKind.allCases {
             let model = model(for: kind)
             let expectedCount: Int = switch kind {
-            case .onboarding, .onboardingError, .remote, .remoteStale: 0
+            case .onboarding, .onboardingError, .remote, .remoteStale, .remoteReadOnly: 0
             case .connect, .paused, .claudeSignIn, .settings, .settingsDenied, .providerFailed, .settingsSync: 1
             case .freshness, .reveal: 3
             default: 2

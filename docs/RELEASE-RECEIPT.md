@@ -1,5 +1,24 @@
 # Release verification
 
+## 0.3.2, November 27, 2026 (UTC)
+
+GitHub built the Mac and source ZIPs from `cd8183cd9984e009e2d49a943057b7a286d18657`.
+Both public downloads matched their SHA-256 checksums and the build attestation.
+[Release files](https://github.com/nicolasdmolina/codex-weekly-reset-guard/releases/tag/v0.3.2) ·
+[Build run](https://github.com/nicolasdmolina/codex-weekly-reset-guard/actions/runs/45937611413) ·
+[Build attestation](https://github.com/nicolasdmolina/codex-weekly-reset-guard/attestations/72935089).
+
+| File | SHA-256 |
+| --- | --- |
+| `Second-Wind-0.3.2-mac.zip` | `1881c470f5ef9c23dff41f08a4663975df20b46a392e78399fa2332db8d897e4` |
+| `Second-Wind-0.3.2-source.zip` | `c457ff3505eab90bfd2086ac536a79f7acc3a0fe03f6cea632977b28102fb414` |
+
+All 336 tests passed. The downloaded app reported version 0.3.2, build 5, and
+passed its self-test on Apple silicon and under Rosetta for Intel. Its overview,
+low Codex quota, low Claude quota, and onboarding screens matched the four live
+website screenshots pixel for pixel. Rebuilding the social preview from the
+overview also reproduced the image served by the site.
+
 ## 0.3.1, November 26, 2026
 
 The release tag points to `3031d7cb54aafc40f853d1736e6c4466a6d322a6`.

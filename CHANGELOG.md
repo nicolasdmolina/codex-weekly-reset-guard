@@ -2,15 +2,18 @@
 
 ## Unreleased
 
-- Adding an account is one guided page: choose Codex or Claude, enter the
-  email, and sign in. Codex no longer needs a separate Connect click, and the
-  name is suggested from the email and can be changed on the result.
+- Adding an account no longer asks for an email or a name: choose Codex or
+  Claude and sign in. The first sign-in decides which account it is, every later
+  check must match it, and the name comes from its email. Codex no longer needs
+  a separate Connect click.
 - Second Wind comes back in front when a browser sign-in finishes and shows the
   account's first reading, with Auto-redeem still off. Reconnecting an account
   from its row also brings the popover back to that account.
-- A sign-in with the wrong account names both addresses and offers a retry. A
-  Claude account can watch the account that signed in instead. Going back
-  during a sign-in removes the unfinished account and keeps the email.
+- Signing in as an account already in the list is caught. **Use a private
+  window** copies a fresh sign-in link so the browser's current account cannot
+  answer for it. Going back during a sign-in removes the unfinished account.
+- Downgrading after adding an account this way is not supported: earlier
+  versions cannot load an account whose first sign-in has not finished.
 - Codex accounts show their ChatGPT plan beside the name.
 - A Claude account can be added while Codex is still loading.
 

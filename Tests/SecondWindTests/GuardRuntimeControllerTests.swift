@@ -2184,7 +2184,9 @@ private final class LockedURLs: @unchecked Sendable {
     let fixture = try RuntimeFixture(seedProfiles: false)
     defer { fixture.remove() }
     let session = DiagnosticGuardSession(email: "new@example.com", now: fixture.now, deliversLoginCompletion: true)
-    let (model, controller, _) = enrollmentHarness(fixture, session: session)
+    let (model, controller, opened) = enrollmentHarness(fixture, session: session)
+    var copied: [URL] = []
+    model.copySignInLink = { copied.append($0) }
     _ = try await controller.start()
     #expect(await waitOnMain { model.isReady })
 
@@ -2209,6 +2211,13 @@ private final class LockedURLs: @unchecked Sendable {
         Issue.record("An account without an identity must not enable Auto-redeem")
     } catch {}
     #expect(await controller.snapshot().profiles.first(where: { $0.id == second.id })?.autoResetEnabled == false)
+
+    // The way past the browser's current account: a fresh link, copied rather than opened.
+    let openedBefore = opened.values.count
+    model.retryEnrollment(inPrivateWindow: true)
+    #expect(await waitOnMain { !copied.isEmpty })
+    #expect(opened.values.count == openedBefore, "The private-window link is not opened in this browser")
+    #expect(model.enrollmentPhase == .waiting(.codex, second, checking: false))
     #expect(await session.consumeCount() == 0)
     await controller.stop()
 }

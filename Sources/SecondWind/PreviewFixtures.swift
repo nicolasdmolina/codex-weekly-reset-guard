@@ -43,6 +43,8 @@ enum PreviewKind: String, CaseIterable {
     case addWaiting = "add-waiting"
     /// A new Claude account whose first sign-in was an account already in the list.
     case addAlreadyAdded = "add-already-added"
+    /// Retrying that sign-in in a private window, with its link copied.
+    case addPrivateWindow = "add-private-window"
     /// A new Codex account connected, with its first reading and Auto-redeem still off.
     case addConnected = "add-connected"
     /// A new Claude Max account connected, with its plan and three limits.
@@ -116,6 +118,16 @@ enum PreviewFixtures {
             )
             model = GuardAppModel(claudeProfiles: [existing, enrolling], isPreview: true, referenceDate: reference)
             model.enrollment = EnrollmentFlow(step: .signIn(AccountRef(provider: .claude, id: ID.studio)), hasSettled: true)
+        case .addPrivateWindow:
+            let enrolling = enrollingCodex(ID.work, name: AccountNaming.provisionalName, hint: "Expected Codex account")
+            model = GuardAppModel(profiles: [personalHealthy(), enrolling], isPreview: true, referenceDate: reference)
+            var flow = EnrollmentFlow(
+                step: .signIn(AccountRef(provider: .codex, id: ID.work)),
+                signInURL: signInURL(for: .codex)
+            )
+            flow.usesPrivateWindow = true
+            flow.hasCopiedLink = true
+            model.enrollment = flow
         case .addConnected:
             model = GuardAppModel(
                 profiles: [connectedCodex(

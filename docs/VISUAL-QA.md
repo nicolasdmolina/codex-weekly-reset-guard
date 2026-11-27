@@ -10,6 +10,7 @@ Run `./scripts/native_release_check.sh` to regenerate these synthetic fixtures:
 | `onboarding-error.png` | A first sign-in whose browser page was closed |
 | `add-waiting.png` | Waiting for the browser sign-in, with reopen and copy-link actions |
 | `add-already-added.png` | A new Claude sign-in that returned an account already in the list |
+| `add-private-window.png` | Retrying in a private window, with the sign-in link copied |
 | `add-connected.png`, `add-connected-claude.png` | The first reading after sign-in, with Auto-redeem off and a Max plan |
 | `connect.png` | One profile requiring sign-in, Auto-redeem off |
 | `paused.png` | One verified account with Auto-redeem off |

@@ -121,13 +121,15 @@ changes to its contents.
 
 ## First run
 
-1. Choose **Codex** or **Claude** and enter the account's email.
-2. Sign in through the browser. Second Wind comes back by itself when you finish
-   and checks that you signed in with that email. Each account gets its own
-   private, app-owned folder, so this never signs you out of your everyday Codex
-   or Claude Code.
+1. Choose **Codex** or **Claude**. Your browser opens that service's sign-in.
+2. Sign in with the account you want to watch. Second Wind comes back by itself
+   when you finish. That first sign-in decides which account this is; every later
+   check must match it. Each account gets its own private, app-owned folder, so
+   this never signs you out of your everyday Codex or Claude Code.
 3. Check the first reading. For Codex, leave **Auto-redeem** off to only monitor,
-   or turn it on for that account. Rename the account there or later from its menu.
+   or turn it on for that account. The name comes from the email; rename it there
+   or later from its menu. If your browser is still signed in to an account you
+   already added, use **Use a private window**.
 4. Add more accounts from **Add account**. To start the app when you log in, open **Settings** and enable **Open at login**.
 
 Keep the app running and the Mac awake and online for monitoring. It cannot

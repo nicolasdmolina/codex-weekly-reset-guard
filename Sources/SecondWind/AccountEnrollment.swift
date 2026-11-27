@@ -53,6 +53,10 @@ struct EnrollmentFlow: Equatable {
     var startFailure: String?
     /// The popover reopens once per settled sign-in, not on every later snapshot.
     var hasSettled = false
+    /// The browser is still signed in to another account, so the link goes to the clipboard for
+    /// a private window instead of opening in that browser.
+    var usesPrivateWindow = false
+    var hasCopiedLink = false
 
     var hasStartedSignIn: Bool {
         switch step {
@@ -254,8 +258,9 @@ extension GuardAppModel {
     }
 
     /// Try again after a problem: a fresh sign-in for the same new account, or a fresh start if
-    /// none was saved.
-    func retryEnrollment() {
+    /// none was saved. In a private window the link is copied rather than opened, so the
+    /// browser's current account cannot answer for it.
+    func retryEnrollment(inPrivateWindow: Bool = false) {
         guard var flow = enrollment else { return }
         switch flow.step {
         case let .couldNotStart(provider, _):
@@ -265,6 +270,8 @@ extension GuardAppModel {
             flow.startFailure = nil
             flow.hasSettled = false
             flow.signInURL = nil
+            flow.usesPrivateWindow = inPrivateWindow
+            flow.hasCopiedLink = false
             enrollment = flow
             if isPreview {
                 simulateSignIn(ref)
@@ -312,6 +319,12 @@ extension GuardAppModel {
         }
     }
 
+    /// Puts the sign-in link on the clipboard for a private window.
+    func copyPrivateWindowLink(_ url: URL) {
+        if !isPreview { copySignInLink(url) }
+        enrollment?.hasCopiedLink = true
+    }
+
     /// Done: closes the flow and returns the new account so the list can highlight it.
     @discardableResult
     func finishEnrollment() -> AccountRef? {
@@ -336,6 +349,12 @@ extension GuardAppModel {
                 } else if state.isUnderWay {
                     flow.hasSettled = false
                 }
+            }
+            // Claude Code opens its own browser tab; in a private window its link is copied as
+            // soon as it is known.
+            if flow.usesPrivateWindow, !flow.hasCopiedLink, state.isUnderWay, let url = signInURL(for: ref) {
+                if !isPreview { copySignInLink(url) }
+                flow.hasCopiedLink = true
             }
             if flow != enrollment { enrollment = flow }
             if announce { onSignInSettled?(ref, true) }
@@ -379,6 +398,7 @@ extension GuardAppModel {
         }
         if var flow = enrollment, case .signIn(ref) = flow.step {
             flow.signInURL = PreviewFixtures.signInURL(for: ref.provider)
+            flow.hasCopiedLink = flow.usesPrivateWindow
             enrollment = flow
         }
         Task { @MainActor [weak self] in

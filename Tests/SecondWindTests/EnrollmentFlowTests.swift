@@ -235,3 +235,44 @@ private func settle(_ condition: () -> Bool) async {
     #expect(GuardRuntimeController.planName("unknown") == nil)
     #expect(GuardRuntimeController.planName(nil) == nil)
 }
+
+@Test @MainActor func anAlreadyAddedAccountRetriesInAPrivateWindowWithTheLinkCopied() {
+    let model = liveModel(profiles: [codexAccount(signIn: .alreadyAdded(found: nil))])
+    var copied: [URL] = []
+    var reconnects: [String] = []
+    model.copySignInLink = { copied.append($0) }
+    model.onReconnect = { reconnects.append($0) }
+    model.enrollmentDidStartSignIn(codexRef, url: nil, awaitingStart: false)
+    #expect(model.enrollmentPhase == .problem(.codex, codexRef, .alreadyAdded(found: nil)))
+
+    model.retryEnrollment(inPrivateWindow: true)
+    #expect(reconnects.count == 1)
+    #expect(model.enrollment?.usesPrivateWindow == true)
+    // The Codex wiring reports the fresh link and copies it instead of opening it.
+    let link = URL(string: "https://auth.example.com/fresh")!
+    model.enrollmentDidStartSignIn(codexRef, url: link, awaitingStart: false)
+    model.copyPrivateWindowLink(link)
+    #expect(copied == [link])
+    #expect(model.enrollment?.hasCopiedLink == true)
+
+    // Trying again in the same browser goes back to opening the link.
+    model.retryEnrollment()
+    #expect(model.enrollment?.usesPrivateWindow == false)
+}
+
+@Test @MainActor func claudeCopiesItsOwnLinkForAPrivateWindowOnceKnown() {
+    var account = claudeAccount(signIn: .alreadyAdded(found: "studio@example.com"))
+    let model = liveModel(claudeProfiles: [account])
+    var copied: [URL] = []
+    model.copySignInLink = { copied.append($0) }
+    model.onConnectClaude = { _ in }
+    model.enrollmentDidStartSignIn(claudeRef, url: nil, awaitingStart: false)
+    model.retryEnrollment(inPrivateWindow: true)
+    account.signIn = .waiting
+    model.claudeProfiles = [account]
+    #expect(copied.isEmpty, "Nothing to copy until Claude Code reports its link")
+    account.signInURL = URL(string: "https://claude.ai/oauth/authorize?x=1")
+    model.claudeProfiles = [account]
+    model.claudeProfiles = [account]
+    #expect(copied.count == 1)
+}

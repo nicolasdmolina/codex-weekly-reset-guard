@@ -333,6 +333,8 @@ private struct WaitingScreen: View {
     let account: AccountRef?
     let isChecking: Bool
 
+    private var isPrivateWindow: Bool { model.enrollment?.usesPrivateWindow == true }
+
     var body: some View {
         let url = isChecking ? nil : account.flatMap { model.signInURL(for: $0) }
         StepFrame {
@@ -342,22 +344,36 @@ private struct WaitingScreen: View {
             }
         } actions: {
             if let url {
-                // The travelling outline is the only moving teal while the browser has the user.
-                SecondaryAction(title: "Reopen in browser", opensBrowser: true) {
-                    if !model.isPreview { NSWorkspace.shared.open(url) }
+                if isPrivateWindow {
+                    SecondaryAction(title: "Copy link again") { model.copyPrivateWindowLink(url) }
+                    Button("Open in this browser instead") {
+                        if !model.isPreview { NSWorkspace.shared.open(url) }
+                    }
+                    .buttonStyle(FlowLinkButtonStyle())
+                } else {
+                    // The travelling outline is the only moving teal while the browser has the user.
+                    SecondaryAction(title: "Reopen in browser", opensBrowser: true) {
+                        if !model.isPreview { NSWorkspace.shared.open(url) }
+                    }
+                    CopyLinkButton(url: url)
                 }
-                CopyLinkButton(url: url)
             }
         }
     }
 
     private var title: String {
         if isChecking { return "Reading your limits" }
+        if isPrivateWindow { return "Paste it in a private window" }
         return account == nil ? "Opening your browser" : "Finish in your browser"
     }
 
     private var message: String {
         if isChecking { return "Signed in. One moment." }
+        if isPrivateWindow {
+            return model.enrollment?.hasCopiedLink == true
+                ? "The sign-in link is copied. Open a private window, paste it and sign in with the other account."
+                : "Getting a fresh sign-in link."
+        }
         return "Sign in to \(provider.signInAccountName) with the account you want to watch."
     }
 }
@@ -409,6 +425,12 @@ private struct ProblemScreen: View {
                     if let ref = model.finishEnrollment() { interface.reveal(ref) }
                 }
                 .buttonStyle(FlowLinkButtonStyle())
+            } else if case .alreadyAdded = state, account != nil {
+                // The browser is still signed in to the listed account; a private window is the
+                // way past it, so it leads.
+                PrimaryAction(title: "Use a private window") { model.retryEnrollment(inPrivateWindow: true) }
+                Button("Try again in this browser") { model.retryEnrollment() }
+                    .buttonStyle(FlowLinkButtonStyle())
             } else {
                 PrimaryAction(title: "Try again", opensBrowser: account != nil) { model.retryEnrollment() }
             }
@@ -436,7 +458,7 @@ private struct ProblemScreen: View {
         switch state {
         case let .alreadyAdded(found):
             let who = found.map(emphasised) ?? Text("That account")
-            return who + Text(" is already being watched. Switch to another account in your browser, then try again.")
+            return who + Text(" is already in Second Wind. Your browser is still signed in to it, so sign in with the other account in a private window.")
         case let .wrongAccount(found):
             let signedIn = found.map { Text("You signed in as ") + emphasised($0) + Text(".") }
                 ?? Text("That was a different account.")

@@ -2101,6 +2101,12 @@ func connectCodexSignIn(
                 let ref = AccountRef(provider: .codex, id: profileID)
                 if model?.enrollment?.step == .signIn(ref) {
                     model?.enrollmentDidStartSignIn(ref, url: url, awaitingStart: false)
+                    // The browser answered with an account already listed: hand the fresh link
+                    // to a private window instead of the same browser session.
+                    if model?.enrollment?.usesPrivateWindow == true {
+                        model?.copyPrivateWindowLink(url)
+                        return
+                    }
                 }
                 openURL(url)
             } catch {

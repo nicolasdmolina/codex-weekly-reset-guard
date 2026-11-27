@@ -183,6 +183,11 @@ final class GuardAppModel: ObservableObject {
     var onDiscardUnfinishedAccount: ((AccountRef) async throws -> Void)?
     /// A sign-in finished one way or the other. True when it belongs to the add-account flow.
     var onSignInSettled: ((AccountRef, Bool) -> Void)?
+    /// Writes a sign-in link to the clipboard. Tests replace it.
+    var copySignInLink: (URL) -> Void = { url in
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+    }
     var onAccountActionFailure: ((AccountRef, String) -> Void)?
     /// Called after each provider's snapshot is applied with that provider's full roster in
     /// display order, including never-read accounts as empty records.

@@ -9,6 +9,20 @@ enum AlertPost: Equatable, Sendable {
     case resetApplied(AccountRef, name: String)
     /// A Codex redemption could not be verified and automatic resets stopped.
     case resetNeedsAttention(AccountRef, name: String)
+    /// A current window of an account another Mac hosts is low. Deduplicated by the ledger.
+    case remoteLowQuota(RemoteAlertAccount, window: QuotaWindow)
+}
+
+/// An account hosted on another Mac. It has no local row, so its notice opens the popover.
+struct RemoteAlertAccount: Equatable, Sendable {
+    let device: SyncDeviceID
+    let deviceName: String
+    let provider: ProviderKind
+    let profileID: UUID
+    let name: String
+
+    /// Never starts with a provider name, so a local roster never prunes it.
+    var token: String { "remote:\(device)|\(provider.rawValue):\(profileID.uuidString.lowercased())" }
 }
 
 enum AttentionReason: String, Codable, Sendable {
@@ -41,6 +55,7 @@ enum ExpiryStage: String, Codable, Sendable, CaseIterable {
 
 enum AlertNotice: Equatable, Sendable {
     case lowQuota(QuotaWindow)
+    case remoteLowQuota(QuotaWindow, provider: ProviderKind, deviceName: String)
     case limitRefilled(QuotaWindowKind)
     case savedResetExpiring(ExpiryStage, expiresAt: Date)
     case resetApplied
@@ -51,7 +66,7 @@ enum AlertNotice: Equatable, Sendable {
     /// ledger could not be saved, so a relaunch cannot repeat them.
     var needsDurableLedger: Bool {
         switch self {
-        case .limitRefilled, .savedResetExpiring, .needsAttention: true
+        case .limitRefilled, .savedResetExpiring, .needsAttention, .remoteLowQuota: true
         case .lowQuota, .resetApplied, .test: false
         }
     }
@@ -199,6 +214,20 @@ enum AlertPolicy {
             ])
         case let .resetNeedsAttention(account, name):
             return attention(.resetNeedsAttention, account: account, name: name, ledger: &ledger)
+        case let .remoteLowQuota(account, window):
+            let id = "\(account.token)|low|\(window.kind.key)|\(cycle(resetsAt: window.resetsAt, observedAt: nil))"
+            guard ledger.sent[id] == nil else { return AlertPlan() }
+            // Remembered until the window renews; the next cycle has its own key.
+            let until = window.resetsAt.flatMap { $0 > now ? $0 : nil } ?? now.addingTimeInterval(7 * 24 * 60 * 60)
+            ledger.sent[id] = AlertLedger.Sent(until: until)
+            return AlertPlan(deliveries: [
+                AlertDelivery(
+                    id: id,
+                    account: nil,
+                    name: account.name,
+                    notice: .remoteLowQuota(window, provider: account.provider, deviceName: account.deviceName)
+                ),
+            ])
         }
     }
 

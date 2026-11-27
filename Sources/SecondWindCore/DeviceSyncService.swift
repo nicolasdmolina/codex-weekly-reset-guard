@@ -42,6 +42,7 @@ public actor DeviceSyncService {
     private let localAccounts: AccountsProvider
     private let applyAutoRedeem: AutoRedeemApplier
     private var isRunning = false
+    private var isWithdrawn = false
 
     public init(
         folder: DeviceSyncFolder,
@@ -66,7 +67,7 @@ public actor DeviceSyncService {
 
     /// Returns nil when a pass is already running; that pass will publish.
     public func run() async throws -> DeviceSyncPass? {
-        guard !isRunning else { return nil }
+        guard !isRunning, !isWithdrawn else { return nil }
         isRunning = true
         defer { isRunning = false }
 
@@ -114,6 +115,7 @@ public actor DeviceSyncService {
             accounts: await localAccounts(),
             appliedCommandIDs: state.handledCommandIDs
         )
+        guard !isWithdrawn else { return nil }
         try folder.publish(snapshot)
         return DeviceSyncPass(deviceID: device, devices: devices, decisions: decisions)
     }
@@ -125,8 +127,9 @@ public actor DeviceSyncService {
         return command
     }
 
-    /// Removes this Mac's snapshot when the user turns sync off.
+    /// Removes this Mac's snapshot when the user turns sync off. The service publishes nothing after.
     public func withdraw() async throws {
+        isWithdrawn = true
         guard let state = try await store.load() else { return }
         try folder.removeSnapshot(for: state.deviceID)
     }

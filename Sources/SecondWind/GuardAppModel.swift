@@ -52,6 +52,8 @@ struct GuardProfilePresentation: Identifiable, Equatable, Sendable {
     /// Quota evidence with per-account timestamps. Nil only in previews that predate it.
     var quota: QuotaAccountRecord? = nil
     var removalKeepsResetRecord = false
+    /// The enrolled email, for sync and the double Auto-redeem guard. Never displayed.
+    var email: String? = nil
 
     var isConnected: Bool { identityVerified && status != .disconnected }
 }
@@ -124,6 +126,8 @@ struct ClaudeProfilePresentation: Identifiable, Equatable, Sendable {
     var signInURL: URL?
     /// Quota evidence with per-account timestamps. Nil only in previews that predate it.
     var quota: QuotaAccountRecord? = nil
+    /// The enrolled email, for sync. Never displayed.
+    var email: String? = nil
 
     var tightestWindow: ClaudeWindowPresentation? {
         windows.min { $0.remainingPercent < $1.remainingPercent }
@@ -157,6 +161,10 @@ final class GuardAppModel: ObservableObject {
     @Published var profileEmail = ""
     @Published var profileDisplayName = ""
     @Published var enrollmentError: String?
+    /// Other Macs' latest snapshots while sync is on, in display order.
+    @Published var remoteDevices: [DeviceSnapshot] = []
+    /// Auto-redeem changes this Mac sent to another Mac, keyed by `remoteKey`.
+    @Published var pendingRemoteCommands: [String: PendingRemoteCommand] = [:]
     /// Synthetic previews use one reference clock for every relative date label.
     let referenceDate: Date?
 
@@ -171,6 +179,10 @@ final class GuardAppModel: ObservableObject {
     /// Called after each provider's snapshot is applied with that provider's full roster in
     /// display order, including never-read accounts as empty records.
     var onQuotaRecordsChanged: ((QuotaProvider, [QuotaAccountRecord]) -> Void)?
+    /// Awaitable form of `onToggleAutoReset`: the same runtime path, returning whether it held.
+    var applyAutoReset: ((String, Bool) async -> Bool)?
+    var onSetRemoteAutoReset: ((SyncDeviceID, SharedAccount, Bool) -> Void)?
+    var onSyncNow: (() -> Void)?
 
     init(
         profiles: [GuardProfilePresentation] = [],
@@ -190,6 +202,8 @@ final class GuardAppModel: ObservableObject {
     }
 
     var hasAccounts: Bool { !profiles.isEmpty || !claudeProfiles.isEmpty }
+
+    var hasRemoteAccounts: Bool { remoteDevices.contains { !$0.accounts.isEmpty } }
 
     func reportActionFailure(_ message: String, for account: AccountRef) {
         if let onAccountActionFailure {
@@ -242,6 +256,7 @@ final class GuardAppModel: ObservableObject {
             banner = "Preview refreshed"
         } else {
             onCheckNow?()
+            onSyncNow?()
         }
     }
 
@@ -249,6 +264,12 @@ final class GuardAppModel: ObservableObject {
         guard !isReadOnly else { return }
         guard let index = profiles.firstIndex(where: { $0.id == profileID }) else { return }
         guard !enabled || profiles[index].isConnected else { return }
+        if let refusal = autoResetRefusal(email: profiles[index].email, enabled: enabled) {
+            if let account = AccountRef(provider: .codex, rawID: profileID) {
+                reportActionFailure(refusal, for: account)
+            }
+            return
+        }
         if isPreview {
             profiles[index].autoResetEnabled = enabled
             return
@@ -256,6 +277,111 @@ final class GuardAppModel: ObservableObject {
         // Live mode is persistence-led: the switch changes only after the runtime publishes the
         // committed setting. A failed disable can therefore never look off while remaining on.
         onToggleAutoReset?(profileID, enabled)
+    }
+
+    /// A command from another Mac. It passes the same checks as the switch and runs the same
+    /// runtime path; it can only change the setting, never request a reset.
+    func applyRemoteAutoReset(profileID: UUID, enabled: Bool) async -> Bool {
+        guard !isReadOnly, !isPreview else { return false }
+        let rawID = profileID.uuidString.lowercased()
+        guard let profile = profiles.first(where: { $0.id == rawID }),
+              !enabled || profile.isConnected,
+              autoResetRefusal(email: profile.email, enabled: enabled) == nil,
+              let applyAutoReset
+        else { return false }
+        return await applyAutoReset(rawID, enabled)
+    }
+
+    /// Why Auto-redeem must stay off for this email, or nil. Another Mac whose current snapshot
+    /// already redeems the same account would otherwise race this one.
+    func autoResetRefusal(email: String?, enabled: Bool, excluding excluded: Set<SyncDeviceID> = []) -> String? {
+        guard enabled, let email else { return nil }
+        let now = referenceDate ?? Date()
+        guard let other = AutoRedeemGuard.conflictingDevice(
+            email: email,
+            among: remoteDevices,
+            excluding: excluded,
+            now: now
+        ) else { return nil }
+        return "Auto-redeem is already on for this account on \(other.deviceName). Turn it off there first."
+    }
+
+    // MARK: Other Macs
+
+    static func remoteKey(device: SyncDeviceID, account: SharedAccount) -> String {
+        "\(device)|\(account.id)"
+    }
+
+    func remoteState(of account: SharedAccount, in device: DeviceSnapshot, now: Date) -> RemoteAccountState {
+        RemoteAccountState.classify(
+            account: account,
+            in: device,
+            pending: pendingRemoteCommands[Self.remoteKey(device: device.deviceID, account: account)],
+            now: now
+        )
+    }
+
+    /// Sends an absolute Auto-redeem setting to the Mac that hosts the account.
+    func setRemoteAutoReset(device: DeviceSnapshot, account: SharedAccount, enabled: Bool) {
+        guard !isReadOnly, account.provider == .codex else { return }
+        let key = Self.remoteKey(device: device.deviceID, account: account)
+        let ref = AccountRef(provider: .codex, id: account.profileID)
+        if case .pending = remoteState(of: account, in: device, now: referenceDate ?? Date()) { return }
+        if enabled {
+            let local = profiles.contains {
+                $0.autoResetEnabled
+                    && DeviceSyncPolicy.normalizedEmail($0.email ?? "") == account.email
+            }
+            let refusal = local
+                ? "Auto-redeem is already on for this account on this Mac. Turn it off here first."
+                : autoResetRefusal(email: account.email, enabled: true, excluding: [device.deviceID])
+            if let refusal {
+                reportActionFailure(refusal, for: ref)
+                return
+            }
+        }
+        if isPreview {
+            pendingRemoteCommands[key] = PendingRemoteCommand(commandID: UUID(), enabled: enabled, issuedAt: referenceDate ?? Date())
+            return
+        }
+        onSetRemoteAutoReset?(device.deviceID, account, enabled)
+    }
+
+    /// What this Mac shares: every account, with its readings and the Auto-redeem setting.
+    func sharedAccounts() -> [SharedAccount] {
+        let codex = profiles.compactMap { profile -> SharedAccount? in
+            guard let id = UUID(uuidString: profile.id) else { return nil }
+            return SharedAccount(
+                profileID: id,
+                provider: .codex,
+                displayName: profile.displayName,
+                email: profile.email ?? "",
+                autoRedeemEnabled: profile.autoResetEnabled,
+                windows: Self.sharedWindows(profile.quota),
+                savedResetCount: profile.quota?.lastKnownInventory?.availableCount,
+                attentionMessage: profile.status == .attention || profile.status == .disconnected ? profile.detail : nil
+            )
+        }
+        let claude = claudeProfiles.compactMap { profile -> SharedAccount? in
+            guard let id = UUID(uuidString: profile.id) else { return nil }
+            return SharedAccount(
+                profileID: id,
+                provider: .claude,
+                displayName: profile.displayName,
+                email: profile.email ?? "",
+                autoRedeemEnabled: nil,
+                windows: Self.sharedWindows(profile.quota),
+                attentionMessage: profile.status == .attention || profile.status == .signedOut ? profile.detail : nil
+            )
+        }
+        return codex + claude
+    }
+
+    private static func sharedWindows(_ record: QuotaAccountRecord?) -> [SharedWindow] {
+        guard let success = record?.lastSuccess else { return [] }
+        return success.windows.map {
+            SharedWindow(kind: $0.kind, remainingPercent: $0.remainingPercent, resetsAt: $0.resetsAt, observedAt: success.observedAt)
+        }
     }
 
     func reconnect(profileID: String) {

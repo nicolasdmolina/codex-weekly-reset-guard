@@ -22,6 +22,15 @@ struct AlertPreferences: Equatable, Sendable {
     static let off = AlertPreferences(savedResetExpiry: false, limitRefilled: false)
 }
 
+/// Sync with the user's other Macs through iCloud Drive. Off unless the user turns it on.
+enum SyncStatus: Equatable, Sendable {
+    case off
+    case on
+    /// iCloud Drive is not on for this Mac.
+    case unavailable
+    case failed(String)
+}
+
 /// Whether a provider's saved accounts have loaded since launch. A provider that failed to load
 /// must never count toward "all clear", and a notification target on it is unavailable, not gone.
 enum ProviderLoadState: Equatable, Sendable {
@@ -121,6 +130,8 @@ final class GuardInterfaceModel: ObservableObject {
     @Published private(set) var settingsFeedback: Feedback?
     @Published private(set) var launchAtLogin: Bool
     @Published private(set) var launchAtLoginError: String?
+    @Published private(set) var syncEnabled: Bool
+    @Published private(set) var syncStatus: SyncStatus
 
     let isPreview: Bool
     let isReadOnly: Bool
@@ -144,6 +155,7 @@ final class GuardInterfaceModel: ObservableObject {
     var preflightCommand: ((AccountRef) -> String?)?
     /// True when removing the account keeps an unresolved Codex reset record for re-enrollment.
     var removalKeepsResetRecord: ((AccountRef) -> Bool)?
+    var changeSync: ((Bool) -> Void)?
 
     private let preferenceDefaults: UserDefaults?
     private let readLaunchAtLogin: () -> Bool
@@ -160,7 +172,8 @@ final class GuardInterfaceModel: ObservableObject {
         preferences: DisplayPreferences? = nil,
         permission: NotificationPermissionStatus = .unknown,
         alertPreferences: AlertPreferences = .off,
-        launchAtLogin: (read: () -> Bool, write: (Bool) throws -> Void)? = nil
+        launchAtLogin: (read: () -> Bool, write: (Bool) throws -> Void)? = nil,
+        syncStatus: SyncStatus? = nil
     ) {
         self.isPreview = isPreview
         self.isReadOnly = isReadOnly
@@ -174,7 +187,13 @@ final class GuardInterfaceModel: ObservableObject {
         self.readLaunchAtLogin = launchAtLogin?.read ?? { false }
         self.writeLaunchAtLogin = launchAtLogin?.write ?? { _ in }
         self.launchAtLogin = launchAtLogin?.read() ?? false
+        let syncSaved = isPreview ? false : preferenceDefaults?.bool(forKey: Self.syncKey) ?? false
+        let status = syncStatus ?? (syncSaved ? .on : .off)
+        self.syncStatus = status
+        self.syncEnabled = status != .off
     }
+
+    private static let syncKey = "sync.enabled"
 
     /// The app's live configuration: preferences in the standard defaults and the real login item.
     static func live(isReadOnly: Bool) -> GuardInterfaceModel {
@@ -565,6 +584,22 @@ final class GuardInterfaceModel: ObservableObject {
                 settingsFeedback = .failure("Could not save the alert setting. \(Self.recovery(error))")
             }
         }
+    }
+
+    // MARK: Sync
+
+    func setSyncEnabled(_ enabled: Bool) {
+        guard !isReadOnly, enabled != syncEnabled else { return }
+        syncEnabled = enabled
+        syncStatus = enabled ? .on : .off
+        guard !isPreview else { return }
+        preferenceDefaults?.set(enabled, forKey: Self.syncKey)
+        changeSync?(enabled)
+    }
+
+    func updateSyncStatus(_ status: SyncStatus) {
+        guard syncEnabled || status == .off else { return }
+        syncStatus = status
     }
 
     func setLaunchAtLogin(_ enabled: Bool) {

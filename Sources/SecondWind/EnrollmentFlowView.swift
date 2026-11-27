@@ -413,6 +413,15 @@ private struct WaitingScreen: View {
             VStack(spacing: 0) {
                 StepTitle(text: isChecking ? "Reading your limits" : "Finish in your browser")
                 StepMessage(text: message)
+                if !isChecking, !email.isEmpty {
+                    // On its own line so a long address is trimmed, never broken mid-word.
+                    emphasised(email)
+                        .font(.system(size: 12.5))
+                        .lineLimit(1)
+                        .truncationMode(.middle)
+                        .frame(maxWidth: 300)
+                        .padding(.top, 1)
+                }
             }
         } actions: {
             if let url {
@@ -425,11 +434,12 @@ private struct WaitingScreen: View {
         }
     }
 
+    private var email: String { model.enrollment?.email ?? "" }
+
     private var message: Text {
-        let email = model.enrollment?.email ?? ""
         if isChecking { return Text("Signed in. One moment.") }
         if email.isEmpty { return Text("Sign in with the account you added.") }
-        return Text("Sign in as ") + emphasised(email)
+        return Text("Sign in as")
     }
 }
 
@@ -482,9 +492,9 @@ private struct ProblemScreen: View {
             } else {
                 PrimaryAction(title: "Try again", opensBrowser: true) { model.retryEnrollmentSignIn() }
                 if case let .wrongAccount(found?) = state, account.provider == .claude {
-                    Button("Watch \(found) instead") { model.adoptSignedInAccount(found) }
+                    Button("Watch this account instead") { model.adoptSignedInAccount(found) }
                         .buttonStyle(FlowLinkButtonStyle())
-                        .truncationMode(.middle)
+                        .accessibilityLabel("Watch \(found) instead")
                 } else if offersDifferentEmail {
                     Button("Use a different email") { model.cancelEnrollment(returningTo: account.provider) }
                         .buttonStyle(FlowLinkButtonStyle())
@@ -702,18 +712,11 @@ private struct ConnectedScreen: View {
         return nil
     }
 
-    /// Before the fill, each meter starts empty in whichever convention the user reads.
-    private func displayed(_ window: WindowDisplay) -> WindowDisplay {
-        guard !hasFilled, window.remaining != nil else { return window }
-        return WindowDisplay(
-            id: window.id,
-            label: window.label,
-            remaining: interface.preferences.quota == .remaining ? 0 : 100,
-            resetsAt: window.resetsAt,
-            state: window.state,
-            level: .ok,
-            alertLine: window.alertLine
-        )
+    /// Before the fill each bar starts empty, in whichever convention the user reads. The
+    /// figures show their real values throughout, so a new account never reads as used up.
+    private func meterStart(_ window: WindowDisplay) -> Double? {
+        guard !hasFilled, window.remaining != nil else { return nil }
+        return interface.preferences.quota == .remaining ? 0 : 100
     }
 
     @ViewBuilder
@@ -723,7 +726,8 @@ private struct ConnectedScreen: View {
                 if let quota, !quota.windows.isEmpty {
                     ForEach(quota.windows) { window in
                         WindowRow(
-                            window: displayed(window),
+                            window: window,
+                            meterRemaining: meterStart(window),
                             convention: interface.preferences.quota,
                             resetStyle: interface.preferences.resetTimes,
                             now: now,

@@ -392,6 +392,7 @@ extension GuardAppModel {
         Task { @MainActor [weak self] in
             try? await Task.sleep(for: .seconds(2.6))
             guard let self, self.signInState(for: ref) == .waiting else { return }
+            self.lastCheckedAt = self.referenceDate ?? Date()
             switch ref.provider {
             case .codex:
                 if let index = self.profiles.firstIndex(where: { $0.id == raw }) {

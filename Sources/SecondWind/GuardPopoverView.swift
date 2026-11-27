@@ -1004,6 +1004,8 @@ private struct HeadlineFigure: View {
 /// report says so in words and never draws an empty meter, which would read as zero.
 struct WindowRow: View {
     let window: WindowDisplay
+    /// Draws the bar at this value instead of the window's own, for an entrance fill.
+    var meterRemaining: Double? = nil
     let convention: QuotaConvention
     let resetStyle: ResetTimeStyle
     let now: Date
@@ -1019,7 +1021,7 @@ struct WindowRow: View {
                 .lineLimit(1)
             if let remaining = window.remaining {
                 HeadroomMeter(
-                    remaining: remaining,
+                    remaining: meterRemaining ?? remaining,
                     threshold: window.alertLine,
                     convention: convention,
                     tone: window.isWarning ? .caution : .neutral,
@@ -1029,7 +1031,6 @@ struct WindowRow: View {
                 Text("\(convention.percent(remaining: remaining))%")
                     .font(.system(size: 11.5, weight: .medium))
                     .monospacedDigit()
-                    .contentTransition(.numericText(value: remaining))
                     .foregroundStyle(window.state == .current ? (window.isWarning ? SW.Palette.caution : SW.Palette.textPrimary) : SW.Palette.textTertiary)
                     .frame(width: 34, alignment: .trailing)
             } else {

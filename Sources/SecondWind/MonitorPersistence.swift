@@ -199,21 +199,26 @@ actor MonitorPersistence {
         return state
     }
 
-    /// Enrolls an identity only. Authentication remains an explicit browser action, and every new
+    /// Enrolls a profile. Authentication remains an explicit browser action, and every new
     /// profile starts with automatic redemption disabled regardless of other profile settings.
+    ///
+    /// Without an email the profile has no identity yet: its first verified sign-in supplies one
+    /// through `pinIdentity`, and until then it cannot be enabled or hold a reset attempt.
     @discardableResult
     func addProfile(
-        expectedEmail: String,
+        expectedEmail: String?,
         displayName: String,
         id: UUID = UUID(),
         now: Date = Date()
     ) async throws -> GuardPersistentState {
-        let email = Self.normalizedEmail(expectedEmail)
-        guard Self.isValidEmail(email) else {
-            throw MonitorPersistenceError.invalidExpectedIdentity
+        let email = expectedEmail.map(Self.normalizedEmail)
+        if let email {
+            guard Self.isValidEmail(email) else {
+                throw MonitorPersistenceError.invalidExpectedIdentity
+            }
         }
         let baseline = try await snapshot()
-        guard !baseline.profiles.contains(where: {
+        guard email == nil || !baseline.profiles.contains(where: {
             Self.normalizedEmail($0.expectedEmail ?? "") == email
         }) else {
             throw MonitorPersistenceError.duplicateExpectedIdentity
@@ -232,7 +237,7 @@ actor MonitorPersistence {
         }
         try profile.prepareCodexHome(profilesDirectory: profilesDirectory)
         let updated = try await store.update(defaultValue: baseline) { state in
-            guard !state.profiles.contains(where: {
+            guard email == nil || !state.profiles.contains(where: {
                 Self.normalizedEmail($0.expectedEmail ?? "") == email
             }) else {
                 throw MonitorPersistenceError.duplicateExpectedIdentity
@@ -240,19 +245,7 @@ actor MonitorPersistence {
             state.profiles.append(profile)
             let key = GuardPersistentState.key(for: id)
             var monitorState = MonitorState(profileID: key, isEnabled: false)
-            // Re-adding a removed account reattaches its uncertain redemption with the same
-            // idempotency key. The profile still starts paused; reconciliation resumes only
-            // after the user reconnects and turns automatic redemption back on.
-            if var retained = state.retainedRedemptions,
-               let index = retained.firstIndex(where: { $0.expectedEmail == email }) {
-                let record = retained.remove(at: index)
-                var attempt = record.attempt
-                attempt.profileID = key
-                monitorState.attempt = attempt
-                monitorState.confirmation = record.confirmation
-                monitorState.lastWeeklyLimit = record.lastWeeklyLimit
-                state.retainedRedemptions = retained.isEmpty ? nil : retained
-            }
+            if let email { Self.reattachRetainedRedemption(email: email, to: &monitorState, in: &state) }
             state.monitorStates[key] = monitorState
             guard (state.revision ?? 0) < UInt64.max else {
                 throw MonitorPersistenceError.revisionExhausted
@@ -532,6 +525,71 @@ actor MonitorPersistence {
         state.updatedAt = now
     }
 
+    /// Gives a profile enrolled without an email the identity its first verified sign-in
+    /// reported. A pinned identity never changes; another profile with the same email is a
+    /// duplicate. `displayName`, when given, replaces the provisional name in the same write.
+    @discardableResult
+    func pinIdentity(
+        _ profileID: UUID,
+        email rawEmail: String,
+        displayName: String? = nil,
+        now: Date = Date()
+    ) async throws -> GuardPersistentState {
+        let email = Self.normalizedEmail(rawEmail)
+        guard Self.isValidEmail(email) else { throw MonitorPersistenceError.invalidExpectedIdentity }
+        let baseline = try await snapshot()
+        return try await store.update(defaultValue: baseline) { state in
+            guard let index = state.profiles.firstIndex(where: { $0.id == profileID }) else {
+                throw MonitorPersistenceError.profileNotFound(profileID)
+            }
+            if let pinned = state.profiles[index].expectedEmail {
+                guard Self.normalizedEmail(pinned) == email else {
+                    throw MonitorPersistenceError.invalidExpectedIdentity
+                }
+                return state
+            }
+            guard !state.profiles.contains(where: {
+                $0.id != profileID && Self.normalizedEmail($0.expectedEmail ?? "") == email
+            }) else {
+                throw MonitorPersistenceError.duplicateExpectedIdentity
+            }
+            let key = GuardPersistentState.key(for: profileID)
+            guard var monitorState = state.monitorStates[key] else {
+                throw MonitorPersistenceError.missingMonitorState(profileID)
+            }
+            state.profiles[index].expectedEmail = email
+            if let displayName {
+                let name = displayName.trimmingCharacters(in: .whitespacesAndNewlines)
+                if !name.isEmpty { state.profiles[index].displayName = String(name.prefix(60)) }
+            }
+            Self.reattachRetainedRedemption(email: email, to: &monitorState, in: &state)
+            state.monitorStates[key] = monitorState
+            try Self.advanceRevision(&state, now: now)
+            try Self.validate(state)
+            return state
+        }
+    }
+
+    /// Re-adding a removed account reattaches its uncertain redemption with the same
+    /// idempotency key. The profile still starts paused; reconciliation resumes only after the
+    /// user reconnects and turns automatic redemption back on.
+    private nonisolated static func reattachRetainedRedemption(
+        email: String,
+        to monitorState: inout MonitorState,
+        in state: inout GuardPersistentState
+    ) {
+        guard monitorState.attempt == nil,
+              var retained = state.retainedRedemptions,
+              let index = retained.firstIndex(where: { $0.expectedEmail == email }) else { return }
+        let record = retained.remove(at: index)
+        var attempt = record.attempt
+        attempt.profileID = monitorState.profileID
+        monitorState.attempt = attempt
+        monitorState.confirmation = record.confirmation
+        monitorState.lastWeeklyLimit = record.lastWeeklyLimit
+        state.retainedRedemptions = retained.isEmpty ? nil : retained
+    }
+
     private nonisolated static func validate(_ state: GuardPersistentState) throws {
         guard state.schemaVersion == GuardPersistentState.currentSchemaVersion else {
             throw MonitorPersistenceError.unsupportedSchemaVersion(state.schemaVersion)
@@ -545,12 +603,19 @@ actor MonitorPersistence {
         }
 
         for profile in state.profiles {
-            guard let expectedEmail = profile.expectedEmail,
-                  !Self.normalizedEmail(expectedEmail).isEmpty else {
-                throw MonitorPersistenceError.invalidExpectedIdentity
+            if let expectedEmail = profile.expectedEmail {
+                guard !Self.normalizedEmail(expectedEmail).isEmpty else {
+                    throw MonitorPersistenceError.invalidExpectedIdentity
+                }
             }
             guard let monitorState = state.monitorState(for: profile.id) else {
                 throw MonitorPersistenceError.missingMonitorState(profile.id)
+            }
+            // A profile whose first sign-in has not supplied an identity can never redeem.
+            if profile.expectedEmail == nil {
+                guard !profile.isEnabled, monitorState.attempt == nil else {
+                    throw MonitorPersistenceError.invalidExpectedIdentity
+                }
             }
             guard monitorState.schemaVersion == MonitorState.currentSchemaVersion,
                   monitorState.profileID == GuardPersistentState.key(for: profile.id),

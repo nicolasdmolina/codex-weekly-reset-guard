@@ -103,7 +103,7 @@ private func miniSnapshot(autoRedeem: Bool, publishedAt: Date = now, acceptsComm
     model.applyAutoReset = { id, enabled in applied.append((id, enabled)); return true }
     model.onCheckNow = { otherCalls += 1 }
     model.onReconnect = { _ in otherCalls += 1 }
-    model.onAddProfile = { _, _ in otherCalls += 1 }
+    model.onAddProfile = { otherCalls += 1 }
 
     #expect(await model.applyRemoteAutoReset(profileID: workID, enabled: true) == true)
     #expect(applied.map(\.0) == [workID.uuidString.lowercased()])

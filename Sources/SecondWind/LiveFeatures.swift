@@ -27,6 +27,7 @@ func connectLiveFeatures(
         alerts.forget(ref)
         await updates.flush()
     }
+    model.onDiscardUnfinishedAccount = interface.removeAccount
     interface.preflightCommand = { ref in
         guard let path = Bundle.main.executablePath,
               let provider = QuotaProvider(rawValue: ref.provider.rawValue) else { return nil }

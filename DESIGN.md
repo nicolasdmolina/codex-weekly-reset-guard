@@ -9,15 +9,23 @@ spacing scale, radii 8/12/16 and motion at 175/280/410 ms. Tokens live in
 
 - An `NSStatusItem` with the `wind` symbol and the lowest headroom across all
   accounts. It switches to a warning triangle when an account needs attention.
-- A 380 × 560 pt popover: header (mark, name, one-line summary, check now),
-  scrolling content, footer (add account, last checked, ••• menu).
+- A 380 × 560 pt popover: header (the bare `wind` symbol in primary text, 22 pt
+  medium in a 24 pt box aligned with the cards' left edge; name; one-line summary;
+  check now), scrolling content, footer (add account, last checked, ••• menu).
 - Accounts are grouped by service in inset sections, one row per account, divided
   by hairlines. No nested cards.
+- An account row: the service tile (its own mark), the name, plan and ••• menu, and
+  under them the email with the reading's age when all is well ("· updated just
+  now", shortened to fit). The headline figure sits on the right ("54% weekly
+  left"), then the limit meters. A status line appears only when there is
+  something to say or do. Codex rows end in a footer under a hairline: saved
+  resets on the left (dates one click away, the next one shown when it is within
+  two days) and the Auto-redeem switch on the right.
 
 ## Colour
 
-- Teal (`#0A8274` light, `#3FD9C3` dark) is the only accent: primary buttons,
-  healthy meters, the brand mark.
+- Teal (`#0A8274` light, `#3FD9C3` dark) is the only accent: primary buttons and
+  healthy meters.
 - Amber means near a limit. Coral means the user must act. Neither is decorative.
 - Every status pairs its colour with an SF Symbol and text.
 - Canvas, surface and raised surface are neutral greys; secondary text stays
@@ -26,10 +34,38 @@ spacing scale, radii 8/12/16 and motion at 175/280/410 ms. Tokens live in
 ## Signature: the headroom meter
 
 Each reported limit uses a 6 pt capsule. The fill and its label both show the
-amount left by default, or the amount used when the user chooses Used. A 1 pt
-tick marks 3% remaining on a Codex weekly window with Auto-redeem enabled and
-10% on other windows. An absent window reads “Not reported” and has no meter.
-Stale figures dim. Reduce Motion removes the refill animation.
+amount left by default, or the amount used when the user chooses Used. A 1.5 pt
+coral tick marks the alert line: 3% remaining on a Codex weekly window with
+Auto-redeem enabled and 10% on other windows. It is coral because it marks where
+the user will need to act; where the fill covers it, a hairline gap is cut on each
+side so it stays crisp. An absent window reads “Not reported” and has no meter.
+Stale figures dim, the tick with them. Reduce Motion removes the refill animation.
+
+## Adding an account
+
+- A page, not a card: choose the service, sign in in the browser, then see the
+  account's first reading. Nothing is typed: the first sign-in supplies the email,
+  and the name comes from it ("Personal" for a consumer mailbox, otherwise the
+  organisation) and is editable on the result.
+- Services are shown by their own marks: OpenAI's mark for Codex (it signs in with
+  ChatGPT) in the text colour, and Claude's spark in Claude's orange. Brand colour
+  identifies the service only and is never used as an accent. The marks are vector
+  paths in `ProviderMarks.swift`.
+- After the service list, every step shares one service tile that never fades.
+  While waiting, an accent stroke travels round its border; a badge shows the
+  result. Waiting and problem steps keep their message and actions together near
+  the middle; the result lifts the tile to make room for the reading and pins Done
+  to the bottom. Steps cross-fade under the tile.
+- The header names the service being added ("Add Codex account"). While a
+  sign-in is under way or stopped it shows a named Cancel that ends it and
+  discards the unfinished account; the back chevron appears only where it
+  navigates.
+- The popover closes while the browser has focus and reopens on its own when the
+  sign-in succeeds or hits a problem the user must act on. A sign-in that simply
+  ends unfinished waits for the next click instead of taking focus.
+- An account already in the list is caught at its first sign-in. A private window
+  is the main recovery: the link is copied, not opened in the same browser
+  session. Auto-redeem is offered on the result and starts off.
 
 ## Behaviour
 

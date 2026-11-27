@@ -353,6 +353,36 @@ func codexInventoryKeepsUnknownApartFromZero(shape: InventoryShape) async throws
     await relaunched.stop()
 }
 
+@Test func aClaudeAccountAddedWithoutAnEmailTakesItsFirstSignInsIdentity() async throws {
+    let fixture = try QuotaFixture(profiles: [])
+    defer { fixture.remove() }
+    let clock = QuotaClock(fixture.now)
+    let runner = ScriptedClaudeRunner()
+    let monitor = fixture.claudeMonitor(runner: runner, clock: clock)
+    try await monitor.start()
+    let first = try await monitor.addProfile(email: nil, displayName: AccountNaming.provisionalName)
+    try ClaudeProfileConfiguration(id: first, displayName: AccountNaming.provisionalName)
+        .prepareConfigDirectory(root: fixture.claudeConfiguration.profilesRoot)
+    #expect(await monitor.snapshot().profiles.first?.expectedEmail == nil)
+    await monitor.checkNow()
+
+    // The scripted Claude Code reports claude@example.com: the profile takes it and a name.
+    let pinned = try #require(await monitor.snapshot().profiles.first(where: { $0.id == first }))
+    #expect(pinned.expectedEmail == "claude@example.com")
+    #expect(pinned.displayName == "Personal", "Reserved example domains read as personal")
+    #expect(pinned.status == .verified)
+
+    // A second new profile signed in to the same account is caught and keeps no identity.
+    let second = try await monitor.addProfile(email: nil, displayName: AccountNaming.provisionalName)
+    try ClaudeProfileConfiguration(id: second, displayName: AccountNaming.provisionalName)
+        .prepareConfigDirectory(root: fixture.claudeConfiguration.profilesRoot)
+    await monitor.checkNow()
+    let duplicate = try #require(await monitor.snapshot().profiles.first(where: { $0.id == second }))
+    #expect(duplicate.expectedEmail == nil)
+    #expect(duplicate.status == .duplicate(found: "claude@example.com"))
+    await monitor.stop()
+}
+
 @Test func pendingReconnectSuppressesReadsUntilItsLoginCompletes() async throws {
     let fixture = try QuotaFixture(profiles: [("first@example.com", false)])
     defer { fixture.remove() }

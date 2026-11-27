@@ -52,7 +52,11 @@ struct GuardProfilePresentation: Identifiable, Equatable, Sendable {
     /// Quota evidence with per-account timestamps. Nil only in previews that predate it.
     var quota: QuotaAccountRecord? = nil
     var removalKeepsResetRecord = false
-    /// The enrolled email, for sync and the double Auto-redeem guard. Never displayed.
+    var signIn: SignInState = .connected
+    /// The ChatGPT plan, such as "Plus", once a sign-in has reported it.
+    var planName: String? = nil
+    /// The enrolled email, for sync and the double Auto-redeem guard. Shown in full only on the
+    /// add-account result, right after the user signed in with it; rows show the masked hint.
     var email: String? = nil
 
     var isConnected: Bool { identityVerified && status != .disconnected }
@@ -126,7 +130,9 @@ struct ClaudeProfilePresentation: Identifiable, Equatable, Sendable {
     var signInURL: URL?
     /// Quota evidence with per-account timestamps. Nil only in previews that predate it.
     var quota: QuotaAccountRecord? = nil
-    /// The enrolled email, for sync. Never displayed.
+    var signIn: SignInState = .connected
+    /// The enrolled email, for sync. Shown in full only on the add-account result, right after
+    /// the user signed in with it; rows show the masked hint.
     var email: String? = nil
 
     var tightestWindow: ClaudeWindowPresentation? {
@@ -141,14 +147,20 @@ struct GuardHistoryEvent: Identifiable, Equatable, Sendable {
     let occurredAt: Date
     let profileName: String
     let summary: String
+    var isProblem = false
 }
 
 @MainActor
 final class GuardAppModel: ObservableObject {
-    @Published var profiles: [GuardProfilePresentation]
-    @Published var claudeProfiles: [ClaudeProfilePresentation]
+    @Published var profiles: [GuardProfilePresentation] {
+        didSet { refreshSignIns() }
+    }
+    @Published var claudeProfiles: [ClaudeProfilePresentation] {
+        didSet { refreshSignIns() }
+    }
     @Published var isCheckingClaude = false
-    @Published var enrollmentProvider: ProviderKind = .codex
+    /// The add-account flow, kept here so it survives the popover closing for the browser.
+    @Published var enrollment: EnrollmentFlow?
     @Published var history: [GuardHistoryEvent]
     @Published var isChecking = false
     @Published var lastCheckedAt: Date?
@@ -156,11 +168,9 @@ final class GuardAppModel: ObservableObject {
     @Published var isPreview: Bool
     let isReadOnly: Bool
     @Published var isReady = false
-    @Published var isShowingAddProfile = false
     @Published var isAddingProfile = false
-    @Published var profileEmail = ""
-    @Published var profileDisplayName = ""
-    @Published var enrollmentError: String?
+    /// Accounts whose row started a sign-in, with whether it has been seen under way.
+    var pendingReconnects: [AccountRef: Bool] = [:]
     /// Other Macs' latest snapshots while sync is on, in display order.
     @Published var remoteDevices: [DeviceSnapshot] = []
     /// Auto-redeem changes this Mac sent to another Mac, keyed by `remoteKey`.
@@ -171,10 +181,20 @@ final class GuardAppModel: ObservableObject {
     var onCheckNow: (() -> Void)?
     var onToggleAutoReset: ((String, Bool) -> Void)?
     var onReconnect: ((String) -> Void)?
-    var onAddProfile: ((String, String) -> Void)?
-    var onAddClaudeProfile: ((String, String) -> Void)?
+    /// Saves a new account with no identity yet and opens its sign-in.
+    var onAddProfile: (() -> Void)?
+    var onAddClaudeProfile: (() -> Void)?
     var onConnectClaude: ((String) -> Void)?
     var onCancelClaudeSignIn: ((String) -> Void)?
+    /// Removes an account the add-account flow created but never finished connecting.
+    var onDiscardUnfinishedAccount: ((AccountRef) async throws -> Void)?
+    /// A sign-in finished one way or the other. True when it belongs to the add-account flow.
+    var onSignInSettled: ((AccountRef, Bool) -> Void)?
+    /// Writes a sign-in link to the clipboard. Tests replace it.
+    var copySignInLink: (URL) -> Void = { url in
+        NSPasteboard.general.clearContents()
+        NSPasteboard.general.setString(url.absoluteString, forType: .string)
+    }
     var onAccountActionFailure: ((AccountRef, String) -> Void)?
     /// Called after each provider's snapshot is applied with that provider's full roster in
     /// display order, including never-read accounts as empty records.
@@ -389,28 +409,8 @@ final class GuardAppModel: ObservableObject {
             banner = "Preview only. No sign-in was started."
             return
         }
+        if let ref = AccountRef(provider: .codex, rawID: profileID) { pendingReconnects[ref] = false }
         onReconnect?(profileID)
-    }
-
-    func addProfile() {
-        guard isReady, !isAddingProfile else { return }
-        guard MonitorPersistence.isValidEmail(profileEmail) else {
-            enrollmentError = enrollmentProvider == .codex
-                ? MonitorPersistenceError.invalidExpectedIdentity.localizedDescription
-                : ClaudeMonitorError.invalidEmail.localizedDescription
-            return
-        }
-        guard !isPreview else {
-            enrollmentError = "Preview only. Account setup is available in the installed app."
-            return
-        }
-        enrollmentError = nil
-        isAddingProfile = true
-        let email = MonitorPersistence.normalizedEmail(profileEmail)
-        switch enrollmentProvider {
-        case .codex: onAddProfile?(email, profileDisplayName)
-        case .claude: onAddClaudeProfile?(email, profileDisplayName)
-        }
     }
 
     func connectClaude(profileID: String) {
@@ -419,6 +419,7 @@ final class GuardAppModel: ObservableObject {
             banner = "Preview only. No sign-in was started."
             return
         }
+        if let ref = AccountRef(provider: .claude, rawID: profileID) { pendingReconnects[ref] = false }
         onConnectClaude?(profileID)
     }
 

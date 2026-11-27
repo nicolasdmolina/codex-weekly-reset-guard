@@ -11,6 +11,8 @@ enum ClaudeConnectionStatus: Equatable, Sendable {
     case signingIn
     case verified
     case identityMismatch(found: String?)
+    /// A new profile's first sign-in was an account another profile already watches.
+    case duplicate(found: String?)
     case notSubscription
     case stopped
     case failed(String)
@@ -196,21 +198,24 @@ actor ClaudeMonitorController {
         await publish()
     }
 
-    func addProfile(email rawEmail: String, displayName rawName: String) async throws -> UUID {
+    /// Without an email the profile's first verified sign-in supplies its identity and name.
+    func addProfile(email rawEmail: String?, displayName rawName: String) async throws -> UUID {
         guard !configuration.isReadOnly else { throw ClaudeMonitorError.readOnly }
         guard isRosterLoaded else { throw ClaudeMonitorError.stateUnavailable }
-        guard MonitorPersistence.isValidEmail(rawEmail) else { throw ClaudeMonitorError.invalidEmail }
-        let email = MonitorPersistence.normalizedEmail(rawEmail)
-        guard !state.profiles.contains(where: { $0.expectedEmail == email }) else {
-            throw ClaudeMonitorError.duplicateEmail
+        let email = rawEmail.map(MonitorPersistence.normalizedEmail)
+        if let email {
+            guard MonitorPersistence.isValidEmail(email) else { throw ClaudeMonitorError.invalidEmail }
+            guard !state.profiles.contains(where: { $0.expectedEmail == email }) else {
+                throw ClaudeMonitorError.duplicateEmail
+            }
         }
         let name = rawName.trimmingCharacters(in: .whitespacesAndNewlines)
         let profile = ClaudeProfileConfiguration(
-            displayName: name.isEmpty ? Self.defaultName(for: email) : String(name.prefix(48)),
+            displayName: name.isEmpty ? email.map(Self.defaultName(for:)) ?? AccountNaming.provisionalName : String(name.prefix(48)),
             expectedEmail: email
         )
         try await withStateWrite {
-            guard !state.profiles.contains(where: { $0.expectedEmail == email }) else {
+            guard email == nil || !state.profiles.contains(where: { $0.expectedEmail == email }) else {
                 throw ClaudeMonitorError.duplicateEmail
             }
             var next = state
@@ -288,6 +293,27 @@ actor ClaudeMonitorController {
         await publish()
     }
 
+    /// Records the first sign-in's email as the profile's identity and names it from that
+    /// email. False when another profile already watches the account.
+    private func pinIdentity(_ email: String, for profileID: UUID) async throws -> Bool {
+        try await withStateWrite { () -> Bool in
+            guard let index = state.profiles.firstIndex(where: { $0.id == profileID }) else { return true }
+            if let pinned = state.profiles[index].expectedEmail { return pinned == email }
+            let others = state.profiles.filter { $0.id != profileID }
+            guard !others.contains(where: { $0.expectedEmail == email }) else { return false }
+            var next = state
+            next.profiles[index].expectedEmail = email
+            if next.profiles[index].displayName == AccountNaming.provisionalName {
+                next.profiles[index].displayName = AccountNaming.suggestedName(
+                    for: email, taken: others.map(\.displayName), maximumLength: 48
+                )
+            }
+            try await store.save(next)
+            state = next
+            return true
+        }
+    }
+
     func cancelSignIn(profileID: UUID) async {
         loginSessions[profileID]?.cancel()
     }
@@ -335,10 +361,26 @@ actor ClaudeMonitorController {
                 return
             }
             let found = auth.email.map(MonitorPersistence.normalizedEmail)
-            if let expected = profile.expectedEmail, found != expected {
-                statuses[profile.id] = .identityMismatch(found: found)
-                recordFailure(.wrongAccount, for: profile.id)
-                return
+            if let expected = profile.expectedEmail {
+                guard found == expected else {
+                    statuses[profile.id] = .identityMismatch(found: found)
+                    recordFailure(.wrongAccount, for: profile.id)
+                    return
+                }
+            } else {
+                // The first verified sign-in of a profile added without an email becomes its
+                // identity; only this app's own sign-in can reach the profile's private folder.
+                guard let found, MonitorPersistence.isValidEmail(found) else {
+                    statuses[profile.id] = .failed("Claude Code did not say which account signed in.")
+                    recordFailure(.unreadable, for: profile.id)
+                    return
+                }
+                guard try await pinIdentity(found, for: profile.id) else {
+                    statuses[profile.id] = .duplicate(found: found)
+                    recordFailure(.wrongAccount, for: profile.id)
+                    return
+                }
+                guard isCurrent() else { return }
             }
             saved.verifiedEmail = found
             saved.planName = auth.planName
@@ -617,6 +659,9 @@ extension GuardAppModel {
             status = .attention
             detail = found.map { "Signed in as \($0). Reconnect with the expected account." }
                 ?? "Signed in to a different account. Reconnect with the expected account."
+        case .duplicate:
+            status = .attention
+            detail = "That Claude account is already in Second Wind."
         case .notSubscription:
             status = .attention
             detail = "This sign-in has no Claude plan limits. Reconnect with a Pro or Max account."
@@ -637,8 +682,22 @@ extension GuardAppModel {
             detail: detail,
             signInURL: profile.signInURL,
             quota: profile.quota,
+            signIn: signInState(profile.status, detail: detail),
             email: profile.expectedEmail
         )
+    }
+
+    private static func signInState(_ status: ClaudeConnectionStatus, detail: String) -> SignInState {
+        switch status {
+        case .checking: .checking
+        case .notSignedIn: .signedOut
+        case .signingIn: .waiting
+        case .verified: .connected
+        case let .identityMismatch(found): .wrongAccount(found: found)
+        case let .duplicate(found): .alreadyAdded(found: found)
+        case .notSubscription: .noPlan
+        case .stopped, .failed: .failed(detail)
+        }
     }
 
     static func windowLabel(_ scope: ClaudeUsageWindow.Scope) -> String {
@@ -666,22 +725,22 @@ func makeClaudeMonitor(model: GuardAppModel, configuration: ClaudeMonitorConfigu
         },
         notificationHandler: { alerts.post($0) }
     )
-    model.onAddClaudeProfile = { [weak monitor, weak model] email, displayName in
+    model.onAddClaudeProfile = { [weak monitor, weak model] in
         Task { @MainActor in
             defer { model?.isAddingProfile = false }
             do {
                 guard let monitor else { throw ClaudeMonitorError.unknownProfile }
-                let id = try await monitor.addProfile(email: email, displayName: displayName)
-                model?.profileEmail = ""
-                model?.profileDisplayName = ""
-                model?.isShowingAddProfile = false
-                model?.enrollmentError = nil
+                // No email yet: the first sign-in supplies the account's identity and name.
+                let id = try await monitor.addProfile(email: nil, displayName: AccountNaming.provisionalName)
+                // Claude Code opens the browser itself, a moment after the sign-in starts.
+                model?.enrollmentDidStartSignIn(AccountRef(provider: .claude, id: id), url: nil, awaitingStart: true)
                 Task { _ = await alerts.requestPermission() }
                 Task { await monitor.connect(profileID: id) }
             } catch {
-                model?.isShowingAddProfile = true
-                model?.enrollmentError = (error as? LocalizedError)?.errorDescription
-                    ?? "Could not save the Claude account."
+                model?.enrollmentCouldNotStart(
+                    .claude,
+                    message: (error as? LocalizedError)?.errorDescription ?? "Could not save the new Claude account."
+                )
             }
         }
     }

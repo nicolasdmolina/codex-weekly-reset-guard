@@ -53,6 +53,8 @@ enum GuardRuntimeConnectionStatus: String, Equatable, Sendable {
     case verified
     case authenticationRequired
     case identityMismatch
+    /// The first sign-in of a new profile was an account another profile already watches.
+    case alreadyWatched
     case failed
 }
 
@@ -71,6 +73,10 @@ struct GuardRuntimeProfileSnapshot: Equatable, Sendable {
     /// Display, alert and preflight evidence. Never an input to redemption.
     let quota: QuotaAccountRecord
     var removalKeepsResetRecord = false
+    /// The ChatGPT plan from the last verified sign-in, for display only.
+    var planName: String? = nil
+    /// The account's email once known: identity for sync and the double Auto-redeem guard, and
+    /// shown in full only where the user just signed in.
     var expectedEmail: String? = nil
 }
 
@@ -79,6 +85,8 @@ struct GuardRuntimeEvent: Equatable, Identifiable, Sendable {
     let occurredAt: Date
     let profileID: UUID?
     let summary: String
+    /// The reset did not go through, or could not be confirmed.
+    var isProblem = false
 }
 
 struct GuardRuntimeSnapshot: Equatable, Sendable {
@@ -105,6 +113,7 @@ enum GuardRuntimeError: Error, Equatable, LocalizedError, Sendable {
     case profileNotFound
     case authenticationRequired
     case identityMismatch
+    case duplicateIdentity
     case missingExpectedIdentity
     case missingResetCreditInventory
     case rejectedWeeklyLimit(String)
@@ -120,6 +129,8 @@ enum GuardRuntimeError: Error, Equatable, LocalizedError, Sendable {
             "This profile needs a fresh Codex sign-in."
         case .identityMismatch:
             "The signed-in Codex account does not match this profile."
+        case .duplicateIdentity:
+            "That Codex account is already in Second Wind."
         case .missingExpectedIdentity:
             "This profile has no expected account identity."
         case .missingResetCreditInventory:
@@ -297,6 +308,8 @@ actor GuardRuntimeController {
     /// Per-account quota evidence, stamped at the read boundary. Kept apart from the policy
     /// reading so a missing inventory or rejected weekly window never erases a good read.
     private var quotaRecords: [UUID: QuotaAccountRecord] = [:]
+    /// Display only: the plan each verified sign-in reported, such as "Plus".
+    private var planNames: [UUID: String] = [:]
     /// Bumped when a reconnect starts. A read that began under an older generation is discarded,
     /// so it can never mark the account verified or current while the new sign-in is pending.
     private var readGenerations: [UUID: UInt64] = [:]
@@ -443,13 +456,14 @@ actor GuardRuntimeController {
     }
 
     @discardableResult
-    func addProfile(expectedEmail: String, displayName: String) async throws -> GuardRuntimeSnapshot {
+    func addProfile(expectedEmail: String?, displayName: String, id: UUID = UUID()) async throws -> GuardRuntimeSnapshot {
         guard initialized else { throw GuardRuntimeError.runtimeNotInitialized }
         guard lifecycle == .running else { throw GuardRuntimeError.runtimeStopped }
         do {
             adoptPersistentState(try await persistence.addProfile(
                 expectedEmail: expectedEmail,
                 displayName: displayName,
+                id: id,
                 now: now()
             ))
         } catch {
@@ -463,7 +477,6 @@ actor GuardRuntimeController {
             throw error
         }
         installEnrolledProfilePresentations()
-        banner = "Profile added. Connect it to verify the account, then choose whether to enable Auto-redeem."
         await publish()
         return latestSnapshot
     }
@@ -750,6 +763,7 @@ actor GuardRuntimeController {
         let session = sessions.removeValue(forKey: profileID)
         liveProfiles.removeValue(forKey: profileID)
         quotaRecords.removeValue(forKey: profileID)
+        planNames.removeValue(forKey: profileID)
         lastLoggedFailure.removeValue(forKey: profileID)
         checkFailureBanners.removeValue(forKey: profileID)
         profileControlIntents.removeValue(forKey: profileID)
@@ -1094,8 +1108,8 @@ actor GuardRuntimeController {
         session: any GuardAppServerSession,
         refreshToken: Bool
     ) async throws {
-        guard let expectedEmail = profile.expectedEmail,
-              !MonitorPersistence.normalizedEmail(expectedEmail).isEmpty else {
+        if let expectedEmail = profile.expectedEmail,
+           MonitorPersistence.normalizedEmail(expectedEmail).isEmpty {
             throw GuardRuntimeError.missingExpectedIdentity
         }
         let response = try await session.accountRead(refreshToken: refreshToken)
@@ -1105,10 +1119,42 @@ actor GuardRuntimeController {
               let actualEmail = account.email else {
             throw GuardRuntimeError.authenticationRequired
         }
-        guard MonitorPersistence.normalizedEmail(actualEmail)
-            == MonitorPersistence.normalizedEmail(expectedEmail) else {
-            throw GuardRuntimeError.identityMismatch
+        if let expectedEmail = profile.expectedEmail {
+            guard MonitorPersistence.normalizedEmail(actualEmail)
+                == MonitorPersistence.normalizedEmail(expectedEmail) else {
+                throw GuardRuntimeError.identityMismatch
+            }
+        } else {
+            try await adoptIdentity(actualEmail, for: profile)
         }
+        planNames[profile.id] = Self.planName(account.planType)
+    }
+
+    /// The first verified sign-in of a profile added without an email becomes its identity.
+    /// Only this app's own sign-in can put an account in the profile's private Codex home, so
+    /// that account is the one the user chose. From here on every read must match it.
+    private func adoptIdentity(_ rawEmail: String, for profile: ProfileConfiguration) async throws {
+        let email = MonitorPersistence.normalizedEmail(rawEmail)
+        guard MonitorPersistence.isValidEmail(email) else { throw GuardRuntimeError.authenticationRequired }
+        let others = persistentState?.profiles.filter { $0.id != profile.id } ?? []
+        guard !others.contains(where: { MonitorPersistence.normalizedEmail($0.expectedEmail ?? "") == email }) else {
+            throw GuardRuntimeError.duplicateIdentity
+        }
+        let name: String? = profile.displayName == AccountNaming.provisionalName
+            ? AccountNaming.suggestedName(for: email, taken: others.map(\.displayName), maximumLength: 60)
+            : nil
+        do {
+            adoptPersistentState(try await persistence.pinIdentity(profile.id, email: email, displayName: name, now: now()))
+        } catch MonitorPersistenceError.duplicateExpectedIdentity {
+            throw GuardRuntimeError.duplicateIdentity
+        }
+    }
+
+    /// "plus" → "Plus". Unknown or missing plans show no badge.
+    nonisolated static func planName(_ raw: String?) -> String? {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !raw.isEmpty, raw != "unknown" else { return nil }
+        return raw.split(separator: "_").map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
     }
 
     private func applyPolicy(
@@ -1515,6 +1561,9 @@ actor GuardRuntimeController {
         case GuardRuntimeError.identityMismatch:
             status = .identityMismatch
             detail = "Wrong Codex account signed in. Reconnect with the expected profile."
+        case GuardRuntimeError.duplicateIdentity:
+            status = .alreadyWatched
+            detail = "That Codex account is already in Second Wind."
         case GuardRuntimeError.missingResetCreditInventory:
             status = .failed
             detail = "Saved-reset inventory was missing, so redemption is blocked."
@@ -1563,6 +1612,9 @@ actor GuardRuntimeController {
         case GuardRuntimeError.identityMismatch:
             status = .identityMismatch
             detail = "Wrong Codex account signed in. Reconnect with the expected profile."
+        case GuardRuntimeError.duplicateIdentity:
+            status = .alreadyWatched
+            detail = "That Codex account is already in Second Wind."
         case GuardRuntimeError.missingResetCreditInventory:
             status = .failed
             detail = "Saved-reset inventory was missing, so redemption is blocked."
@@ -1585,11 +1637,11 @@ actor GuardRuntimeController {
     ) {
         var live = liveProfiles[profileID] ?? LiveProfileState()
         live.connectionStatus = status
-        if status == .authenticationRequired || status == .identityMismatch {
+        if status == .authenticationRequired || status == .identityMismatch || status == .alreadyWatched {
             live.weeklyLimit = nil
             live.inventory = nil
             recordQuotaFailure(
-                status == .identityMismatch ? .wrongAccount : .signInRequired,
+                status == .authenticationRequired ? .signInRequired : .wrongAccount,
                 profileID: profileID
             )
         }
@@ -1603,7 +1655,7 @@ actor GuardRuntimeController {
         guard lifecycle != .stopping, lifecycle != .stopped, !Task.isCancelled else { return }
         switch error {
         case GuardRuntimeError.authenticationRequired, GuardRuntimeError.missingExpectedIdentity,
-             GuardRuntimeError.identityMismatch:
+             GuardRuntimeError.identityMismatch, GuardRuntimeError.duplicateIdentity:
             readGenerations[profileID, default: 0] &+= 1
         default:
             return
@@ -1620,6 +1672,12 @@ actor GuardRuntimeController {
                 profileID: profileID,
                 status: .identityMismatch,
                 detail: "Wrong Codex account signed in. Reconnect with the expected profile."
+            )
+        case GuardRuntimeError.duplicateIdentity:
+            setConnectionFailure(
+                profileID: profileID,
+                status: .alreadyWatched,
+                detail: "That Codex account is already in Second Wind."
             )
         default:
             return
@@ -1640,7 +1698,7 @@ actor GuardRuntimeController {
         switch error {
         case GuardRuntimeError.authenticationRequired, GuardRuntimeError.missingExpectedIdentity:
             .signInRequired
-        case GuardRuntimeError.identityMismatch:
+        case GuardRuntimeError.identityMismatch, GuardRuntimeError.duplicateIdentity:
             .wrongAccount
         case is GuardRuntimeError, AppServerClientError.invalidMessage,
              AppServerClientError.unexpectedResponse:
@@ -1725,12 +1783,15 @@ actor GuardRuntimeController {
             profiles: state.profiles.map { profile in
                 profileSnapshot(profile: profile, state: state)
             },
-            history: records.reversed().map { record in
+            // The popover lists only what Second Wind did with a saved reset. Connections,
+            // sign-ins and checks stay in the local event log for diagnostics.
+            history: records.reversed().filter { Self.isResetOutcome($0.kind) }.map { record in
                 GuardRuntimeEvent(
                     id: record.id,
                     occurredAt: record.timestamp,
                     profileID: record.profileID,
-                    summary: Self.summary(for: record.kind)
+                    summary: Self.summary(for: record.kind),
+                    isProblem: record.kind != .redemptionSucceeded
                 )
             },
             isChecking: !checksInFlight.isEmpty,
@@ -1771,6 +1832,7 @@ actor GuardRuntimeController {
             quota: quotaRecords[profile.id]
                 ?? QuotaAccountRecord(provider: .codex, accountID: profile.id),
             removalKeepsResetRecord: state.removalKeepsResetRecord(for: profile.id),
+            planName: planNames[profile.id],
             expectedEmail: profile.expectedEmail
         )
     }
@@ -1807,6 +1869,14 @@ actor GuardRuntimeController {
         case .invalidWeeklyUsage: "invalid weekly usage"
         case .missingWeeklyReset: "weekly reset time missing"
         case .expiredWeeklyReset: "weekly reset time expired"
+        }
+    }
+
+    nonisolated static func isResetOutcome(_ kind: RedactedEventRecord.Kind) -> Bool {
+        switch kind {
+        case .redemptionSucceeded, .redemptionFailed, .verificationFailed: true
+        case .profileConnected, .profileDisconnected, .checkSucceeded, .checkFailed, .thresholdConfirmed,
+             .redemptionStarted, .redemptionDeferred, .authenticationRequired, .syncPass: false
         }
     }
 
@@ -1865,6 +1935,8 @@ extension GuardAppModel {
                 identityVerified: profile.connectionStatus == .verified,
                 quota: profile.quota,
                 removalKeepsResetRecord: profile.removalKeepsResetRecord,
+                signIn: Self.signInState(for: profile),
+                planName: profile.planName,
                 email: profile.expectedEmail
             )
         }
@@ -1873,7 +1945,8 @@ extension GuardAppModel {
                 id: event.id,
                 occurredAt: event.occurredAt,
                 profileName: event.profileID.flatMap { names[$0] } ?? "Second Wind",
-                summary: event.summary
+                summary: event.summary,
+                isProblem: event.isProblem
             )
         }
         isChecking = snapshot.isChecking
@@ -1882,6 +1955,17 @@ extension GuardAppModel {
         isReady = snapshot.hasLoadedProfiles
         if snapshot.hasLoadedProfiles {
             onQuotaRecordsChanged?(.codex, snapshot.profiles.map(\.quota))
+        }
+    }
+
+    private static func signInState(for profile: GuardRuntimeProfileSnapshot) -> SignInState {
+        switch profile.connectionStatus {
+        case .connecting: .waiting
+        case .verified: .connected
+        case .authenticationRequired: .signedOut
+        case .identityMismatch: .wrongAccount(found: nil)
+        case .alreadyWatched: .alreadyAdded(found: profile.expectedEmail)
+        case .failed: .failed(profile.detail)
         }
     }
 
@@ -1926,7 +2010,7 @@ extension GuardAppModel {
         switch profile.connectionStatus {
         case .connecting, .authenticationRequired:
             return .disconnected
-        case .identityMismatch, .failed:
+        case .identityMismatch, .alreadyWatched, .failed:
             return .attention
         case .verified:
             break
@@ -1958,24 +2042,7 @@ func makeGuardRuntimeController(
     model.onCheckNow = { [weak controller] in
         Task { _ = await controller?.checkNow() }
     }
-    model.onAddProfile = { [weak controller, weak model] email, displayName in
-        Task { @MainActor in
-            defer { model?.isAddingProfile = false }
-            do {
-                guard let controller else { throw GuardRuntimeError.runtimeStopped }
-                _ = try await controller.addProfile(expectedEmail: email, displayName: displayName)
-                model?.profileEmail = ""
-                model?.profileDisplayName = ""
-                model?.isShowingAddProfile = false
-                model?.enrollmentError = nil
-            } catch {
-                model?.isShowingAddProfile = true
-                model?.enrollmentError = error is MonitorPersistenceError
-                    ? error.localizedDescription
-                    : "Could not confirm the profile was saved. Check the profile list before trying again."
-            }
-        }
-    }
+    connectCodexSignIn(model: model, controller: controller) { NSWorkspace.shared.open($0) }
     // The one path that changes Auto-redeem, for the switch and for commands from another Mac.
     let changeAutoReset: @MainActor (String, Bool) async -> Bool = { [weak controller, weak model] rawID, enabled in
         guard configuration.operationMode == .production else { return false }
@@ -2000,6 +2067,47 @@ func makeGuardRuntimeController(
         Task { @MainActor in _ = await changeAutoReset(rawID, enabled) }
     }
     model.applyAutoReset = changeAutoReset
+    return controller
+}
+
+/// Adding and reconnecting a Codex account. Adding is one step from the user's side: save the
+/// account, then open its isolated browser sign-in. `openURL` is the browser in the app.
+@MainActor
+func connectCodexSignIn(
+    model: GuardAppModel,
+    controller: GuardRuntimeController,
+    openURL: @escaping @MainActor (URL) -> Void
+) {
+    model.onAddProfile = { [weak controller, weak model] in
+        Task { @MainActor in
+            defer { model?.isAddingProfile = false }
+            let ref = AccountRef(provider: .codex, id: UUID())
+            do {
+                guard let controller else { throw GuardRuntimeError.runtimeStopped }
+                // No email yet: the first sign-in supplies the account's identity and name.
+                _ = try await controller.addProfile(
+                    expectedEmail: nil,
+                    displayName: AccountNaming.provisionalName,
+                    id: ref.id
+                )
+            } catch {
+                model?.enrollmentCouldNotStart(
+                    .codex,
+                    message: "Could not save the new account. Check the account list before trying again."
+                )
+                return
+            }
+            do {
+                guard let url = try await controller?.beginConnection(profileID: ref.id) else {
+                    throw GuardRuntimeError.runtimeStopped
+                }
+                model?.enrollmentDidStartSignIn(ref, url: url, awaitingStart: false)
+                openURL(url)
+            } catch {
+                model?.enrollmentDidFailToStart(ref, message: "Could not open the Codex sign-in page.")
+            }
+        }
+    }
     model.onReconnect = { [weak controller, weak model] rawID in
         guard let profileID = UUID(uuidString: rawID) else { return }
         Task { @MainActor in
@@ -2007,8 +2115,24 @@ func makeGuardRuntimeController(
                 guard let url = try await controller?.beginConnection(profileID: profileID) else {
                     return
                 }
-                NSWorkspace.shared.open(url)
+                let ref = AccountRef(provider: .codex, id: profileID)
+                if model?.enrollment?.step == .signIn(ref) {
+                    model?.enrollmentDidStartSignIn(ref, url: url, awaitingStart: false)
+                    // The browser answered with an account already listed: hand the fresh link
+                    // to a private window instead of the same browser session.
+                    if model?.enrollment?.usesPrivateWindow == true {
+                        model?.copyPrivateWindowLink(url)
+                        return
+                    }
+                }
+                openURL(url)
             } catch {
+                let ref = AccountRef(provider: .codex, id: profileID)
+                if model?.enrollment?.step == .signIn(ref) {
+                    model?.enrollmentDidFailToStart(ref, message: "Could not open the Codex sign-in page.")
+                    return
+                }
+                model?.pendingReconnects[ref] = nil
                 model?.reportActionFailure(
                     "Could not start the isolated Codex sign-in.",
                     for: AccountRef(provider: .codex, id: profileID)
@@ -2016,5 +2140,4 @@ func makeGuardRuntimeController(
             }
         }
     }
-    return controller
 }

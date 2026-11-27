@@ -21,9 +21,12 @@ struct GuardPopoverView: View {
 
     private func shell(now: Date) -> some View {
         let summary = PopoverSummary.make(model: model, interface: interface, now: now)
+        let enrollment = interface.page == .accounts ? model.enrollmentPhase : nil
         return VStack(spacing: 0) {
             if interface.page == .settings {
                 settingsHeader
+            } else if let enrollment, enrollment != .choose || model.hasAnyAccounts {
+                enrollmentHeader(enrollment)
             } else {
                 header(summary)
             }
@@ -71,8 +74,10 @@ struct GuardPopoverView: View {
                     .padding(.vertical, SW.Space.xxs + 1)
                     .background(SW.Palette.surfaceRaised, in: Capsule())
             }
-            RefreshButton(isChecking: model.isBusyChecking) { model.checkNow() }
-                .disabled(model.isBusyChecking || (!model.hasAccounts && !model.hasRemoteAccounts))
+            if model.hasAnyAccounts {
+                RefreshButton(isChecking: model.isBusyChecking) { model.checkNow() }
+                    .disabled(model.isBusyChecking)
+            }
         }
         .padding(.horizontal, SW.Space.lg)
         .padding(.vertical, SW.Space.md)
@@ -122,11 +127,82 @@ struct GuardPopoverView: View {
         .frame(height: 54)
     }
 
+    /// The title never moves: the back button keeps its slot even on the step that has none.
+    private func enrollmentHeader(_ phase: EnrollmentPhase) -> some View {
+        // Back navigates; a sign-in under way or stopped is ended with a named Cancel instead,
+        // because ending it also removes the unfinished account.
+        let canGoBack: Bool = switch phase {
+        case .choose, .connected: true
+        case .waiting, .problem: false
+        }
+        let canCancel: Bool = switch phase {
+        case let .waiting(_, account, checking): account != nil && !checking
+        case .problem: true
+        case .choose, .connected: false
+        }
+        let backLabel = phase == .choose ? "Back" : "Back to accounts"
+        let title = phase.provider.map { "Add \($0.title) account" } ?? "Add account"
+        return HStack(spacing: SW.Space.sm) {
+            Button {
+                // From the result, back is the same as Done: the list, with the new account lit.
+                if case .connected = phase, let ref = model.finishEnrollment() {
+                    interface.reveal(ref)
+                } else {
+                    model.enrollmentBack()
+                }
+            } label: {
+                Image(systemName: "chevron.left")
+                    .font(.system(size: 13, weight: .semibold))
+                    .frame(width: 30, height: 30)
+                    .contentShape(Rectangle())
+            }
+            .buttonStyle(SWIconButtonStyle())
+            .keyboardShortcut(.cancelAction)
+            .help(backLabel)
+            .accessibilityLabel(backLabel)
+            .opacity(canGoBack ? 1 : 0)
+            .disabled(!canGoBack)
+            .accessibilityHidden(!canGoBack)
+            Text(title)
+                .font(.system(size: 13.5, weight: .semibold))
+            Spacer(minLength: SW.Space.sm)
+            if model.isPreview {
+                Text("Preview")
+                    .font(.system(size: 11, weight: .medium))
+                    .foregroundStyle(SW.Palette.textSecondary)
+                    .padding(.horizontal, SW.Space.sm)
+                    .padding(.vertical, SW.Space.xxs + 1)
+                    .background(SW.Palette.surfaceRaised, in: Capsule())
+            }
+            if canCancel {
+                Button("Cancel") {
+                    if phase.account == nil { model.enrollmentBack() } else { model.cancelEnrollment() }
+                }
+                .buttonStyle(SWQuietButtonStyle())
+                .keyboardShortcut(.cancelAction)
+                .help("Stop this sign-in and remove the unfinished account")
+            }
+        }
+        .padding(.leading, SW.Space.md)
+        .padding(.trailing, SW.Space.lg)
+        .padding(.vertical, SW.Space.md)
+        // Same height as the app header it replaces, so the divider never jumps.
+        .frame(height: 61)
+    }
+
     // MARK: Content
 
     @ViewBuilder
     private func scrollingContent(now: Date) -> some View {
-        if isStaticRender {
+        if interface.page == .accounts, let phase = model.enrollmentPhase {
+            VStack(spacing: 0) {
+                // Before a sign-in starts the list's notices still apply, such as a provider that
+                // failed to load and so has a greyed-out row.
+                if phase.account == nil { enrollmentNotices }
+                EnrollmentFlowView(model: model, interface: interface, phase: phase, isStaticRender: isStaticRender, now: now)
+            }
+            .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
+        } else if isStaticRender {
             pageContent(now: now)
                 .frame(minHeight: 0, maxHeight: .infinity, alignment: .top)
                 .clipped()
@@ -176,6 +252,27 @@ struct GuardPopoverView: View {
         }
     }
 
+    @ViewBuilder
+    private var enrollmentNotices: some View {
+        let notices = interface.notices
+        if model.isReadOnly || !notices.isEmpty || model.banner != nil {
+            VStack(spacing: SW.Space.sm) {
+                if model.isReadOnly {
+                    NoticeRow(symbol: "eye", text: "Diagnostics mode. Resets, sign-in and launch at login are off.", tone: .neutral)
+                }
+                ForEach(notices) { notice in
+                    NoticeRow(symbol: notice.symbol, text: notice.text, tone: notice.tone) {
+                        interface.dismissNotice(notice.id)
+                    }
+                }
+                if let banner = model.banner {
+                    NoticeRow(symbol: "info.circle", text: banner, tone: .neutral)
+                }
+            }
+            .padding([.horizontal, .top], SW.Space.lg)
+        }
+    }
+
     private func accountsContent(now: Date) -> some View {
         VStack(alignment: .leading, spacing: SW.Space.lg) {
             if model.isReadOnly {
@@ -206,12 +303,9 @@ struct GuardPopoverView: View {
                 NoticeRow(symbol: "info.circle", text: banner, tone: .neutral)
             }
 
-            if (!model.hasAccounts && !model.hasRemoteAccounts) || model.isShowingAddProfile {
-                EnrollmentPanel(model: model, isStaticRender: isStaticRender)
-            }
-
             if !model.profiles.isEmpty {
-                AccountSection(title: "Codex", detail: model.profiles.contains(where: \.autoResetEnabled) ? "Auto-redeem at 3%" : "Auto-redeem off") {
+                // Each card shows its own Auto-redeem switch, so the section header repeats nothing.
+                AccountSection(title: "Codex", detail: nil) {
                     ForEach(Array(model.profiles.enumerated()), id: \.element.id) { index, profile in
                         if index > 0 { RowDivider() }
                         CodexAccountRow(
@@ -274,25 +368,17 @@ struct GuardPopoverView: View {
             }
         }
         .padding(SW.Space.lg)
-        .animation(SW.Motion.easeOut(SW.Motion.standard, reduceMotion: isStaticRender), value: model.isShowingAddProfile)
     }
 
     // MARK: Footer
 
     private func footer(now: Date) -> some View {
         HStack(spacing: SW.Space.sm) {
-            if interface.page == .accounts && (model.hasAccounts || model.hasRemoteAccounts)
-                && !model.isShowingAddProfile && !model.isReadOnly {
-                Button {
-                    model.enrollmentError = nil
-                    model.isShowingAddProfile = true
-                } label: {
-                    Label("Add account", systemImage: "plus")
-                }
-                .buttonStyle(SWQuietButtonStyle())
+            if interface.page == .accounts && model.enrollmentPhase == nil && !model.isReadOnly {
+                AddAccountMenu(model: model, title: "Add account", showsIcon: true, isStaticRender: isStaticRender)
             }
             Spacer()
-            if let checked = model.lastCheckedAt {
+            if let checked = model.lastCheckedAt, model.enrollmentPhase == nil || interface.page != .accounts {
                 Text("Checked \(relativeDescription(checked, reference: now))")
                     .font(.system(size: 11))
                     .foregroundStyle(SW.Palette.textTertiary)
@@ -337,6 +423,9 @@ struct GuardPopoverView: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
+            // A borderless menu draws in the tint colour; the footer stays quiet beside the
+            // primary button above it.
+            .tint(SW.Palette.textSecondary)
             .accessibilityLabel("More options")
         }
     }
@@ -344,16 +433,15 @@ struct GuardPopoverView: View {
 
 // MARK: - Brand
 
+/// The bare wind symbol, like the menu bar's own icon. Sized to the two-line title beside it:
+/// 22 pt medium pairs with the semibold title, in a 24 pt box whose left edge lines up with the
+/// cards below.
 private struct BrandMark: View {
     var body: some View {
-        RoundedRectangle(cornerRadius: SW.Radius.small, style: .continuous)
-            .fill(SW.Palette.accent.opacity(0.16))
-            .frame(width: 30, height: 30)
-            .overlay {
-                Image(systemName: "wind")
-                    .font(.system(size: 15, weight: .semibold))
-                    .foregroundStyle(SW.Palette.accent)
-            }
+        Image(systemName: "wind")
+            .font(.system(size: 22, weight: .medium))
+            .foregroundStyle(SW.Palette.textPrimary)
+            .frame(width: 24, height: 24)
             .accessibilityHidden(true)
     }
 }
@@ -442,6 +530,8 @@ private struct AccountRow<Details: View, Actions: View>: View {
     let isStaticRender: Bool
     let isReadOnly: Bool
     let now: Date
+    /// The details sit in a footer under a hairline: saved resets and Auto-redeem on one line.
+    var hasFooter = false
     @ViewBuilder var details: Details
     @ViewBuilder var actions: Actions
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -455,49 +545,65 @@ private struct AccountRow<Details: View, Actions: View>: View {
     private var isHighlighted: Bool { ref != nil && interface.highlighted == ref }
 
     var body: some View {
-        VStack(alignment: .leading, spacing: SW.Space.sm + 2) {
-            heading
-            if case .renaming = editor { feedback }
-            if case .confirmingRemoval = editor {
-                RemovalConfirmation(
-                    name: name,
-                    provider: provider,
-                    keepsResetRecord: ref.map { interface.removalKeepsResetRecord(for: $0) } ?? false,
-                    isBusy: isBusy,
-                    onCancel: { interface.cancelEditing() },
-                    onRemove: { if let ref { interface.remove(ref, displayName: name) } }
-                )
-            } else {
-                if !quota.windows.isEmpty {
-                    VStack(spacing: SW.Space.sm - 1) {
-                        ForEach(quota.windows) { window in
-                            WindowRow(
-                                window: window,
-                                convention: interface.preferences.quota,
-                                resetStyle: interface.preferences.resetTimes,
-                                now: now,
-                                isStatic: isStaticRender,
-                                onToggleStyle: { interface.toggleResetTimeStyle() }
-                            )
+        VStack(alignment: .leading, spacing: 0) {
+            VStack(alignment: .leading, spacing: SW.Space.sm + 2) {
+                heading
+                if case .renaming = editor { feedback }
+                if isConfirmingRemoval {
+                    RemovalConfirmation(
+                        name: name,
+                        provider: provider,
+                        keepsResetRecord: ref.map { interface.removalKeepsResetRecord(for: $0) } ?? false,
+                        isBusy: isBusy,
+                        onCancel: { interface.cancelEditing() },
+                        onRemove: { if let ref { interface.remove(ref, displayName: name) } }
+                    )
+                } else {
+                    if !quota.windows.isEmpty {
+                        VStack(spacing: SW.Space.sm - 1) {
+                            ForEach(quota.windows) { window in
+                                WindowRow(
+                                    window: window,
+                                    convention: interface.preferences.quota,
+                                    resetStyle: interface.preferences.resetTimes,
+                                    now: now,
+                                    isStatic: isStaticRender,
+                                    onToggleStyle: { interface.toggleResetTimeStyle() }
+                                )
+                            }
+                        }
+                    }
+                    if !hasFooter { details }
+                    // All well: the age is already under the name, so no status line repeats it.
+                    if status.routineAge == nil {
+                        HStack(alignment: .center, spacing: SW.Space.sm) {
+                            StatusLine(symbol: status.symbol, text: status.text, tone: status.tone, age: status.age)
+                            Spacer(minLength: SW.Space.xs)
+                            actions
                         }
                     }
                 }
-                details
-                HStack(alignment: .center, spacing: SW.Space.sm) {
-                    StatusLine(symbol: status.symbol, text: status.text, tone: status.tone, age: status.age)
-                    Spacer(minLength: SW.Space.xs)
-                    actions
-                }
+                if !isRenaming { feedback }
             }
-            if !isRenaming { feedback }
+            .padding(SW.Space.md)
+            if hasFooter && !isConfirmingRemoval {
+                Rectangle().fill(SW.Palette.hairline).frame(height: 1)
+                details
+                    .padding(.horizontal, SW.Space.md)
+                    .padding(.vertical, SW.Space.sm)
+            }
         }
-        .padding(SW.Space.md)
         .background(SW.Palette.accent.opacity(isHighlighted ? 0.10 : 0))
         .animation(SW.Motion.easeOut(SW.Motion.slow, reduceMotion: reduceMotion || isStaticRender), value: isHighlighted)
         .contextMenu { if !isStaticRender { menuItems } }
         .id(ref)
         .accessibilityElement(children: .contain)
         .accessibilityLabel("\(name), \(provider.title), \(status.title)")
+    }
+
+    private var isConfirmingRemoval: Bool {
+        if case .confirmingRemoval = editor { return true }
+        return false
     }
 
     private var isRenaming: Bool {
@@ -521,7 +627,8 @@ private struct AccountRow<Details: View, Actions: View>: View {
         if case .renaming = editor {
             renameHeading
         } else {
-            HStack(alignment: .top, spacing: SW.Space.sm) {
+            HStack(alignment: .center, spacing: SW.Space.sm + 2) {
+                ServiceTile(provider: provider, size: 32)
                 VStack(alignment: .leading, spacing: SW.Space.xxs) {
                     HStack(spacing: SW.Space.xs + 2) {
                         Text(name)
@@ -533,14 +640,16 @@ private struct AccountRow<Details: View, Actions: View>: View {
                                 .foregroundStyle(SW.Palette.textSecondary)
                                 .padding(.horizontal, SW.Space.xs + 1)
                                 .padding(.vertical, 1)
-                                .overlay(Capsule().strokeBorder(SW.Palette.hairline))
+                                .overlay(Capsule().strokeBorder(SW.Palette.fieldBorder))
                         }
                         accountMenu
                     }
-                    Text(hint)
-                        .font(.system(size: 11))
-                        .foregroundStyle(SW.Palette.textSecondary)
-                        .lineLimit(1)
+                    // The email always shows whole; the reading's age shortens to fit beside it.
+                    ViewThatFits(in: .horizontal) {
+                        subtitle(age: status.routineAge)
+                        subtitle(age: status.routineAge.map { $0.replacingOccurrences(of: "updated ", with: "") })
+                        subtitle(age: nil)
+                    }
                 }
                 Spacer(minLength: SW.Space.sm)
                 if let headline = quota.headline, let remaining = headline.remaining {
@@ -554,6 +663,14 @@ private struct AccountRow<Details: View, Actions: View>: View {
                 }
             }
         }
+    }
+
+    private func subtitle(age: String?) -> some View {
+        (Text(hint).foregroundStyle(SW.Palette.textSecondary)
+            + Text(age.map { " · \($0)" } ?? "").foregroundStyle(SW.Palette.textTertiary))
+            .font(.system(size: 11))
+            .lineLimit(1)
+            .fixedSize(horizontal: true, vertical: false)
     }
 
     private var renameHeading: some View {
@@ -634,6 +751,9 @@ struct StatusPresentation {
     let tone: SWTone
     /// How old the reading is, drawn quieter than the message so it never dangles on its own line.
     var age: String? = nil
+    /// Set when all is well: the card folds this ("updated 2 min ago") into the line under the
+    /// name and shows no status line.
+    var routineAge: String? = nil
 }
 
 private struct CodexAccountRow: View {
@@ -652,25 +772,30 @@ private struct CodexAccountRow: View {
             provider: .codex,
             name: profile.displayName,
             hint: profile.accountHint,
-            badge: nil,
+            badge: profile.planName,
             quota: quota,
             status: status,
             interface: interface,
             isStaticRender: isStaticRender,
             isReadOnly: isReadOnly,
-            now: now
+            now: now,
+            hasFooter: quota.inventory != nil || showsAutoRedeem
         ) {
-            if let inventory = quota.inventory {
-                InventoryLine(
-                    inventory: inventory,
-                    now: now,
-                    isExpanded: ref.map { interface.expandedInventories.contains($0) } ?? false,
-                    isStatic: isStaticRender,
-                    onToggle: { if let ref { interface.toggleInventoryDetail(ref) } }
-                )
-            }
-            if profile.isConnected || profile.autoResetEnabled {
-                autoRedeem
+            // One footer line: saved resets on the left, the Auto-redeem switch on the right.
+            HStack(alignment: .top, spacing: SW.Space.sm) {
+                if let inventory = quota.inventory {
+                    InventoryLine(
+                        inventory: inventory,
+                        now: now,
+                        isExpanded: ref.map { interface.expandedInventories.contains($0) } ?? false,
+                        isStatic: isStaticRender,
+                        isCompact: true,
+                        onToggle: { if let ref { interface.toggleInventoryDetail(ref) } }
+                    )
+                } else {
+                    Spacer(minLength: 0)
+                }
+                if showsAutoRedeem { autoRedeem }
             }
         } actions: {
             if !profile.isConnected && !isReadOnly {
@@ -681,14 +806,14 @@ private struct CodexAccountRow: View {
     }
 
     private var ref: AccountRef? { AccountRef(provider: .codex, rawID: profile.id) }
+    private var showsAutoRedeem: Bool { profile.isConnected || profile.autoResetEnabled }
 
-    /// A labelled row like the windows above it, so the switch never floats on its own.
+    /// The label sits right beside its switch, so the switch never floats on its own.
     private var autoRedeem: some View {
-        HStack(spacing: SW.Space.sm) {
+        HStack(spacing: SW.Space.xs + 2) {
             Text("Auto-redeem")
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(SW.Palette.textSecondary)
-            Spacer(minLength: SW.Space.sm)
             if isStaticRender {
                 StaticToggle(isOn: profile.autoResetEnabled, label: "Auto-redeem")
             } else {
@@ -855,13 +980,22 @@ private struct RemoteAccountRow: View {
             interface: interface,
             isStaticRender: isStaticRender,
             isReadOnly: true,
-            now: now
+            now: now,
+            hasFooter: quota.inventory != nil || account.autoRedeemEnabled != nil
         ) {
-            if let inventory = quota.inventory {
-                InventoryLine(inventory: inventory, now: now, isExpanded: false, isStatic: isStaticRender, showsExpiry: false, onToggle: {})
-            }
-            if let enabled = account.autoRedeemEnabled {
-                autoRedeem(enabled)
+            // The same footer line as this Mac's accounts: saved resets, then Auto-redeem.
+            HStack(alignment: .top, spacing: SW.Space.sm) {
+                if let inventory = quota.inventory {
+                    InventoryLine(
+                        inventory: inventory, now: now, isExpanded: false, isStatic: isStaticRender,
+                        isCompact: true, showsExpiry: false, onToggle: {}
+                    )
+                } else {
+                    Spacer(minLength: 0)
+                }
+                if let enabled = account.autoRedeemEnabled {
+                    autoRedeem(enabled)
+                }
             }
         } actions: {
             EmptyView()
@@ -877,12 +1011,11 @@ private struct RemoteAccountRow: View {
         // A Mac that cannot read its command folder would never see a change sent from here.
         let acceptsChanges = device.acceptsCommands
         let shown: Bool = if acceptsChanges, case let .pending(requested) = state { requested } else { hostValue }
-        return VStack(alignment: .leading, spacing: SW.Space.xxs) {
-            HStack(spacing: SW.Space.sm) {
+        return VStack(alignment: .trailing, spacing: SW.Space.xxs) {
+            HStack(spacing: SW.Space.xs + 2) {
                 Text("Auto-redeem")
                     .font(.system(size: 11.5, weight: .medium))
                     .foregroundStyle(SW.Palette.textSecondary)
-                Spacer(minLength: SW.Space.sm)
                 if isStaticRender {
                     StaticToggle(isOn: shown, label: "Auto-redeem")
                         .opacity(isPending || !acceptsChanges ? 0.5 : 1)
@@ -1017,7 +1150,8 @@ enum StatusComposer {
                 title: title,
                 text: isRoutine ? "\(title) · updated \(age)" : sentence(base),
                 tone: tone,
-                age: isRoutine ? nil : "updated \(age)"
+                age: isRoutine ? nil : "updated \(age)",
+                routineAge: isRoutine ? "updated \(age)" : nil
             )
         case let .stale(date):
             guard tone != .critical else { break }
@@ -1073,7 +1207,7 @@ private struct HeadlineFigure: View {
                 .monospacedDigit()
                 .foregroundStyle(figureColor)
                 .contentTransition(.numericText(value: Double(percent)))
-            Text("\(convention.word) · \(label.lowercased())")
+            Text("\(label.lowercased()) \(convention.word)")
                 .font(.system(size: 10.5))
                 .foregroundStyle(SW.Palette.textTertiary)
         }
@@ -1089,8 +1223,10 @@ private struct HeadlineFigure: View {
 
 /// One limit window: label, meter, figure and renewal time. A window the provider did not
 /// report says so in words and never draws an empty meter, which would read as zero.
-private struct WindowRow: View {
+struct WindowRow: View {
     let window: WindowDisplay
+    /// Draws the bar at this value instead of the window's own, for an entrance fill.
+    var meterRemaining: Double? = nil
     let convention: QuotaConvention
     let resetStyle: ResetTimeStyle
     let now: Date
@@ -1106,7 +1242,7 @@ private struct WindowRow: View {
                 .lineLimit(1)
             if let remaining = window.remaining {
                 HeadroomMeter(
-                    remaining: remaining,
+                    remaining: meterRemaining ?? remaining,
                     threshold: window.alertLine,
                     convention: convention,
                     tone: window.isWarning ? .caution : .neutral,
@@ -1196,14 +1332,24 @@ private struct InventoryLine: View {
     let now: Date
     let isExpanded: Bool
     let isStatic: Bool
+    /// Footer form: the count alone, plus the next expiry only when it is within two days. The
+    /// full list of dates stays one click away.
+    var isCompact = false
     /// Off for another Mac's account, which shares only the count.
     var showsExpiry = true
     let onToggle: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
+    /// The footer form leaves dates out of the line, so any reported date is worth a click.
+    private var canExpand: Bool {
+        guard isCompact else { return inventory.hasDetail }
+        guard case let .known(count, _, datesReported, _, _) = inventory else { return false }
+        return datesReported && count > 0
+    }
+
     var body: some View {
         VStack(alignment: .leading, spacing: SW.Space.xs + 1) {
-            if inventory.hasDetail && !isStatic {
+            if canExpand && !isStatic {
                 Button(action: onToggle) { summary.contentShape(Rectangle()) }
                     .buttonStyle(.plain)
                     .help(isExpanded ? "Hide expiry dates" : "Show every expiry date")
@@ -1212,7 +1358,7 @@ private struct InventoryLine: View {
             } else {
                 summary
             }
-            if isExpanded && inventory.hasDetail {
+            if isExpanded && canExpand {
                 detail
                     .transition(.opacity)
             }
@@ -1226,7 +1372,7 @@ private struct InventoryLine: View {
                 .foregroundStyle(SW.Palette.textTertiary)
             Text(text)
                 .fixedSize(horizontal: false, vertical: true)
-            if inventory.hasDetail {
+            if canExpand {
                 Image(systemName: "chevron.right")
                     .font(.system(size: 8.5, weight: .bold))
                     .foregroundStyle(SW.Palette.textTertiary)
@@ -1281,11 +1427,18 @@ private struct InventoryLine: View {
                 parts.append("No saved resets")
             } else {
                 parts.append(count == 1 ? "1 saved reset" : "\(count) saved resets")
-                if showsExpiry { parts.append(expiryPhrase(count: count, listed: listed, datesReported: datesReported)) }
+                if showsExpiry && (!isCompact || expiresSoon(listed)) {
+                    parts.append(expiryPhrase(count: count, listed: listed, datesReported: datesReported))
+                }
             }
             if !isCurrent { parts.append("checked \(QuotaTimeFormat.age(of: checkedAt, reference: now))") }
             return parts.joined(separator: " · ")
         }
+    }
+
+    private func expiresSoon(_ listed: [InventoryDisplay.Expiry]) -> Bool {
+        guard case let .on(date)? = listed.first else { return false }
+        return date.timeIntervalSince(now) < 2 * 86_400
     }
 
     /// "next expires" only when every reset is listed; otherwise "one expires", which stays true
@@ -1310,6 +1463,8 @@ private struct InventoryLine: View {
 /// chosen convention counts, headroom or use, so the figure and the fill always agree. When a
 /// reset lands, the fill sweeps on the slow motion token.
 private struct HeadroomMeter: View {
+    static let tickWidth: CGFloat = 1.5
+
     let remaining: Double
     let threshold: Double
     let convention: QuotaConvention
@@ -1330,14 +1485,21 @@ private struct HeadroomMeter: View {
                 Capsule()
                     .fill(fillColor)
                     .frame(width: width * fraction, height: SW.Size.meterHeight)
-                // One 1 pt mark at track height: cut through the fill where the fill covers it, so
-                // it reads the same on any row tint, and drawn on the empty track where it does not.
-                let covered = width * tick < width * fraction - 1
+                // The alert line, in the app's coral. Where the fill covers it, a hairline gap is
+                // cut on each side first so the mark stays crisp against teal, amber or coral.
+                let tickX = width * tick
+                let covered = tickX < width * fraction - 1
+                if covered {
+                    Rectangle()
+                        .fill(Color.black)
+                        .frame(width: Self.tickWidth + 2, height: SW.Size.meterHeight)
+                        .offset(x: tickX - 1)
+                        .blendMode(.destinationOut)
+                }
                 Rectangle()
-                    .fill(covered ? Color.black : SW.Palette.textTertiary)
-                    .frame(width: 1, height: SW.Size.meterHeight)
-                    .offset(x: width * tick)
-                    .blendMode(covered ? .destinationOut : .normal)
+                    .fill(SW.Palette.critical.opacity(isCurrent ? 1 : 0.55))
+                    .frame(width: Self.tickWidth, height: SW.Size.meterHeight)
+                    .offset(x: tickX)
             }
             .compositingGroup()
             .frame(height: geometry.size.height)
@@ -1435,110 +1597,6 @@ private struct FeedbackLine: View {
     }
 }
 
-// MARK: - Enrollment
-
-private struct EnrollmentPanel: View {
-    @ObservedObject var model: GuardAppModel
-    let isStaticRender: Bool
-
-    var body: some View {
-        VStack(alignment: .leading, spacing: SW.Space.md) {
-            VStack(alignment: .leading, spacing: SW.Space.xs) {
-                Text(model.hasAccounts ? "Add an account" : "Watch your first account")
-                    .font(.system(size: 15, weight: .semibold))
-                Text(providerExplanation)
-                    .font(.system(size: 12))
-                    .foregroundStyle(SW.Palette.textSecondary)
-                    .fixedSize(horizontal: false, vertical: true)
-            }
-
-            SegmentedChoice(
-                selection: $model.enrollmentProvider,
-                options: ProviderKind.allCases,
-                title: \.title,
-                accessibilityLabel: "Service",
-                isStatic: isStaticRender
-            )
-
-            VStack(alignment: .leading, spacing: SW.Space.sm) {
-                field(
-                    label: "Email",
-                    placeholder: "you@example.com",
-                    text: $model.profileEmail,
-                    accessibility: "\(model.enrollmentProvider.title) account email"
-                )
-                field(
-                    label: "Name",
-                    placeholder: "Personal, work…",
-                    text: $model.profileDisplayName,
-                    accessibility: "Account name, optional"
-                )
-            }
-
-            if let error = model.enrollmentError {
-                StatusLine(symbol: "exclamationmark.circle.fill", text: error, tone: .critical)
-            }
-
-            HStack(spacing: SW.Space.sm) {
-                Spacer()
-                if model.hasAccounts {
-                    Button("Cancel") { model.isShowingAddProfile = false }
-                        .buttonStyle(SWQuietButtonStyle())
-                        .disabled(model.isAddingProfile)
-                }
-                Button(model.isAddingProfile ? "Adding…" : "Add \(model.enrollmentProvider.title) account") {
-                    model.addProfile()
-                }
-                .buttonStyle(SWPrimaryButtonStyle(isLarge: true))
-                .disabled(!model.isReady || model.isAddingProfile || model.isReadOnly)
-                .keyboardShortcut(.defaultAction)
-            }
-        }
-        .padding(SW.Space.md)
-        .frame(maxWidth: .infinity, alignment: .leading)
-        .background(SW.Palette.surface, in: RoundedRectangle(cornerRadius: SW.Radius.medium, style: .continuous))
-        .overlay {
-            RoundedRectangle(cornerRadius: SW.Radius.medium, style: .continuous)
-                .strokeBorder(SW.Palette.hairline)
-        }
-    }
-
-    private var providerExplanation: String {
-        switch model.enrollmentProvider {
-        case .codex:
-            "Signs in to Codex in its own private folder."
-        case .claude:
-            "Signs in to Claude Code in its own private folder."
-        }
-    }
-
-    @ViewBuilder
-    private func field(label: String, placeholder: String, text: Binding<String>, accessibility: String) -> some View {
-        HStack(spacing: SW.Space.sm) {
-            Text(label)
-                .font(.system(size: 12, weight: .medium))
-                .foregroundStyle(SW.Palette.textSecondary)
-                .frame(width: 44, alignment: .leading)
-            if isStaticRender {
-                Text(placeholder)
-                    .font(.system(size: 13))
-                    .foregroundStyle(SW.Palette.textTertiary)
-                    .frame(maxWidth: .infinity, alignment: .leading)
-                    .padding(.horizontal, SW.Space.sm)
-                    .frame(height: 28)
-                    .background(SW.Palette.canvas, in: RoundedRectangle(cornerRadius: 6, style: .continuous))
-                    .overlay(RoundedRectangle(cornerRadius: 6, style: .continuous).strokeBorder(SW.Palette.hairline))
-            } else {
-                TextField(placeholder, text: text)
-                    .textFieldStyle(.roundedBorder)
-                    .textContentType(label == "Email" ? .emailAddress : nil)
-                    .accessibilityLabel(accessibility)
-                    .onSubmit { model.addProfile() }
-            }
-        }
-    }
-}
-
 /// A compact two- or three-way choice drawn in SwiftUI, so static renders match the app.
 struct SegmentedChoice<Value: Hashable>: View {
     @Binding var selection: Value
@@ -1594,15 +1652,15 @@ private struct ActivityList: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: SW.Space.sm) {
-            Text("Recent activity")
+            Text("Saved resets")
                 .font(.system(size: 13, weight: .semibold))
                 .padding(.horizontal, SW.Space.xs)
             VStack(alignment: .leading, spacing: SW.Space.sm) {
                 ForEach(events) { event in
                     HStack(alignment: .firstTextBaseline, spacing: SW.Space.sm) {
-                        Image(systemName: "checkmark.circle")
+                        Image(systemName: event.isProblem ? "exclamationmark.circle.fill" : "checkmark.circle")
                             .font(.system(size: 11))
-                            .foregroundStyle(SW.Palette.accent)
+                            .foregroundStyle(event.isProblem ? SW.Palette.critical : SW.Palette.accent)
                         Text(event.summary)
                             .font(.system(size: 12))
                             .lineLimit(2)

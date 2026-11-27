@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.3.3
+
+- Fixed a crash that could close Second Wind when Claude Code returned too much
+  output immediately after launch. The affected account now shows a refresh error.
+
 ## 0.3.2
 
 - Clearer popover: warnings keep their message on its own and show the

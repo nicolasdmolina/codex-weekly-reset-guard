@@ -95,15 +95,6 @@ public struct ProcessClaudeCommandRunner: ClaudeCommandRunning {
         process.standardOutput = output
         process.standardInput = FileHandle.nullDevice
         let collector = OutputCollector(limit: maximumOutputBytes)
-        output.fileHandleForReading.readabilityHandler = { handle in
-            let data = handle.availableData
-            if data.isEmpty {
-                handle.readabilityHandler = nil
-                collector.finish()
-            } else if !collector.append(data) {
-                process.terminate()
-            }
-        }
 
         let status: Int32 = try await withTaskCancellationHandler {
             try await withCheckedThrowingContinuation { continuation in
@@ -114,9 +105,18 @@ public struct ProcessClaudeCommandRunner: ClaudeCommandRunning {
                     try process.run()
                 } catch {
                     process.terminationHandler = nil
-                    output.fileHandleForReading.readabilityHandler = nil
                     continuation.resume(throwing: ClaudeCLIError.launchFailed)
                     return
+                }
+                // The pipe buffers early output until it is safe to terminate on overflow.
+                output.fileHandleForReading.readabilityHandler = { handle in
+                    let data = handle.availableData
+                    if data.isEmpty {
+                        handle.readabilityHandler = nil
+                        collector.finish()
+                    } else if !collector.append(data) {
+                        process.terminate()
+                    }
                 }
                 let deadline = DispatchTime.now() + .milliseconds(Int(timeout.components.seconds * 1_000))
                 DispatchQueue.global().asyncAfter(deadline: deadline) {

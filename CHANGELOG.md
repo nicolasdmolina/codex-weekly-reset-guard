@@ -1,5 +1,19 @@
 # Changelog
 
+## Unreleased
+
+- Adding an account is one guided page: choose Codex or Claude, enter the
+  email, and sign in. Codex no longer needs a separate Connect click, and the
+  name is suggested from the email and can be changed on the result.
+- Second Wind comes back in front when a browser sign-in finishes and shows the
+  account's first reading, with Auto-redeem still off. Reconnecting an account
+  from its row also brings the popover back to that account.
+- A sign-in with the wrong account names both addresses and offers a retry. A
+  Claude account can watch the account that signed in instead. Going back
+  during a sign-in removes the unfinished account and keeps the email.
+- Codex accounts show their ChatGPT plan beside the name.
+- A Claude account can be added while Codex is still loading.
+
 ## 0.3.3
 
 - Fixed a crash that could close Second Wind when Claude Code returned too much

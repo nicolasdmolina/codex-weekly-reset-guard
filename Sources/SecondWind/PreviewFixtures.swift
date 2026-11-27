@@ -96,7 +96,7 @@ enum PreviewFixtures {
         case .onboardingError:
             model = GuardAppModel(isPreview: true, referenceDate: reference)
             model.enrollment = EnrollmentFlow(step: .email(.codex))
-            model.profileEmail = "nicky@example"
+            model.profileEmail = "sample@example"
             model.enrollmentError = "Enter a full email address, like you@example.com."
         case .addEmail:
             model = GuardAppModel(isPreview: true, referenceDate: reference)

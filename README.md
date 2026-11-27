@@ -121,12 +121,14 @@ changes to its contents.
 
 ## First run
 
-1. Choose **Codex** or **Claude**, enter the account's email and an optional name.
-2. Sign in through the browser. Each account gets its own private, app-owned
-   folder, so this never signs you out of your everyday Codex or Claude Code.
-3. Check the readings. For Codex, leave **Auto-redeem** off to only monitor, or
-   turn it on for that account.
-4. Add more accounts with **Add account**. To start the app when you log in, open **Settings** and enable **Open at login**.
+1. Choose **Codex** or **Claude** and enter the account's email.
+2. Sign in through the browser. Second Wind comes back by itself when you finish
+   and checks that you signed in with that email. Each account gets its own
+   private, app-owned folder, so this never signs you out of your everyday Codex
+   or Claude Code.
+3. Check the first reading. For Codex, leave **Auto-redeem** off to only monitor,
+   or turn it on for that account. Rename the account there or later from its menu.
+4. Add more accounts from **Add account**. To start the app when you log in, open **Settings** and enable **Open at login**.
 
 Keep the app running and the Mac awake and online for monitoring. It cannot
 guarantee you never run out.
@@ -215,7 +217,8 @@ python3 scripts/check_public_release.py
 `swift run SecondWind --preview overview` opens the real controls in a window with
 synthetic data. Other fixtures: `onboarding`, `connect`, `paused`, `healthy`,
 `near`, `redeemed`, `auth-error`, `claude-low` and `claude-signin`. Previews never
-start sign-in or contact any service. `SECOND_WIND_LIVE_CLAUDE=1 swift test`
+start sign-in or contact any service; `onboarding` walks the add-account steps with
+a synthetic sign-in. `SECOND_WIND_LIVE_CLAUDE=1 swift test`
 adds a check against your installed Claude Code using a fresh signed-out folder.
 
 `swift scripts/make_icon.swift .` regenerates the app icon.

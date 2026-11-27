@@ -48,11 +48,11 @@ private func settle(_ condition: () -> Bool) async {
     func name(_ email: String, _ taken: [String] = []) -> String {
         AccountNaming.suggestedName(for: email, taken: taken, maximumLength: 48)
     }
-    #expect(name("nicky@gmail.com") == "Personal")
+    #expect(name("sample@gmail.com") == "Personal")
     #expect(name("ana@acme.com") == "Acme")
     #expect(name("ana@mail.acme.co.uk") == "Acme")
-    #expect(name("nicky@icloud.com", ["Personal"]) == "Personal 2")
-    #expect(name("nicky@icloud.com", ["personal", "Personal 2"]) == "Personal 3")
+    #expect(name("sample@icloud.com", ["Personal"]) == "Personal 2")
+    #expect(name("sample@icloud.com", ["personal", "Personal 2"]) == "Personal 3")
 }
 
 @Test @MainActor func firstRunOpensOnTheServiceListAndCannotBackOutOfIt() {
@@ -97,7 +97,7 @@ private func settle(_ condition: () -> Bool) async {
     var calls = 0
     model.onAddProfile = { _, _ in calls += 1 }
     model.chooseEnrollmentProvider(.codex)
-    model.profileEmail = "nicky@"
+    model.profileEmail = "sample@"
     model.addProfile()
     #expect(calls == 0)
     #expect(model.enrollmentError != nil)
@@ -206,7 +206,7 @@ private func settle(_ condition: () -> Bool) async {
     model.onAddClaudeProfile = { _, _ in liveCalls += 1 }
     model.onDiscardUnfinishedAccount = { _ in liveCalls += 1 }
     model.chooseEnrollmentProvider(.codex)
-    model.profileEmail = "nicky@gmail.com"
+    model.profileEmail = "sample@gmail.com"
     model.addProfile()
     guard case let .waiting(ref, _)? = model.enrollmentPhase else {
         Issue.record("Expected the preview to wait for a synthetic sign-in")
@@ -242,7 +242,7 @@ private func settle(_ condition: () -> Bool) async {
     model.onAddClaudeProfile = { _, _ in claudeCalls += 1 }
     model.onAddProfile = { _, _ in codexCalls += 1 }
     model.chooseEnrollmentProvider(.codex)
-    model.profileEmail = "nicky@gmail.com"
+    model.profileEmail = "sample@gmail.com"
     model.addProfile()
     #expect(codexCalls == 0)
     model.chooseEnrollmentProvider(.claude)

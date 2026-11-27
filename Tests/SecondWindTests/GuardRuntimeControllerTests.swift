@@ -2083,3 +2083,102 @@ private enum GeneralBannerAction: Sendable {
     #expect(calls == 0)
     #expect(model.banner == "Preview only. No sign-in was started.")
 }
+
+// MARK: - Add-account flow against the real runtime
+
+@MainActor
+private func waitOnMain(_ condition: () -> Bool) async -> Bool {
+    for _ in 0..<300 where !condition() {
+        try? await Task.sleep(for: .milliseconds(10))
+    }
+    return condition()
+}
+
+@MainActor
+private func enrollmentHarness(
+    _ fixture: RuntimeFixture,
+    session: DiagnosticGuardSession
+) -> (GuardAppModel, GuardRuntimeController, LockedURLs) {
+    let model = GuardAppModel()
+    let controller = GuardRuntimeController(
+        configuration: runtimeConfiguration(fixture),
+        persistence: MonitorPersistence(stateFileURL: fixture.stateURL, profilesDirectory: fixture.profilesURL),
+        eventLog: RedactedEventLog(fileURL: fixture.eventsURL),
+        sessionFactory: { _ in session },
+        now: { fixture.now },
+        updateHandler: { [weak model] in model?.apply($0) }
+    )
+    let opened = LockedURLs()
+    connectCodexSignIn(model: model, controller: controller) { opened.append($0) }
+    return (model, controller, opened)
+}
+
+private final class LockedURLs: @unchecked Sendable {
+    private let lock = NSLock()
+    private var urls: [URL] = []
+    func append(_ url: URL) { lock.withLock { urls.append(url) } }
+    var values: [URL] { lock.withLock { urls } }
+}
+
+@Test @MainActor func addingACodexAccountOpensItsSignInAndReportsTheResultOnce() async throws {
+    let fixture = try RuntimeFixture(seedProfiles: false)
+    defer { fixture.remove() }
+    let session = DiagnosticGuardSession(email: "new@example.com", now: fixture.now, deliversLoginCompletion: true)
+    let (model, controller, opened) = enrollmentHarness(fixture, session: session)
+    var settled: [(AccountRef, Bool)] = []
+    model.onSignInSettled = { settled.append(($0, $1)) }
+    _ = try await controller.start()
+    #expect(await waitOnMain { model.isReady })
+
+    model.chooseEnrollmentProvider(.codex)
+    model.profileEmail = "New@Example.com"
+    model.addProfile()
+    // One Continue saves the account and opens its sign-in; there is no second Connect step.
+    #expect(await waitOnMain { if case .waiting? = model.enrollmentPhase { true } else { false } })
+    #expect(opened.values.map(\.host) == ["example.com"])
+    #expect(model.profiles.first?.displayName == "Example")
+    #expect(model.profiles.first?.signIn == .waiting)
+    #expect(settled.isEmpty)
+
+    await session.completeLogin()
+    #expect(await waitOnMain { if case .connected? = model.enrollmentPhase { true } else { false } })
+    #expect(model.profiles.first?.planName == "Pro")
+    #expect(model.profiles.first?.autoResetEnabled == false, "Auto-redeem stays off until the user turns it on")
+    _ = await controller.checkNow()
+    #expect(settled.count == 1)
+    #expect(settled.first?.1 == true)
+    #expect(await session.consumeCount() == 0)
+    await controller.stop()
+}
+
+@Test @MainActor func cancellingAPendingCodexSignInRemovesTheAccountAndAllowsANewOne() async throws {
+    let fixture = try RuntimeFixture(seedProfiles: false)
+    defer { fixture.remove() }
+    let session = DiagnosticGuardSession(email: "new@example.com", now: fixture.now, deliversLoginCompletion: true)
+    let (model, controller, opened) = enrollmentHarness(fixture, session: session)
+    _ = try await controller.start()
+    #expect(await waitOnMain { model.isReady })
+    model.onDiscardUnfinishedAccount = { ref in
+        _ = try await controller.removeProfile(profileID: ref.id)
+    }
+
+    model.chooseEnrollmentProvider(.codex)
+    model.profileEmail = "wrong@example.com"
+    model.addProfile()
+    #expect(await waitOnMain { if case .waiting? = model.enrollmentPhase { true } else { false } })
+
+    // Back while the browser is still open: the unfinished account goes, the email stays.
+    model.enrollmentBack()
+    #expect(model.enrollmentPhase == .email(.codex))
+    #expect(model.profileEmail == "wrong@example.com")
+    #expect(await waitOnMain { model.profiles.isEmpty }, "The unfinished account was removed")
+
+    model.profileEmail = "new@example.com"
+    model.addProfile()
+    #expect(await waitOnMain { if case .waiting? = model.enrollmentPhase { true } else { false } },
+            "A fresh sign-in starts after the cancelled one")
+    #expect(opened.values.count == 2)
+    await session.completeLogin()
+    #expect(await waitOnMain { if case .connected? = model.enrollmentPhase { true } else { false } })
+    await controller.stop()
+}

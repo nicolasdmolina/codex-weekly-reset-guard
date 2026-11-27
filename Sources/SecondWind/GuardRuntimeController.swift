@@ -1980,7 +1980,36 @@ func makeGuardRuntimeController(
     model.onCheckNow = { [weak controller] in
         Task { _ = await controller?.checkNow() }
     }
-    // One step from the user's side: save the account, then open its isolated browser sign-in.
+    connectCodexSignIn(model: model, controller: controller) { NSWorkspace.shared.open($0) }
+    model.onToggleAutoReset = { [weak controller, weak model] rawID, enabled in
+        guard configuration.operationMode == .production else { return }
+        guard let profileID = UUID(uuidString: rawID) else { return }
+        Task { @MainActor in
+            do {
+                _ = try await controller?.setEnabled(profileID: profileID, enabled: enabled)
+                if enabled { _ = await alerts.requestPermission() }
+            } catch {
+                if let snapshot = await controller?.snapshot() {
+                    model?.apply(snapshot)
+                }
+                model?.reportActionFailure(
+                    "Could not confirm the automatic reset setting. Redemption remains safely blocked.",
+                    for: AccountRef(provider: .codex, id: profileID)
+                )
+            }
+        }
+    }
+    return controller
+}
+
+/// Adding and reconnecting a Codex account. Adding is one step from the user's side: save the
+/// account, then open its isolated browser sign-in. `openURL` is the browser in the app.
+@MainActor
+func connectCodexSignIn(
+    model: GuardAppModel,
+    controller: GuardRuntimeController,
+    openURL: @escaping @MainActor (URL) -> Void
+) {
     model.onAddProfile = { [weak controller, weak model] email, displayName in
         Task { @MainActor in
             defer { model?.isAddingProfile = false }
@@ -2000,27 +2029,9 @@ func makeGuardRuntimeController(
                     throw GuardRuntimeError.runtimeStopped
                 }
                 model?.enrollmentDidStartSignIn(ref, url: url, awaitingStart: false)
-                NSWorkspace.shared.open(url)
+                openURL(url)
             } catch {
                 model?.enrollmentDidFailToStart(ref, message: "Could not open the Codex sign-in page.")
-            }
-        }
-    }
-    model.onToggleAutoReset = { [weak controller, weak model] rawID, enabled in
-        guard configuration.operationMode == .production else { return }
-        guard let profileID = UUID(uuidString: rawID) else { return }
-        Task { @MainActor in
-            do {
-                _ = try await controller?.setEnabled(profileID: profileID, enabled: enabled)
-                if enabled { _ = await alerts.requestPermission() }
-            } catch {
-                if let snapshot = await controller?.snapshot() {
-                    model?.apply(snapshot)
-                }
-                model?.reportActionFailure(
-                    "Could not confirm the automatic reset setting. Redemption remains safely blocked.",
-                    for: AccountRef(provider: .codex, id: profileID)
-                )
             }
         }
     }
@@ -2035,7 +2046,7 @@ func makeGuardRuntimeController(
                 if model?.enrollment?.step == .signIn(ref) {
                     model?.enrollmentDidStartSignIn(ref, url: url, awaitingStart: false)
                 }
-                NSWorkspace.shared.open(url)
+                openURL(url)
             } catch {
                 let ref = AccountRef(provider: .codex, id: profileID)
                 if model?.enrollment?.step == .signIn(ref) {
@@ -2050,5 +2061,4 @@ func makeGuardRuntimeController(
             }
         }
     }
-    return controller
 }

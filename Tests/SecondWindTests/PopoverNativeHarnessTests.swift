@@ -229,13 +229,13 @@ struct NativePopoverTests {
 
         harness.model.chooseEnrollmentProvider(.codex)
         await harness.settle()
-        await harness.type("nicky@")
+        await harness.type("sample@")
         await harness.pressKey("\r", keyCode: 36)
         #expect(harness.model.enrollmentError != nil, "Return checks the address")
         #expect(harness.model.enrollmentPhase == .email(.codex))
         harness.snapshot("native-10-enroll-email-error")
 
-        await harness.type("nicky@gmail.com")
+        await harness.type("sample@gmail.com")
         #expect(harness.model.enrollmentError == nil, "Editing clears the error")
         await harness.pressKey("\r", keyCode: 36)
         let waiting = await harness.waitUntil {

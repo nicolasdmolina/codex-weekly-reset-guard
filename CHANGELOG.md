@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.3.2
 
 - Clearer popover: warnings keep their message on its own and show the
   reading's age underneath, every header status has an icon, and the limit

@@ -636,7 +636,8 @@ extension GuardAppModel {
             status: status,
             detail: detail,
             signInURL: profile.signInURL,
-            quota: profile.quota
+            quota: profile.quota,
+            email: profile.expectedEmail
         )
     }
 

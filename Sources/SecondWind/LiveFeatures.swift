@@ -55,6 +55,23 @@ func connectLiveFeatures(
         alerts.ingest(provider, records: records, names: names)
         updates.receive(provider, records)
     }
+    let sync = DeviceSyncCoordinator(
+        model: model,
+        interface: interface,
+        alerts: alerts,
+        stateURL: supportDirectory.appendingPathComponent("sync-state.json", isDirectory: false),
+        log: RedactedEventLog(
+            fileURL: supportDirectory.appendingPathComponent("sync-events.json", isDirectory: false),
+            maximumEntries: 1_000
+        )
+    )
+    interface.changeSync = { sync.setEnabled($0) }
+    model.onSyncNow = { sync.syncNow() }
+    model.onSetRemoteAutoReset = { device, account, enabled in
+        sync.send(to: device, account: account, enabled: enabled)
+    }
+    delegate.onPopoverOpen = { sync.syncNow() }
+    sync.start()
     delegate.finishQuotaUpdates = {
         await updates.stop()
         await alerts.settled()

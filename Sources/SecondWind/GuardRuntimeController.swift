@@ -71,6 +71,7 @@ struct GuardRuntimeProfileSnapshot: Equatable, Sendable {
     /// Display, alert and preflight evidence. Never an input to redemption.
     let quota: QuotaAccountRecord
     var removalKeepsResetRecord = false
+    var expectedEmail: String? = nil
 }
 
 struct GuardRuntimeEvent: Equatable, Identifiable, Sendable {
@@ -1769,7 +1770,8 @@ actor GuardRuntimeController {
             autoResetEnabled: profile.isEnabled,
             quota: quotaRecords[profile.id]
                 ?? QuotaAccountRecord(provider: .codex, accountID: profile.id),
-            removalKeepsResetRecord: state.removalKeepsResetRecord(for: profile.id)
+            removalKeepsResetRecord: state.removalKeepsResetRecord(for: profile.id),
+            expectedEmail: profile.expectedEmail
         )
     }
 
@@ -1821,6 +1823,7 @@ actor GuardRuntimeController {
         case .redemptionFailed: "Blocked saved weekly reset safely"
         case .verificationFailed: "Weekly reset verification needs attention"
         case .authenticationRequired: "Fresh Codex sign-in required"
+        case .syncPass: "Synced with your other Macs"
         }
     }
 
@@ -1861,7 +1864,8 @@ extension GuardAppModel {
                 autoResetEnabled: profile.autoResetEnabled,
                 identityVerified: profile.connectionStatus == .verified,
                 quota: profile.quota,
-                removalKeepsResetRecord: profile.removalKeepsResetRecord
+                removalKeepsResetRecord: profile.removalKeepsResetRecord,
+                email: profile.expectedEmail
             )
         }
         history = snapshot.history.map { event in
@@ -1972,24 +1976,30 @@ func makeGuardRuntimeController(
             }
         }
     }
-    model.onToggleAutoReset = { [weak controller, weak model] rawID, enabled in
-        guard configuration.operationMode == .production else { return }
-        guard let profileID = UUID(uuidString: rawID) else { return }
-        Task { @MainActor in
-            do {
-                _ = try await controller?.setEnabled(profileID: profileID, enabled: enabled)
-                if enabled { _ = await alerts.requestPermission() }
-            } catch {
-                if let snapshot = await controller?.snapshot() {
-                    model?.apply(snapshot)
-                }
-                model?.reportActionFailure(
-                    "Could not confirm the automatic reset setting. Redemption remains safely blocked.",
-                    for: AccountRef(provider: .codex, id: profileID)
-                )
+    // The one path that changes Auto-redeem, for the switch and for commands from another Mac.
+    let changeAutoReset: @MainActor (String, Bool) async -> Bool = { [weak controller, weak model] rawID, enabled in
+        guard configuration.operationMode == .production else { return false }
+        guard let profileID = UUID(uuidString: rawID) else { return false }
+        do {
+            guard let controller else { throw GuardRuntimeError.runtimeStopped }
+            _ = try await controller.setEnabled(profileID: profileID, enabled: enabled)
+            if enabled { _ = await alerts.requestPermission() }
+            return true
+        } catch {
+            if let snapshot = await controller?.snapshot() {
+                model?.apply(snapshot)
             }
+            model?.reportActionFailure(
+                "Could not confirm the automatic reset setting. Redemption remains safely blocked.",
+                for: AccountRef(provider: .codex, id: profileID)
+            )
+            return false
         }
     }
+    model.onToggleAutoReset = { rawID, enabled in
+        Task { @MainActor in _ = await changeAutoReset(rawID, enabled) }
+    }
+    model.applyAutoReset = changeAutoReset
     model.onReconnect = { [weak controller, weak model] rawID in
         guard let profileID = UUID(uuidString: rawID) else { return }
         Task { @MainActor in

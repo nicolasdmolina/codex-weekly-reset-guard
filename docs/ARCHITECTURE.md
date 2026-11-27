@@ -62,6 +62,44 @@ year nearest to now when it is omitted.
 by account, window and reset time so each cycle alerts once. The app never redeems a
 Claude reset; it opens `https://claude.ai/settings/usage`.
 
+## Sync between Macs
+
+Sync is off until the user turns it on in Settings. While it is off, Second Wind
+neither reads nor writes the shared folder. Turning it off removes this Mac's
+snapshot. The shared folder is `Second Wind/` in iCloud Drive. Every read and
+write goes through `NSFileCoordinator`. A `.name.icloud` placeholder starts its
+download and is read on a later pass. Passes run every 30 seconds and whenever
+the popover opens. A missing folder or file reads as empty. Reading and
+publishing fail separately. A Mac that cannot list the folder still publishes,
+with `acceptsCommands` false. Other Macs then show its Auto-redeem switches as
+read-only and never send it commands. Settings says which step failed. Each
+pass appends one redacted `syncPass` record to `sync-events.json`, with counts,
+decision kinds and any error domain and code.
+
+- `devices/<deviceID>.json` is a `DeviceSnapshot`, written only by the Mac it
+  describes. It holds each account's name, email, windows, saved-reset count,
+  Codex Auto-redeem setting and any attention message, plus up to 50 handled
+  command IDs. It holds no tokens, file paths or idempotency keys.
+- `commands/<target>/<commandID>.json` is one `RemoteCommand`. The only action
+  is `setAutoRedeem(profileID, enabled)`, an absolute state. Each Mac creates its
+  own command folder on every pass, so senders write into a folder iCloud Drive
+  has already synced.
+
+A host records a command's ID before acting on it, so a command is applied at
+most once even across a crash. It refuses commands older than 30 minutes, which
+leaves time for iCloud Drive to deliver them, and commands from
+the future, for an unknown or Claude profile, and enables for an email that
+another Mac's current snapshot already redeems. An accepted command calls the
+same function as the local Auto-redeem switch. The policy engine, its fail-closed
+rules and idempotency stay the only route to a reset. The host deletes the file
+and lists the ID in its next snapshot, which the sender treats as the answer.
+
+The viewing Mac reads remote windows through `QuotaReadPolicy.remote`. A snapshot
+or reading older than 10 minutes is stale: it shows its age and never alerts.
+Low remote windows notify through the alert ledger once per account, window and
+reset cycle. The double Auto-redeem guard is best effort. Two Macs enabling at
+the same moment, or a Mac whose snapshot went stale, can still both be on.
+
 ## Protocol boundary
 
 The app uses the official Codex app-server JSON-RPC interface over stdio:

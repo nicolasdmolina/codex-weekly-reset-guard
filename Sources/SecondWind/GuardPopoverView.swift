@@ -1,3 +1,4 @@
+import SecondWindCore
 import SwiftUI
 
 struct GuardPopoverView: View {
@@ -71,7 +72,7 @@ struct GuardPopoverView: View {
                     .background(SW.Palette.surfaceRaised, in: Capsule())
             }
             RefreshButton(isChecking: model.isBusyChecking) { model.checkNow() }
-                .disabled(model.isBusyChecking || !model.hasAccounts)
+                .disabled(model.isBusyChecking || (!model.hasAccounts && !model.hasRemoteAccounts))
         }
         .padding(.horizontal, SW.Space.lg)
         .padding(.vertical, SW.Space.md)
@@ -205,7 +206,7 @@ struct GuardPopoverView: View {
                 NoticeRow(symbol: "info.circle", text: banner, tone: .neutral)
             }
 
-            if !model.hasAccounts || model.isShowingAddProfile {
+            if (!model.hasAccounts && !model.hasRemoteAccounts) || model.isShowingAddProfile {
                 EnrollmentPanel(model: model, isStaticRender: isStaticRender)
             }
 
@@ -246,6 +247,28 @@ struct GuardPopoverView: View {
                 }
             }
 
+            ForEach(model.remoteDevices.filter { !$0.accounts.isEmpty }, id: \.deviceID) { device in
+                AccountSection(
+                    title: "On \(device.deviceName)",
+                    detail: "updated \(QuotaTimeFormat.age(of: device.publishedAt, reference: now))"
+                ) {
+                    ForEach(Array(device.accounts.enumerated()), id: \.element.id) { index, account in
+                        if index > 0 { RowDivider() }
+                        RemoteAccountRow(
+                            device: device,
+                            account: account,
+                            state: model.remoteState(of: account, in: device, now: now),
+                            quota: QuotaDisplayBuilder.remote(account, now: now),
+                            interface: interface,
+                            isStaticRender: isStaticRender,
+                            isReadOnly: model.isReadOnly,
+                            now: now,
+                            onToggle: { model.setRemoteAutoReset(device: device, account: account, enabled: $0) }
+                        )
+                    }
+                }
+            }
+
             if !model.history.isEmpty {
                 ActivityList(events: Array(model.history.prefix(3)), referenceDate: model.referenceDate)
             }
@@ -258,7 +281,8 @@ struct GuardPopoverView: View {
 
     private func footer(now: Date) -> some View {
         HStack(spacing: SW.Space.sm) {
-            if interface.page == .accounts && model.hasAccounts && !model.isShowingAddProfile && !model.isReadOnly {
+            if interface.page == .accounts && (model.hasAccounts || model.hasRemoteAccounts)
+                && !model.isShowingAddProfile && !model.isReadOnly {
                 Button {
                     model.enrollmentError = nil
                     model.isShowingAddProfile = true
@@ -804,6 +828,147 @@ private struct ClaudeAccountRow: View {
     }
 }
 
+/// An account another Mac hosts. Read-only apart from the Codex Auto-redeem switch, which asks
+/// that Mac to change the setting and waits for its next snapshot to confirm it.
+private struct RemoteAccountRow: View {
+    let device: DeviceSnapshot
+    let account: SharedAccount
+    let state: RemoteAccountState
+    let quota: AccountQuotaDisplay
+    @ObservedObject var interface: GuardInterfaceModel
+    let isStaticRender: Bool
+    let isReadOnly: Bool
+    let now: Date
+    let onToggle: (Bool) -> Void
+
+    private var provider: ProviderKind { account.provider == .codex ? .codex : .claude }
+
+    var body: some View {
+        AccountRow(
+            ref: AccountRef(provider: provider, id: account.profileID),
+            provider: provider,
+            name: account.displayName,
+            hint: Self.maskedEmail(account.email),
+            badge: provider.title,
+            quota: quota,
+            status: status,
+            interface: interface,
+            isStaticRender: isStaticRender,
+            isReadOnly: true,
+            now: now
+        ) {
+            if let inventory = quota.inventory {
+                InventoryLine(inventory: inventory, now: now, isExpanded: false, isStatic: isStaticRender, showsExpiry: false, onToggle: {})
+            }
+            if let enabled = account.autoRedeemEnabled {
+                autoRedeem(enabled)
+            }
+        } actions: {
+            EmptyView()
+        }
+    }
+
+    private var isPending: Bool {
+        if case .pending = state { return true }
+        return false
+    }
+
+    private func autoRedeem(_ hostValue: Bool) -> some View {
+        // A Mac that cannot read its command folder would never see a change sent from here.
+        let acceptsChanges = device.acceptsCommands
+        let shown: Bool = if acceptsChanges, case let .pending(requested) = state { requested } else { hostValue }
+        return VStack(alignment: .leading, spacing: SW.Space.xxs) {
+            HStack(spacing: SW.Space.sm) {
+                Text("Auto-redeem")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(SW.Palette.textSecondary)
+                Spacer(minLength: SW.Space.sm)
+                if isStaticRender {
+                    StaticToggle(isOn: shown, label: "Auto-redeem")
+                        .opacity(isPending || !acceptsChanges ? 0.5 : 1)
+                } else {
+                    Toggle("Auto-redeem", isOn: Binding(get: { shown }, set: { onToggle($0) }))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .disabled(isReadOnly || isPending || !acceptsChanges || !device.freshness(at: now).isLive)
+                        .help(acceptsChanges ? "Asks \(device.deviceName) to change Auto-redeem for this account" : "")
+                }
+            }
+            if !acceptsChanges {
+                Text("Change this on \(device.deviceName).")
+                    .font(.system(size: 11))
+                    .foregroundStyle(SW.Palette.textTertiary)
+            }
+        }
+    }
+
+    private var status: StatusPresentation {
+        let onOff = { (enabled: Bool) in enabled ? "on" : "off" }
+        switch state {
+        case let .pending(enabled):
+            return StatusPresentation(
+                symbol: "hourglass",
+                title: "Waiting for \(device.deviceName)",
+                text: "Waiting for \(device.deviceName) to turn Auto-redeem \(onOff(enabled)).",
+                tone: .neutral
+            )
+        case let .notApplied(enabled):
+            return StatusPresentation(
+                symbol: "exclamationmark.triangle.fill",
+                title: "Not changed",
+                text: "\(device.deviceName) did not turn Auto-redeem \(onOff(enabled)).",
+                tone: .caution
+            )
+        case .live, .stale:
+            break
+        }
+        if let attention = account.attentionMessage {
+            return StatusComposer.compose(
+                symbol: "exclamationmark.circle.fill",
+                title: "Attention required",
+                base: "\(attention) Fix it on \(device.deviceName).",
+                isRoutine: false,
+                tone: .critical,
+                quota: quota,
+                providerName: provider.title,
+                now: now
+            )
+        }
+        if let warning = quota.warningWindow {
+            let text = warning.level == .exhausted
+                ? "\(warning.label) limit is used up."
+                : "\(warning.label) limit is running low."
+            return StatusComposer.compose(
+                symbol: "exclamationmark.triangle.fill",
+                title: "Running low",
+                base: text,
+                isRoutine: false,
+                tone: .caution,
+                quota: quota,
+                providerName: provider.title,
+                now: now
+            )
+        }
+        return StatusComposer.compose(
+            symbol: "checkmark.circle.fill",
+            title: "Monitoring",
+            base: "Monitoring",
+            isRoutine: true,
+            tone: .neutral,
+            quota: quota,
+            providerName: provider.title,
+            now: now
+        )
+    }
+
+    private static func maskedEmail(_ email: String) -> String {
+        let parts = email.split(separator: "@", maxSplits: 1).map(String.init)
+        guard parts.count == 2, let first = parts[0].first else { return "\(email.isEmpty ? "Account" : email)" }
+        return "\(first)•••@\(parts[1])"
+    }
+}
+
 /// Adds the reading's age and refill state to a row's status. Freshness is per account: a
 /// figure that did not update says how old it is right beside it.
 enum StatusComposer {
@@ -1031,6 +1196,8 @@ private struct InventoryLine: View {
     let now: Date
     let isExpanded: Bool
     let isStatic: Bool
+    /// Off for another Mac's account, which shares only the count.
+    var showsExpiry = true
     let onToggle: () -> Void
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
@@ -1114,7 +1281,7 @@ private struct InventoryLine: View {
                 parts.append("No saved resets")
             } else {
                 parts.append(count == 1 ? "1 saved reset" : "\(count) saved resets")
-                parts.append(expiryPhrase(count: count, listed: listed, datesReported: datesReported))
+                if showsExpiry { parts.append(expiryPhrase(count: count, listed: listed, datesReported: datesReported)) }
             }
             if !isCurrent { parts.append("checked \(QuotaTimeFormat.age(of: checkedAt, reference: now))") }
             return parts.joined(separator: " · ")

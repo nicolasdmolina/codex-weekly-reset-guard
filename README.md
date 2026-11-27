@@ -68,6 +68,17 @@ test "$(curl -sS -o /dev/null -w '%{http_code}' "$pages_url")" = 200 &&
 - Open **Claude Settings › Usage** with one click, where you can reset a limit
   for free if Anthropic has given you one.
 
+**Your other Macs**
+
+- Turn on **Sync with your other Macs** in Settings to see accounts from a Mac
+  that stays on, such as a Mac mini, on your laptop. Sync uses your iCloud Drive
+  and is off until you turn it on.
+- Turn a synced Codex account's **Auto-redeem** on or off from either Mac. The
+  Mac that hosts the account makes the change and confirms it.
+- Get the same low-quota notifications for accounts on your other Macs.
+- Second Wind will not turn on Auto-redeem for an account another Mac already
+  redeems, so a saved reset is never spent twice.
+
 Claude resets are redeemed by you, not by the app. Anthropic only offers them on
 claude.ai and in Claude Desktop, so Second Wind sends you there instead of acting
 on your behalf.

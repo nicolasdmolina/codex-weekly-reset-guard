@@ -20,6 +20,8 @@ public struct RedactedEventRecord: Codable, Equatable, Identifiable, Sendable {
         case redemptionFailed
         case verificationFailed
         case authenticationRequired
+        /// One sync pass with your other Macs. Written to the sync log only.
+        case syncPass
     }
 
     public init(

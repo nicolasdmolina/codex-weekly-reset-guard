@@ -26,10 +26,12 @@ spacing scale, radii 8/12/16 and motion at 175/280/410 ms. Tokens live in
 ## Signature: the headroom meter
 
 Each reported limit uses a 6 pt capsule. The fill and its label both show the
-amount left by default, or the amount used when the user chooses Used. A 1 pt
-tick marks 3% remaining on a Codex weekly window with Auto-redeem enabled and
-10% on other windows. An absent window reads “Not reported” and has no meter.
-Stale figures dim. Reduce Motion removes the refill animation.
+amount left by default, or the amount used when the user chooses Used. A 1.5 pt
+coral tick marks the alert line: 3% remaining on a Codex weekly window with
+Auto-redeem enabled and 10% on other windows. It is coral because it marks where
+the user will need to act; where the fill covers it, a hairline gap is cut on each
+side so it stays crisp. An absent window reads “Not reported” and has no meter.
+Stale figures dim, the tick with them. Reduce Motion removes the refill animation.
 
 ## Adding an account
 

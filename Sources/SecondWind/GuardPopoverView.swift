@@ -1235,6 +1235,8 @@ private struct InventoryLine: View {
 /// chosen convention counts, headroom or use, so the figure and the fill always agree. When a
 /// reset lands, the fill sweeps on the slow motion token.
 private struct HeadroomMeter: View {
+    static let tickWidth: CGFloat = 1.5
+
     let remaining: Double
     let threshold: Double
     let convention: QuotaConvention
@@ -1255,14 +1257,21 @@ private struct HeadroomMeter: View {
                 Capsule()
                     .fill(fillColor)
                     .frame(width: width * fraction, height: SW.Size.meterHeight)
-                // One 1 pt mark at track height: cut through the fill where the fill covers it, so
-                // it reads the same on any row tint, and drawn on the empty track where it does not.
-                let covered = width * tick < width * fraction - 1
+                // The alert line, in the app's coral. Where the fill covers it, a hairline gap is
+                // cut on each side first so the mark stays crisp against teal, amber or coral.
+                let tickX = width * tick
+                let covered = tickX < width * fraction - 1
+                if covered {
+                    Rectangle()
+                        .fill(Color.black)
+                        .frame(width: Self.tickWidth + 2, height: SW.Size.meterHeight)
+                        .offset(x: tickX - 1)
+                        .blendMode(.destinationOut)
+                }
                 Rectangle()
-                    .fill(covered ? Color.black : SW.Palette.textTertiary)
-                    .frame(width: 1, height: SW.Size.meterHeight)
-                    .offset(x: width * tick)
-                    .blendMode(covered ? .destinationOut : .normal)
+                    .fill(SW.Palette.critical.opacity(isCurrent ? 1 : 0.55))
+                    .frame(width: Self.tickWidth, height: SW.Size.meterHeight)
+                    .offset(x: tickX)
             }
             .compositingGroup()
             .frame(height: geometry.size.height)

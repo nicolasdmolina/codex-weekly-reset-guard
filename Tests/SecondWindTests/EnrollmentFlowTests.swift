@@ -248,3 +248,11 @@ private func settle(_ condition: () -> Bool) async {
     model.addProfile()
     #expect(claudeCalls == 1)
 }
+
+@Test func codexPlanNamesReadAsBadges() {
+    #expect(GuardRuntimeController.planName("plus") == "Plus")
+    #expect(GuardRuntimeController.planName(" PRO ") == "Pro")
+    #expect(GuardRuntimeController.planName("self_serve_business") == "Self Serve Business")
+    #expect(GuardRuntimeController.planName("unknown") == nil)
+    #expect(GuardRuntimeController.planName(nil) == nil)
+}

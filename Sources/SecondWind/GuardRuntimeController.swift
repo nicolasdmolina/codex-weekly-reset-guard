@@ -71,6 +71,8 @@ struct GuardRuntimeProfileSnapshot: Equatable, Sendable {
     /// Display, alert and preflight evidence. Never an input to redemption.
     let quota: QuotaAccountRecord
     var removalKeepsResetRecord = false
+    /// The ChatGPT plan from the last verified sign-in, for display only.
+    var planName: String? = nil
 }
 
 struct GuardRuntimeEvent: Equatable, Identifiable, Sendable {
@@ -296,6 +298,8 @@ actor GuardRuntimeController {
     /// Per-account quota evidence, stamped at the read boundary. Kept apart from the policy
     /// reading so a missing inventory or rejected weekly window never erases a good read.
     private var quotaRecords: [UUID: QuotaAccountRecord] = [:]
+    /// Display only: the plan each verified sign-in reported, such as "Plus".
+    private var planNames: [UUID: String] = [:]
     /// Bumped when a reconnect starts. A read that began under an older generation is discarded,
     /// so it can never mark the account verified or current while the new sign-in is pending.
     private var readGenerations: [UUID: UInt64] = [:]
@@ -749,6 +753,7 @@ actor GuardRuntimeController {
         let session = sessions.removeValue(forKey: profileID)
         liveProfiles.removeValue(forKey: profileID)
         quotaRecords.removeValue(forKey: profileID)
+        planNames.removeValue(forKey: profileID)
         lastLoggedFailure.removeValue(forKey: profileID)
         checkFailureBanners.removeValue(forKey: profileID)
         profileControlIntents.removeValue(forKey: profileID)
@@ -1108,6 +1113,14 @@ actor GuardRuntimeController {
             == MonitorPersistence.normalizedEmail(expectedEmail) else {
             throw GuardRuntimeError.identityMismatch
         }
+        planNames[profile.id] = Self.planName(account.planType)
+    }
+
+    /// "plus" → "Plus". Unknown or missing plans show no badge.
+    nonisolated static func planName(_ raw: String?) -> String? {
+        guard let raw = raw?.trimmingCharacters(in: .whitespacesAndNewlines).lowercased(),
+              !raw.isEmpty, raw != "unknown" else { return nil }
+        return raw.split(separator: "_").map { $0.prefix(1).uppercased() + $0.dropFirst() }.joined(separator: " ")
     }
 
     private func applyPolicy(
@@ -1769,7 +1782,8 @@ actor GuardRuntimeController {
             autoResetEnabled: profile.isEnabled,
             quota: quotaRecords[profile.id]
                 ?? QuotaAccountRecord(provider: .codex, accountID: profile.id),
-            removalKeepsResetRecord: state.removalKeepsResetRecord(for: profile.id)
+            removalKeepsResetRecord: state.removalKeepsResetRecord(for: profile.id),
+            planName: planNames[profile.id]
         )
     }
 
@@ -1862,7 +1876,8 @@ extension GuardAppModel {
                 identityVerified: profile.connectionStatus == .verified,
                 quota: profile.quota,
                 removalKeepsResetRecord: profile.removalKeepsResetRecord,
-                signIn: Self.signInState(for: profile)
+                signIn: Self.signInState(for: profile),
+                planName: profile.planName
             )
         }
         history = snapshot.history.map { event in

@@ -41,7 +41,7 @@ enum PreviewKind: String, CaseIterable {
     case usageBlocked = "usage-blocked"
     /// Adding a second account: the service list under the Add account header.
     case addChoose = "add-choose"
-    /// The Claude email step, filled in.
+    /// The Codex email step, filled in.
     case addEmail = "add-email"
     /// A new Codex account waiting on its browser sign-in.
     case addWaiting = "add-waiting"
@@ -105,8 +105,8 @@ enum PreviewFixtures {
             model.enrollment = EnrollmentFlow(step: .choose)
         case .addEmail:
             model = GuardAppModel(isPreview: true, referenceDate: reference)
-            model.enrollment = EnrollmentFlow(step: .email(.claude))
-            model.profileEmail = "studio@example.com"
+            model.enrollment = EnrollmentFlow(step: .email(.codex))
+            model.profileEmail = "personal@example.com"
         case .addWaiting:
             var enrolling = enrollingCodex(ID.personal, name: "Personal", hint: "p•••@example.com")
             enrolling.signIn = .waiting
@@ -424,6 +424,7 @@ enum PreviewFixtures {
             record: codexRecord(id, session: 82, weekly: 61, weeklyResetHours: 144, saved: 2, expiresInDays: 14, observedSecondsAgo: 2)
         )
         connected.signIn = .connected
+        connected.planName = "Plus"
         return connected
     }
 

@@ -73,8 +73,10 @@ struct GuardPopoverView: View {
                     .padding(.vertical, SW.Space.xxs + 1)
                     .background(SW.Palette.surfaceRaised, in: Capsule())
             }
-            RefreshButton(isChecking: model.isBusyChecking) { model.checkNow() }
-                .disabled(model.isBusyChecking || !model.hasAccounts)
+            if model.hasAccounts {
+                RefreshButton(isChecking: model.isBusyChecking) { model.checkNow() }
+                    .disabled(model.isBusyChecking)
+            }
         }
         .padding(.horizontal, SW.Space.lg)
         .padding(.vertical, SW.Space.md)
@@ -129,16 +131,21 @@ struct GuardPopoverView: View {
         let canGoBack: Bool = switch phase {
         case .choose, .email: !model.isAddingProfile
         case let .waiting(_, checking): !checking
-        case .problem: true
-        case .connected: false
+        case .problem, .connected: true
         }
         let backLabel: String = switch phase {
         case .waiting, .problem: "Cancel sign-in"
+        case .connected: "Back to accounts"
         default: "Back"
         }
         return HStack(spacing: SW.Space.sm) {
             Button {
-                model.enrollmentBack()
+                // From the result, back is the same as Done: the list, with the new account lit.
+                if case .connected = phase, let ref = model.finishEnrollment() {
+                    interface.reveal(ref)
+                } else {
+                    model.enrollmentBack()
+                }
             } label: {
                 Image(systemName: "chevron.left")
                     .font(.system(size: 13, weight: .semibold))
@@ -153,7 +160,8 @@ struct GuardPopoverView: View {
             .disabled(!canGoBack)
             .accessibilityHidden(!canGoBack)
             Text("Add account")
-                .font(.system(size: 15, weight: .semibold))
+                .font(.system(size: 13, weight: .semibold))
+                .foregroundStyle(SW.Palette.textSecondary)
             Spacer(minLength: SW.Space.sm)
             if model.isPreview {
                 Text("Preview")
@@ -385,6 +393,9 @@ struct GuardPopoverView: View {
             .menuStyle(.borderlessButton)
             .menuIndicator(.hidden)
             .fixedSize()
+            // A borderless menu draws in the tint colour; the footer stays quiet beside the
+            // primary button above it.
+            .tint(SW.Palette.textSecondary)
             .accessibilityLabel("More options")
         }
     }
@@ -700,7 +711,7 @@ private struct CodexAccountRow: View {
             provider: .codex,
             name: profile.displayName,
             hint: profile.accountHint,
-            badge: nil,
+            badge: profile.planName,
             quota: quota,
             status: status,
             interface: interface,

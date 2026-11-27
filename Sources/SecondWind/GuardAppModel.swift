@@ -53,6 +53,8 @@ struct GuardProfilePresentation: Identifiable, Equatable, Sendable {
     var quota: QuotaAccountRecord? = nil
     var removalKeepsResetRecord = false
     var signIn: SignInState = .connected
+    /// The ChatGPT plan, such as "Plus", once a sign-in has reported it.
+    var planName: String? = nil
 
     var isConnected: Bool { identityVerified && status != .disconnected }
 }

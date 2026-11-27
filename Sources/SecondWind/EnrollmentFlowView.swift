@@ -14,13 +14,39 @@ struct EnrollmentFlowView: View {
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
 
     var body: some View {
-        ZStack {
+        ZStack(alignment: .top) {
             screen
                 .id(screenKey)
-                .transition(.opacity)
+                .transition(stepTransition)
+            // One tile for every step after the service list. It never fades with the words
+            // around it; only its outline and badge change.
+            if let tile {
+                ServiceTile(provider: tile.provider, state: tile.state, isStaticRender: isStaticRender)
+                    .padding(.top, stepTileTop)
+            }
         }
         .frame(maxWidth: .infinity, maxHeight: .infinity, alignment: .top)
         .animation(SW.Motion.easeOut(SW.Motion.standard, reduceMotion: reduceMotion || isStaticRender), value: screenKey)
+    }
+
+    private var tile: (provider: ProviderKind, state: ServiceTile.State)? {
+        switch phase {
+        case .choose: nil
+        case let .email(provider): (provider, .plain)
+        case let .waiting(ref, _): (ref.provider, .waiting)
+        case let .problem(ref, _): (ref.provider, .problem)
+        case let .connected(ref): (ref.provider, .connected)
+        }
+    }
+
+    /// The old words clear quickly and the new ones settle in just after, so two titles are
+    /// never legible on top of each other.
+    private var stepTransition: AnyTransition {
+        guard !reduceMotion, !isStaticRender else { return .identity }
+        return .asymmetric(
+            insertion: .opacity.animation(.easeOut(duration: 0.22).delay(0.08)),
+            removal: .opacity.animation(.easeIn(duration: 0.1))
+        )
     }
 
     /// Phases that look alike share a key, so a checking-to-connected change animates once.
@@ -54,17 +80,19 @@ struct EnrollmentFlowView: View {
 // MARK: - Shared frame
 
 /// The tile, the step's content and its actions, in the same places on every step.
+/// Where the shared service tile sits, measured from the top of the flow.
+private let stepTileTop: CGFloat = 60
+
 private struct StepFrame<Content: View, Actions: View>: View {
-    let provider: ProviderKind
-    let tile: ServiceTile.State
-    let isStaticRender: Bool
     @ViewBuilder var content: Content
     @ViewBuilder var actions: Actions
 
     var body: some View {
         VStack(spacing: 0) {
-            ServiceTile(provider: provider, state: tile, isStaticRender: isStaticRender)
-                .padding(.top, 44)
+            // The flow draws the tile above every step; this keeps its place.
+            Color.clear
+                .frame(height: ServiceTile.defaultSize)
+                .padding(.top, stepTileTop)
             content
                 .padding(.top, SW.Space.lg + 2)
             Spacer(minLength: SW.Space.md)
@@ -109,7 +137,7 @@ private struct StepTitle: View {
 
     var body: some View {
         Text(text)
-            .font(.system(size: 17, weight: .semibold))
+            .font(.system(size: 20, weight: .semibold))
             .multilineTextAlignment(.center)
             .accessibilityAddTraits(.isHeader)
     }
@@ -185,7 +213,7 @@ private struct ChooseServiceScreen: View {
         if case .failed = interface.providerStates[provider] { return "Could not load" }
         return switch provider {
         case .codex: "Paid ChatGPT plan"
-        case .claude: "Claude Pro or Max"
+        case .claude: "Pro or Max plan"
         }
     }
 }
@@ -248,13 +276,10 @@ private struct EmailScreen: View {
     @FocusState private var isFocused: Bool
 
     var body: some View {
-        StepFrame(provider: provider, tile: .plain, isStaticRender: isStaticRender) {
+        StepFrame {
             VStack(spacing: 0) {
                 StepTitle(text: "Sign in with \(provider.signInAccountName)")
                 VStack(alignment: .leading, spacing: SW.Space.xs + 2) {
-                    Text("Email")
-                        .font(.system(size: 11.5, weight: .medium))
-                        .foregroundStyle(SW.Palette.textSecondary)
                     field
                     // The error row keeps its height, so nothing below it moves.
                     StatusLine(symbol: "exclamationmark.circle.fill", text: model.enrollmentError ?? " ", tone: .critical)
@@ -324,7 +349,7 @@ private struct WaitingScreen: View {
 
     var body: some View {
         let url = isChecking ? nil : model.signInURL(for: account)
-        StepFrame(provider: account.provider, tile: .waiting, isStaticRender: isStaticRender) {
+        StepFrame {
             VStack(spacing: 0) {
                 StepTitle(text: isChecking ? "Reading your limits" : "Finish in your browser")
                 StepMessage(text: message)
@@ -380,13 +405,13 @@ private struct ProblemScreen: View {
     let isStaticRender: Bool
 
     var body: some View {
-        StepFrame(provider: account.provider, tile: .problem, isStaticRender: isStaticRender) {
+        StepFrame {
             VStack(spacing: 0) {
                 StepTitle(text: title)
                 StepMessage(text: message)
             }
         } actions: {
-            PrimaryAction(title: "Sign in again", opensBrowser: true) { model.retryEnrollmentSignIn() }
+            PrimaryAction(title: retryTitle, opensBrowser: true) { model.retryEnrollmentSignIn() }
             if case let .wrongAccount(found?) = state, account.provider == .claude {
                 Button("Watch \(found) instead") { model.adoptSignedInAccount(found) }
                     .buttonStyle(SWQuietButtonStyle())
@@ -400,6 +425,12 @@ private struct ProblemScreen: View {
     }
 
     private var email: String { model.enrollment?.email ?? "" }
+
+    /// After a wrong account the button names the right one; otherwise it simply retries.
+    private var retryTitle: String {
+        if case .wrongAccount = state, !email.isEmpty { return "Sign in as \(email)" }
+        return "Sign in again"
+    }
 
     private var offersDifferentEmail: Bool {
         switch state {
@@ -420,10 +451,9 @@ private struct ProblemScreen: View {
     private var message: Text {
         switch state {
         case let .wrongAccount(found):
-            let signedIn = found.map { Text("You signed in as ") + emphasised($0) + Text(". ") }
-                ?? Text("That was a different account. ")
-            guard !email.isEmpty else { return signedIn + Text("Switch accounts in your browser, then sign in again.") }
-            return signedIn + Text("Switch to ") + emphasised(email) + Text(" in your browser, then sign in again.")
+            let signedIn = found.map { Text("You signed in as ") + emphasised($0) + Text(".") }
+                ?? Text("That sign-in used a different \(account.provider.signInAccountName) account.")
+            return signedIn + Text(" Sign out of it in your browser first.")
         case .noPlan:
             return (email.isEmpty ? Text("This account") : emphasised(email)) + Text(" has no Claude plan limits to watch.")
         case .signedOut:
@@ -458,7 +488,7 @@ private struct ConnectedScreen: View {
     private var claude: ClaudeProfilePresentation? { model.claudeProfiles.first { $0.id == raw } }
 
     var body: some View {
-        StepFrame(provider: account.provider, tile: .connected, isStaticRender: isStaticRender) {
+        StepFrame {
             VStack(spacing: 0) {
                 nameRow
                     .frame(height: 24)
@@ -466,12 +496,12 @@ private struct ConnectedScreen: View {
                     StatusLine(symbol: "exclamationmark.circle.fill", text: renameError, tone: .critical)
                         .padding(.top, SW.Space.xxs)
                 } else {
-                    Text("Connected as \(identity)")
+                    (Text("Connected as ") + emphasised(identity))
                         .font(.system(size: 12))
                         .foregroundStyle(SW.Palette.textSecondary)
                         .lineLimit(1)
                         .truncationMode(.middle)
-                        .padding(.top, SW.Space.xxs)
+                        .padding(.top, SW.Space.xxs + 1)
                 }
                 limits
                     .padding(.top, SW.Space.lg + 2)
@@ -529,10 +559,24 @@ private struct ConnectedScreen: View {
                 .onAppear { isNameFocused = true }
                 .accessibilityLabel("Account name")
         } else {
-            HStack(spacing: SW.Space.xs + 2) {
-                StepTitle(text: name)
-                    .lineLimit(1)
-                if let plan = claude?.planName {
+            // The name is centred on its own; the plan and the rename button hang off its right.
+            StepTitle(text: name)
+                .lineLimit(1)
+                .overlay(alignment: .trailing) {
+                    nameAccessories
+                        .fixedSize()
+                        .alignmentGuide(.trailing) { $0[.leading] - (SW.Space.xs + 2) }
+                }
+                .frame(maxWidth: 230)
+        }
+    }
+
+    @ViewBuilder
+    private var nameAccessories: some View {
+        let plan = codex?.planName ?? claude?.planName
+        if plan != nil || (!isStaticRender && !model.isReadOnly) {
+            HStack(spacing: SW.Space.xs) {
+                if let plan {
                     Text(plan)
                         .font(.system(size: 10.5, weight: .semibold))
                         .foregroundStyle(SW.Palette.textSecondary)
@@ -639,13 +683,11 @@ private struct ConnectedScreen: View {
                 RowDivider()
                 HStack(spacing: SW.Space.sm) {
                     VStack(alignment: .leading, spacing: 1) {
-                        Text("Auto-redeem at 3% left")
+                        Text("Auto-redeem")
                             .font(.system(size: 12, weight: .medium))
-                        if let saved = savedResets(quota?.inventory) {
-                            Text(saved)
-                                .font(.system(size: 11))
-                                .foregroundStyle(SW.Palette.textTertiary)
-                        }
+                        Text(["At 3% left", savedResets(quota?.inventory)].compactMap { $0 }.joined(separator: " · "))
+                            .font(.system(size: 11))
+                            .foregroundStyle(SW.Palette.textTertiary)
                     }
                     Spacer(minLength: SW.Space.sm)
                     if isStaticRender {
@@ -675,7 +717,7 @@ private struct ConnectedScreen: View {
     private func savedResets(_ inventory: InventoryDisplay?) -> String? {
         guard case let .known(count, _, _, _, _)? = inventory else { return nil }
         return switch count {
-        case 0: "No saved resets yet"
+        case 0: "no saved resets"
         case 1: "1 saved reset"
         default: "\(count) saved resets"
         }
@@ -687,15 +729,16 @@ private struct ConnectedScreen: View {
 /// A neutral tile with the service's symbol. Progress circles it; results ride on a badge.
 struct ServiceTile: View {
     enum State: Equatable { case plain, waiting, problem, connected }
+    static let defaultSize: CGFloat = 52
 
     let provider: ProviderKind
-    var size: CGFloat = 52
+    var size: CGFloat = ServiceTile.defaultSize
     var state: State = .plain
     var isStaticRender = false
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
     @SwiftUI.State private var badgeShown = false
 
-    init(provider: ProviderKind, size: CGFloat = 52, state: State = .plain, isStaticRender: Bool = false) {
+    init(provider: ProviderKind, size: CGFloat = ServiceTile.defaultSize, state: State = .plain, isStaticRender: Bool = false) {
         self.provider = provider
         self.size = size
         self.state = state
@@ -718,7 +761,8 @@ struct ServiceTile: View {
             // Drawn over the layout, so the tile sits in the same place with or without it.
             .overlay {
                 if state == .waiting {
-                    SignInRing(diameter: size + 32, isStatic: isStaticRender)
+                    SignInTrace(size: size + 12, cornerRadius: size * 0.27 + 6, isStatic: isStaticRender)
+                        .transition(.opacity)
                 }
             }
             .overlay(alignment: .bottomTrailing) {
@@ -729,11 +773,19 @@ struct ServiceTile: View {
                         .opacity(isBadgeVisible ? 1 : 0)
                 }
             }
-            .onAppear {
-                guard !isStaticRender, !reduceMotion, state == .connected else { return }
-                withAnimation(.spring(response: 0.38, dampingFraction: 0.62).delay(0.12)) { badgeShown = true }
-            }
+            .onAppear { popBadgeIfConnected() }
+            .onChange(of: state) { _, _ in popBadgeIfConnected() }
             .accessibilityHidden(true)
+    }
+
+    /// The success badge springs in each time the tile arrives at connected.
+    private func popBadgeIfConnected() {
+        guard state == .connected else {
+            badgeShown = false
+            return
+        }
+        guard !isStaticRender, !reduceMotion, !badgeShown else { return }
+        withAnimation(.spring(response: 0.38, dampingFraction: 0.62).delay(0.12)) { badgeShown = true }
     }
 
     /// Only the success badge pops in; a problem badge is simply there.
@@ -757,26 +809,31 @@ struct ServiceTile: View {
     }
 }
 
-/// A slow accent arc circling the service tile while the browser has the user.
-private struct SignInRing: View {
-    let diameter: CGFloat
+/// A short accent stroke travelling round the tile's outline while the browser has the user.
+/// It follows the tile's own rounded corners, so the gap to the tile stays even all the way round.
+private struct SignInTrace: View {
+    let size: CGFloat
+    let cornerRadius: CGFloat
     let isStatic: Bool
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
-    @State private var isSpinning = false
+    @State private var travelled: CGFloat = 0
+
+    private var perimeter: CGFloat { 4 * (size - 2 * cornerRadius) + 2 * .pi * cornerRadius }
 
     var body: some View {
+        let shape = RoundedRectangle(cornerRadius: cornerRadius, style: .continuous)
+        let segment = perimeter * 0.22
         ZStack {
-            Circle()
-                .stroke(SW.Palette.track, lineWidth: 2.5)
-            Circle()
-                .trim(from: 0, to: 0.24)
-                .stroke(SW.Palette.accent, style: StrokeStyle(lineWidth: 2.5, lineCap: .round))
-                .rotationEffect(.degrees(isSpinning ? 270 : -90))
+            shape.stroke(SW.Palette.track, lineWidth: 2)
+            shape.stroke(
+                SW.Palette.accent,
+                style: StrokeStyle(lineWidth: 2, lineCap: .round, dash: [segment, perimeter - segment], dashPhase: travelled)
+            )
         }
-        .frame(width: diameter, height: diameter)
+        .frame(width: size, height: size)
         .onAppear {
             guard !isStatic, !reduceMotion else { return }
-            withAnimation(.linear(duration: 1.25).repeatForever(autoreverses: false)) { isSpinning = true }
+            withAnimation(.linear(duration: 1.6).repeatForever(autoreverses: false)) { travelled = -perimeter }
         }
         .accessibilityHidden(true)
     }

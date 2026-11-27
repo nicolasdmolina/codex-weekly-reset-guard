@@ -84,6 +84,8 @@ struct GuardRuntimeEvent: Equatable, Identifiable, Sendable {
     let occurredAt: Date
     let profileID: UUID?
     let summary: String
+    /// The reset did not go through, or could not be confirmed.
+    var isProblem = false
 }
 
 struct GuardRuntimeSnapshot: Equatable, Sendable {
@@ -1145,11 +1147,6 @@ actor GuardRuntimeController {
         } catch MonitorPersistenceError.duplicateExpectedIdentity {
             throw GuardRuntimeError.duplicateIdentity
         }
-        _ = try? await eventLog.append(
-            profileID: profile.id,
-            kind: .profileConnected,
-            message: "A new Codex profile took the identity of its first sign-in."
-        )
     }
 
     /// "plus" → "Plus". Unknown or missing plans show no badge.
@@ -1785,12 +1782,15 @@ actor GuardRuntimeController {
             profiles: state.profiles.map { profile in
                 profileSnapshot(profile: profile, state: state)
             },
-            history: records.reversed().map { record in
+            // The popover lists only what Second Wind did with a saved reset. Connections,
+            // sign-ins and checks stay in the local event log for diagnostics.
+            history: records.reversed().filter { Self.isResetOutcome($0.kind) }.map { record in
                 GuardRuntimeEvent(
                     id: record.id,
                     occurredAt: record.timestamp,
                     profileID: record.profileID,
-                    summary: Self.summary(for: record.kind)
+                    summary: Self.summary(for: record.kind),
+                    isProblem: record.kind != .redemptionSucceeded
                 )
             },
             isChecking: !checksInFlight.isEmpty,
@@ -1871,6 +1871,14 @@ actor GuardRuntimeController {
         }
     }
 
+    nonisolated static func isResetOutcome(_ kind: RedactedEventRecord.Kind) -> Bool {
+        switch kind {
+        case .redemptionSucceeded, .redemptionFailed, .verificationFailed: true
+        case .profileConnected, .profileDisconnected, .checkSucceeded, .checkFailed, .thresholdConfirmed,
+             .redemptionStarted, .redemptionDeferred, .authenticationRequired: false
+        }
+    }
+
     private nonisolated static func summary(for kind: RedactedEventRecord.Kind) -> String {
         switch kind {
         case .profileConnected: "Connected an isolated Codex profile"
@@ -1935,7 +1943,8 @@ extension GuardAppModel {
                 id: event.id,
                 occurredAt: event.occurredAt,
                 profileName: event.profileID.flatMap { names[$0] } ?? "Second Wind",
-                summary: event.summary
+                summary: event.summary,
+                isProblem: event.isProblem
             )
         }
         isChecking = snapshot.isChecking

@@ -145,6 +145,7 @@ struct GuardHistoryEvent: Identifiable, Equatable, Sendable {
     let occurredAt: Date
     let profileName: String
     let summary: String
+    var isProblem = false
 }
 
 @MainActor

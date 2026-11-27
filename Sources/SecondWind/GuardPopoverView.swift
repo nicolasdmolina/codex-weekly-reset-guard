@@ -1423,15 +1423,15 @@ private struct ActivityList: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: SW.Space.sm) {
-            Text("Recent activity")
+            Text("Saved resets")
                 .font(.system(size: 13, weight: .semibold))
                 .padding(.horizontal, SW.Space.xs)
             VStack(alignment: .leading, spacing: SW.Space.sm) {
                 ForEach(events) { event in
                     HStack(alignment: .firstTextBaseline, spacing: SW.Space.sm) {
-                        Image(systemName: "checkmark.circle")
+                        Image(systemName: event.isProblem ? "exclamationmark.circle.fill" : "checkmark.circle")
                             .font(.system(size: 11))
-                            .foregroundStyle(SW.Palette.accent)
+                            .foregroundStyle(event.isProblem ? SW.Palette.critical : SW.Palette.accent)
                         Text(event.summary)
                             .font(.system(size: 12))
                             .lineLimit(2)

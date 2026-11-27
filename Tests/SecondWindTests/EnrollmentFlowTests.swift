@@ -291,3 +291,8 @@ private func settle(_ condition: () -> Bool) async {
     model.profiles = [codexAccount(signIn: .alreadyAdded(found: nil))]
     #expect(announcements == 1, "A result the user must act on still comes forward")
 }
+
+@Test func onlyWhatHappenedToASavedResetIsListedInThePopover() {
+    let listed = RedactedEventRecord.Kind.allCases.filter(GuardRuntimeController.isResetOutcome)
+    #expect(Set(listed) == [.redemptionSucceeded, .redemptionFailed, .verificationFailed])
+}

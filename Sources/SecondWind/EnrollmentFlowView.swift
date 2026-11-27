@@ -394,7 +394,7 @@ private struct WaitingScreen: View {
         if isChecking { return "Signed in. One moment." }
         if isPrivateWindow {
             return model.enrollment?.hasCopiedLink == true
-                ? "Open a private or incognito window (\(model.isPreview ? "⇧⌘N" : PrivateWindowShortcut.forDefaultBrowser)), paste the link and sign in with the account you want to add."
+                ? "Open a private or incognito window (\(model.isPreview ? "⇧⌘N" : PrivateWindowShortcut.forDefaultBrowser)), paste the link and sign in."
                 : "One moment."
         }
         return "Sign in to \(provider.signInAccountName) with the account you want to watch."

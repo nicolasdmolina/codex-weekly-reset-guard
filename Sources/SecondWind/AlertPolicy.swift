@@ -19,10 +19,18 @@ struct RemoteAlertAccount: Equatable, Sendable {
     let deviceName: String
     let provider: ProviderKind
     let profileID: UUID
+    var email: String = ""
     let name: String
 
-    /// Never starts with a provider name, so a local roster never prunes it.
-    var token: String { "remote:\(device)|\(provider.rawValue):\(profileID.uuidString.lowercased())" }
+    /// One account across every other Mac, so a window that moves between Macs alerts once. An
+    /// account with no email stays tied to its Mac. Never starts with a provider name, so a local
+    /// roster never prunes it.
+    var token: String {
+        let email = DeviceSyncPolicy.normalizedEmail(email)
+        return email.isEmpty
+            ? "remote:\(device)|\(provider.rawValue):\(profileID.uuidString.lowercased())"
+            : "remote:\(provider.rawValue):\(email)"
+    }
 }
 
 enum AttentionReason: String, Codable, Sendable {

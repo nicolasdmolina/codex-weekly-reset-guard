@@ -79,8 +79,7 @@ final class DeviceSyncCoordinator {
         Task { await pass() }
     }
 
-    func send(to device: SyncDeviceID, account: SharedAccount, enabled: Bool) {
-        let ref = AccountRef(provider: .codex, id: account.profileID)
+    func send(to device: SyncDeviceID, account: SharedAccount, enabled: Bool, reportingTo ref: AccountRef) {
         let deviceName = model?.remoteDevices.first { $0.deviceID == device }?.deviceName ?? "the other Mac"
         guard let service else {
             model?.reportActionFailure("Sync is not connected. Try again in a moment.", for: ref)
@@ -220,7 +219,7 @@ final class DeviceSyncCoordinator {
         // Alerts come only from what this pass actually read, one per account, never for an
         // account this Mac reads itself.
         let fresh = read.filter { $0.freshness(at: now).isLive }
-        for copy in model.remoteCopies(among: fresh, now: now) {
+        for copy in model.remoteAlertSources(among: fresh, now: now) {
             let reading = copy.account.quotaRecord().reading(at: now, policy: .remote)
             for low in reading.currentLowWindows {
                 alerts.post(.remoteLowQuota(
@@ -229,6 +228,7 @@ final class DeviceSyncCoordinator {
                         deviceName: copy.device.deviceName,
                         provider: copy.account.provider == .codex ? .codex : .claude,
                         profileID: copy.account.profileID,
+                        email: copy.account.email,
                         name: copy.account.displayName
                     ),
                     window: low.window

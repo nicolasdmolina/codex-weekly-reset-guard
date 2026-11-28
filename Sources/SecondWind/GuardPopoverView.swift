@@ -303,9 +303,9 @@ struct GuardPopoverView: View {
                 NoticeRow(symbol: "info.circle", text: banner, tone: .neutral)
             }
 
-            let remote = model.remoteCopies(now: now)
-            let remoteCodex = remote.filter { $0.account.provider == .codex }
-            let remoteClaude = remote.filter { $0.account.provider == .claude }
+            let remote = model.remoteOnlyAccounts(now: now)
+            let remoteCodex = remote.filter { $0.host.account.provider == .codex }
+            let remoteClaude = remote.filter { $0.host.account.provider == .claude }
 
             if !model.profiles.isEmpty || !remoteCodex.isEmpty {
                 // Each card shows its own Auto-redeem switch, so the section header repeats nothing.
@@ -314,7 +314,7 @@ struct GuardPopoverView: View {
                         if index > 0 { RowDivider() }
                         CodexAccountRow(
                             profile: profile,
-                            quota: QuotaDisplayBuilder.codex(profile, now: now),
+                            quota: QuotaDisplayBuilder.codex(profile, model: model, now: now),
                             redeemer: model.remoteRedeemer(of: profile, now: now).map { copy in
                                 (copy, model.remoteState(of: copy.account, in: copy.device, now: now))
                             },
@@ -336,7 +336,7 @@ struct GuardPopoverView: View {
                         if index > 0 { RowDivider() }
                         ClaudeAccountRow(
                             profile: profile,
-                            quota: QuotaDisplayBuilder.claude(profile, now: now),
+                            quota: QuotaDisplayBuilder.claude(profile, model: model, now: now),
                             interface: interface,
                             isStaticRender: isStaticRender,
                             isReadOnly: model.isReadOnly,
@@ -358,19 +358,19 @@ struct GuardPopoverView: View {
     }
 
     /// Accounts only another Mac has, listed after this Mac's own in the same section.
-    private func remoteRows(_ copies: [GuardAppModel.RemoteCopy], after localCount: Int, now: Date) -> some View {
-        ForEach(Array(copies.enumerated()), id: \.element.key) { index, copy in
+    private func remoteRows(_ accounts: [GuardAppModel.SyncedAccount], after localCount: Int, now: Date) -> some View {
+        ForEach(Array(accounts.enumerated()), id: \.element.key) { index, synced in
             if localCount + index > 0 { RowDivider() }
             RemoteAccountRow(
-                device: copy.device,
-                account: copy.account,
-                state: model.remoteState(of: copy.account, in: copy.device, now: now),
-                quota: QuotaDisplayBuilder.remote(copy.account, now: now),
+                device: synced.host.device,
+                account: synced.host.account,
+                state: model.remoteState(of: synced.host.account, in: synced.host.device, now: now),
+                quota: QuotaDisplayBuilder.remote(synced.reading.account, now: now),
                 interface: interface,
                 isStaticRender: isStaticRender,
                 isReadOnly: model.isReadOnly,
                 now: now,
-                onToggle: { model.setRemoteAutoReset(device: copy.device, account: copy.account, enabled: $0) }
+                onToggle: { model.setRemoteAutoReset(device: synced.host.device, account: synced.host.account, enabled: $0) }
             )
         }
     }
@@ -815,33 +815,45 @@ private struct CodexAccountRow: View {
     private var ref: AccountRef? { AccountRef(provider: .codex, rawID: profile.id) }
     private var showsAutoRedeem: Bool { profile.isConnected || profile.autoResetEnabled || redeemer != nil }
 
+    /// The other Mac the switch drives: only while this Mac's own Auto-redeem is off.
+    private var driven: (copy: GuardAppModel.RemoteCopy, state: RemoteAccountState)? {
+        profile.autoResetEnabled ? nil : redeemer
+    }
+
     /// What the switch shows: this Mac's setting, or the other Mac's while it redeems the account.
     private var switchIsOn: Bool {
-        guard let redeemer else { return profile.autoResetEnabled }
-        if case let .pending(requested) = redeemer.state { return requested }
-        return redeemer.copy.account.autoRedeemEnabled == true
+        guard let driven else { return profile.autoResetEnabled }
+        if case let .pending(requested) = driven.state { return requested }
+        return driven.copy.account.autoRedeemEnabled == true
     }
 
     private var isWaitingOnOtherMac: Bool {
-        if case .pending = redeemer?.state { return true }
+        if case .pending = driven?.state { return true }
         return false
     }
 
     private var otherMacNote: String? {
-        guard let redeemer else { return nil }
-        let name = redeemer.copy.device.deviceName
+        guard let redeemer, redeemer.copy.account.autoRedeemEnabled == true || driven != nil else { return nil }
+        let device = redeemer.copy.device
+        let name = device.deviceName
+        // Both Macs on can happen when they turn it on within one sync; say so rather than hide it.
+        if profile.autoResetEnabled { return "Also on \(name)" }
         switch redeemer.state {
         case .pending: return "Asking \(name)…"
         case .notApplied: return "\(name) did not change it."
-        case .live, .stale:
-            return redeemer.copy.account.autoRedeemEnabled == true ? "On \(name)" : nil
+        case .live, .stale: break
         }
+        if redeemer.copy.account.attentionMessage != nil { return "On \(name), which needs attention" }
+        if !device.freshness(at: now).isLive {
+            return "On \(name), seen \(QuotaTimeFormat.age(of: device.publishedAt, reference: now))"
+        }
+        return "On \(name)"
     }
 
     private var switchDisabled: Bool {
         if isReadOnly || isWaitingOnOtherMac { return true }
         // A quiet Mac would not see a change sent from here before it expires.
-        if let redeemer { return !redeemer.copy.device.acceptsCommands || !redeemer.copy.device.freshness(at: now).isLive }
+        if let driven { return !driven.copy.device.acceptsCommands || !driven.copy.device.freshness(at: now).isLive }
         return !profile.isConnected && !profile.autoResetEnabled
     }
 

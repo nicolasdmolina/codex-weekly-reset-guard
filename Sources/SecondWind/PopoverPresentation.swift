@@ -168,6 +168,19 @@ enum QuotaDisplayBuilder {
     }
 
     /// An account another Mac hosts, read with the remote stale line.
+    /// This Mac's card, showing another Mac's current reading while its own is not current.
+    @MainActor
+    static func codex(_ profile: GuardProfilePresentation, model: GuardAppModel, now: Date) -> AccountQuotaDisplay {
+        model.borrowedReading(provider: .codex, email: profile.email, record: profile.quota, now: now)
+            .map { remote($0, now: now) } ?? codex(profile, now: now)
+    }
+
+    @MainActor
+    static func claude(_ profile: ClaudeProfilePresentation, model: GuardAppModel, now: Date) -> AccountQuotaDisplay {
+        model.borrowedReading(provider: .claude, email: profile.email, record: profile.quota, now: now)
+            .map { remote($0, now: now) } ?? claude(profile, now: now)
+    }
+
     static func remote(_ account: SharedAccount, now: Date) -> AccountQuotaDisplay {
         let lowLine = QuotaReadPolicy.remote.lowRemainingPercent
         return display(
@@ -300,11 +313,11 @@ struct PopoverSummary: Equatable {
         now: Date
     ) -> PopoverSummary {
         let convention = interface.preferences.quota
-        let codex = model.profiles.map { (name: $0.displayName, display: QuotaDisplayBuilder.codex($0, now: now)) }
-        let claude = model.claudeProfiles.map { (name: $0.displayName, display: QuotaDisplayBuilder.claude($0, now: now)) }
-        // An account on this Mac and another counts once, through this Mac's own reading.
-        let remote = model.remoteCopies(now: now).map {
-            (name: $0.account.displayName, display: QuotaDisplayBuilder.remote($0.account, now: now))
+        let codex = model.profiles.map { (name: $0.displayName, display: QuotaDisplayBuilder.codex($0, model: model, now: now)) }
+        let claude = model.claudeProfiles.map { (name: $0.displayName, display: QuotaDisplayBuilder.claude($0, model: model, now: now)) }
+        // Each account counts once, through the same card the popover shows.
+        let remote = model.remoteOnlyAccounts(now: now).map {
+            (name: $0.host.account.displayName, display: QuotaDisplayBuilder.remote($0.reading.account, now: now))
         }
         let accounts = codex + claude + remote
         let currentWindows = accounts.flatMap { account in

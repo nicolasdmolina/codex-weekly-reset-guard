@@ -96,14 +96,21 @@ and lists the ID in its next snapshot, which the sender treats as the answer.
 
 The popover lists each account once. Accounts on different Macs are the same
 account when provider and normalized email match; accounts with no email never
-merge. `remoteCopies` picks one copy per account: a copy with a change in flight,
-then one that redeems it, then a current one, then a fixed Mac, so the card does
-not move as Macs publish. The copy is hidden while this Mac has a current reading
-of the account. The menu bar and remote alerts use the same list, so one low
-window notifies once. While another Mac redeems a merged Codex account, even one
-that has gone quiet, the card's switch shows that Mac's setting. Turning it off
-sends that Mac a command, and the switch locks while that Mac is quiet. Turning
-it on always runs here.
+merge. `syncedAccounts` groups other Macs' copies by account and makes two
+separate choices. The reading is the copy with the newest current observation.
+The redeemer is a copy with a change in flight, else one with Auto-redeem on,
+preferring a live snapshot. A remote-only card names and drives the redeemer, or
+a fixed Mac when none redeems, so it does not move as Macs publish.
+
+An account this Mac has is always one card. While its own reading is not
+current, the card shows another Mac's current reading. Its switch shows the
+redeemer's setting while this Mac's Auto-redeem is off; turning it off sends that
+Mac a command, failures report on this card, and the switch locks while that Mac
+is quiet. Turning it on always runs here. The caption names a quiet or troubled
+redeemer, and says when both Macs have Auto-redeem on. The menu bar uses the same
+cards. Remote alerts come from the newest current reading of each account this
+Mac does not read currently, keyed by provider and email, so a low window
+notifies once even when it moves between Macs.
 
 The viewing Mac reads remote windows through `QuotaReadPolicy.remote`. A snapshot
 or reading older than 10 minutes is stale: it shows its age and never alerts.

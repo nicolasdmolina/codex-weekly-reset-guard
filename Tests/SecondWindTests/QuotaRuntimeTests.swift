@@ -174,6 +174,30 @@ import Testing
     await controller.stop()
 }
 
+@Test @MainActor func aCurrentMonthlyReadingClearsAnOldCheckFailure() async throws {
+    // Before monthly-only plans were understood, every check failed and flagged the account.
+    let fixture = try QuotaFixture(profiles: [("free@example.com", false)]) { state in
+        state.phase = .attentionRequired
+        state.attentionMessage = "The weekly limit could not be classified safely. Redemption is blocked."
+    }
+    defer { fixture.remove() }
+    let clock = QuotaClock(fixture.now)
+    let session = QuotaSession(email: "free@example.com", clock: clock, sessionUsed: 0, weeklyUsed: 0, monthlyOnly: true)
+    let controller = fixture.controller(sessions: ["free@example.com": session], clock: clock)
+    _ = try await controller.start()
+    #expect(await settled(controller, sessions: [session]))
+    let model = GuardAppModel(referenceDate: clock.value)
+    model.apply(await controller.snapshot())
+    let profile = try #require(model.profiles.first)
+    #expect(profile.status == .healthy)
+    #expect(profile.detail == "Monthly usage is current.")
+    #expect(model.sharedAccounts().first?.attentionMessage == nil)
+    let id = try #require(UUID(uuidString: profile.id))
+    #expect(try await fixture.persistedPhase(id) == .disabled)
+    #expect(await session.consumeCount() == 0)
+    await controller.stop()
+}
+
 @Test func codexReadingGoesStaleWithoutAFreshPoll() async throws {
     let fixture = try QuotaFixture(profiles: [("first@example.com", false)])
     defer { fixture.remove() }
@@ -634,7 +658,7 @@ private struct QuotaFixture: @unchecked Sendable {
     let profilesURL: URL
     let now = Date(timeIntervalSince1970: 2_000_000_000)
 
-    init(profiles: [(String, Bool)]) throws {
+    init(profiles: [(String, Bool)], monitor: (inout MonitorState) -> Void = { _ in }) throws {
         root = FileManager.default.temporaryDirectory
             .appendingPathComponent("quota-runtime-tests-\(UUID().uuidString)", isDirectory: true)
         stateURL = root.appendingPathComponent("state.json")
@@ -653,7 +677,9 @@ private struct QuotaFixture: @unchecked Sendable {
             profiles: configurations,
             monitorStates: Dictionary(uniqueKeysWithValues: configurations.map { profile in
                 let key = GuardPersistentState.key(for: profile.id)
-                return (key, MonitorState(profileID: key, isEnabled: profile.isEnabled))
+                var state = MonitorState(profileID: key, isEnabled: profile.isEnabled)
+                monitor(&state)
+                return (key, state)
             }),
             createdAt: now
         )

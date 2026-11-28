@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.4
 
 - A Codex Free account that failed its checks before 0.4.1 no longer stays
   flagged in red with “Monthly usage is current.” Its next monthly reading

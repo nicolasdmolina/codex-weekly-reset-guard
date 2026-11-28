@@ -359,8 +359,9 @@ final class GuardAppModel: ObservableObject {
         let currentReading: RemoteCopy?
         /// The copy that redeems the account or waits on a change to it.
         let redeemer: RemoteCopy?
-        /// The copy a remote-only card names and drives: the redeemer, else the first Mac that can
-        /// take a change now, else the first Mac. A fixed order, so the card does not move between
+        /// The copy a remote-only card names and drives: a live redeemer or one with a change in
+        /// flight, else the first Mac that can take a change now, else a quiet redeemer, else the
+        /// first Mac. A fixed order, so the card does not move between
         /// Macs as each reads.
         let host: RemoteCopy
 
@@ -400,9 +401,11 @@ final class GuardAppModel: ObservableObject {
         }
         let redeemer = byDevice.filter { redeemRank($0) > 0 }.max { redeemRank($0) < redeemRank($1) }
         let reachable = byDevice.first { $0.device.freshness(at: now).isLive && $0.device.acceptsCommands }
+        // A quiet redeemer yields to a Mac that can take a change, as `AutoRedeemGuard` ignores it.
+        let activeRedeemer = redeemer.flatMap { redeemRank($0) >= 2 ? $0 : nil }
         return SyncedAccount(
             key: key, copies: copies, currentReading: current, redeemer: redeemer,
-            host: redeemer ?? reachable ?? byDevice[0]
+            host: activeRedeemer ?? reachable ?? redeemer ?? byDevice[0]
         )
     }
 
@@ -428,16 +431,19 @@ final class GuardAppModel: ObservableObject {
         return synced(provider: provider, email: email, now: now)?.currentReading?.account
     }
 
-    /// Accounts whose low windows this Mac alerts for on another Mac's behalf, from the newest
-    /// current reading among `devices`. A Claude account this Mac reads currently is left out
-    /// because Claude monitoring alerts for it here; Codex monitoring has no low alert of its own.
+    /// The newest current reading of each account among `devices`, for remote low alerts.
     func remoteAlertSources(among devices: [DeviceSnapshot], now: Date) -> [RemoteCopy] {
-        let localCurrent = Set(
-            claudeProfiles.filter { Self.isCurrent($0.quota, now: now) }.compactMap { Self.accountKey(.claude, email: $0.email) }
-        )
-        return syncedAccounts(among: devices, now: now)
-            .filter { !localCurrent.contains($0.key) }
-            .compactMap(\.currentReading)
+        syncedAccounts(among: devices, now: now).compactMap(\.currentReading)
+    }
+
+    /// True when this Mac alerts for this window itself: Claude monitoring does for every window
+    /// it reads currently. Codex monitoring has no low alert of its own.
+    func alertsLocally(_ account: SharedAccount, window kind: QuotaWindowKind, now: Date) -> Bool {
+        guard account.provider == .claude, let key = Self.accountKey(.claude, email: account.email) else { return false }
+        return claudeProfiles.contains { profile in
+            Self.accountKey(.claude, email: profile.email) == key
+                && profile.quota?.reading(at: now).windows.contains { $0.isCurrent && $0.window.kind == kind } == true
+        }
     }
 
     private static func isCurrent(_ record: QuotaAccountRecord?, now: Date) -> Bool {

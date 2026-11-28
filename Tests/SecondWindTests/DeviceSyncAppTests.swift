@@ -306,13 +306,6 @@ private let laptop = SyncDeviceID(UUID(uuidString: "22222222-0000-4000-8000-0000
     // The low window alerts from the Mac that read it, not the Mac that redeems.
     #expect(model.remoteAlertSources(among: model.remoteDevices, now: now).map(\.device.deviceID) == [laptop])
 
-    // A Codex account this Mac also reads still alerts, since Codex monitoring has none of its own.
-    var local = localWork()
-    local.quota = reading()
-    model.profiles = [local]
-    #expect(model.remoteAlertSources(among: model.remoteDevices, now: now).count == 1)
-    model.profiles = []
-
     // With no Mac redeeming, the card stays on a fixed Mac however publishing goes.
     model.remoteDevices[1].accounts[0].autoRedeemEnabled = false
     let host = model.remoteOnlyAccounts(now: now).first?.host.device.deviceID
@@ -329,6 +322,35 @@ private let laptop = SyncDeviceID(UUID(uuidString: "22222222-0000-4000-8000-0000
         device(laptop, name: "MacBook", accounts: [sharedAccount(UUID(), email: "work@example.com")]),
     ]
     #expect(model.remoteOnlyAccounts(now: now).first?.host.device.deviceID == laptop)
+
+    // A quiet Mac that last had Auto-redeem on yields to the live one as well.
+    model.remoteDevices[0].accounts[0].autoRedeemEnabled = true
+    let synced = model.remoteOnlyAccounts(now: now).first
+    #expect(synced?.host.device.deviceID == laptop)
+    #expect(synced?.redeemer?.device.deviceID == mini)
+}
+
+@Test @MainActor func onlyAClaudeWindowThisMacReadsSkipsTheRemoteAlert() {
+    let claude = ClaudeProfilePresentation(
+        id: workID.uuidString.lowercased(), displayName: "Work", accountHint: "w•••@example.com", planName: nil,
+        windows: [], status: .healthy, detail: "", signInURL: nil,
+        quota: QuotaAccountRecord(
+            provider: .claude,
+            accountID: workID,
+            lastSuccess: QuotaObservation(
+                observedAt: now.addingTimeInterval(-30),
+                windows: [QuotaWindow(kind: .weekly, usedPercent: 50, resetsAt: now.addingTimeInterval(86_400))],
+                inventory: .notTracked
+            )
+        ),
+        email: "work@example.com"
+    )
+    let model = GuardAppModel(claudeProfiles: [claude], referenceDate: now)
+    let remote = SharedAccount(profileID: remoteWorkID, provider: .claude, displayName: "Work", email: "work@example.com", autoRedeemEnabled: nil, windows: [])
+    #expect(model.alertsLocally(remote, window: .weekly, now: now))
+    #expect(!model.alertsLocally(remote, window: .session, now: now))
+    let codex = sharedAccount(remoteWorkID, email: "work@example.com")
+    #expect(!model.alertsLocally(codex, window: .weekly, now: now))
 }
 
 @Test @MainActor func aRefusedChangeNeverHidesTheMacThatIsOn() {

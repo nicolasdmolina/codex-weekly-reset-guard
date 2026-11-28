@@ -216,12 +216,12 @@ final class DeviceSyncCoordinator {
             }
             return false
         }
-        // Alerts come only from what this pass actually read, one per account, never for an
-        // account this Mac reads itself.
+        // Alerts come only from what this pass actually read, one per account, never for a window
+        // this Mac alerts for itself.
         let fresh = read.filter { $0.freshness(at: now).isLive }
         for copy in model.remoteAlertSources(among: fresh, now: now) {
             let reading = copy.account.quotaRecord().reading(at: now, policy: .remote)
-            for low in reading.currentLowWindows {
+            for low in reading.currentLowWindows where !model.alertsLocally(copy.account, window: low.window.kind, now: now) {
                 alerts.post(.remoteLowQuota(
                     RemoteAlertAccount(
                         device: copy.device.deviceID,

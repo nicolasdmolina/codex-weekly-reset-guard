@@ -17,6 +17,16 @@ struct ProviderMark: Shape {
         switch provider {
         case .codex: Self.openAI(&p, pt)
         case .claude: Self.claude(&p, pt)
+        case .antigravity:
+            // The silhouette from Google's Antigravity favicon, centered in the service tile.
+            p.move(to: pt(84, 87))
+            p.addCurve(to: pt(89, 82), control1: pt(89, 91), control2: pt(96, 88))
+            p.addCurve(to: pt(50, 12), control1: pt(70, 63), control2: pt(74, 12))
+            p.addCurve(to: pt(11, 82), control1: pt(26, 12), control2: pt(30, 63))
+            p.addCurve(to: pt(16, 87), control1: pt(4, 89), control2: pt(11, 91))
+            p.addCurve(to: pt(50, 53), control1: pt(34, 75), control2: pt(33, 53))
+            p.addCurve(to: pt(84, 87), control1: pt(67, 53), control2: pt(66, 75))
+            p.closeSubpath()
         }
         return p
     }
@@ -25,7 +35,7 @@ struct ProviderMark: Shape {
     /// orange. Brand colour identifies the service and is never used as an accent.
     static func color(for provider: ProviderKind) -> Color {
         switch provider {
-        case .codex: SW.Palette.textPrimary
+        case .codex, .antigravity: SW.Palette.textPrimary
         case .claude: SW.Palette.claudeMark
         }
     }

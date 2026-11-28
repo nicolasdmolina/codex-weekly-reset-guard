@@ -62,21 +62,19 @@ struct GuardProfilePresentation: Identifiable, Equatable, Sendable {
     var isConnected: Bool { identityVerified && status != .disconnected }
 }
 
-enum ProviderKind: String, CaseIterable, Identifiable, Sendable {
-    case codex
-    case claude
+typealias ProviderKind = QuotaProvider
 
-    var id: String { rawValue }
-
+extension QuotaProvider {
     var title: String {
         switch self {
         case .codex: "Codex"
         case .claude: "Claude"
+        case .antigravity: "Antigravity"
         }
     }
 }
 
-enum ClaudeProfileStatus: String, Equatable, Sendable {
+enum MonitorProfileStatus: String, Equatable, Sendable {
     case checking
     case healthy
     case low
@@ -125,7 +123,7 @@ struct ClaudeProfilePresentation: Identifiable, Equatable, Sendable {
     var accountHint: String
     var planName: String?
     var windows: [ClaudeWindowPresentation]
-    var status: ClaudeProfileStatus
+    var status: MonitorProfileStatus
     var detail: String
     var signInURL: URL?
     /// Quota evidence with per-account timestamps. Nil only in previews that predate it.
@@ -158,6 +156,10 @@ final class GuardAppModel: ObservableObject {
     @Published var claudeProfiles: [ClaudeProfilePresentation] {
         didSet { refreshSignIns() }
     }
+    @Published var antigravity: AntigravityProfile?
+    @Published var isCheckingAntigravity = false
+    var onAddAntigravity: (() -> Void)?
+    var onRetryAntigravity: (() -> Void)?
     @Published var isCheckingClaude = false
     /// The add-account flow, kept here so it survives the popover closing for the browser.
     @Published var enrollment: EnrollmentFlow?
@@ -222,7 +224,7 @@ final class GuardAppModel: ObservableObject {
         self.referenceDate = referenceDate
     }
 
-    var hasAccounts: Bool { !profiles.isEmpty || !claudeProfiles.isEmpty }
+    var hasAccounts: Bool { !profiles.isEmpty || !claudeProfiles.isEmpty || antigravity != nil }
 
     var hasRemoteAccounts: Bool { remoteDevices.contains { !$0.accounts.isEmpty } }
 
@@ -234,11 +236,12 @@ final class GuardAppModel: ObservableObject {
         }
     }
 
-    var isBusyChecking: Bool { isChecking || isCheckingClaude }
+    var isBusyChecking: Bool { isChecking || isCheckingClaude || isCheckingAntigravity }
 
     /// Every account's reading at `now`, Codex first, in display order.
     func quotaReadings(at now: Date) -> [QuotaAccountReading] {
-        (profiles.compactMap(\.quota) + claudeProfiles.compactMap(\.quota)).map { $0.reading(at: now) }
+        (profiles.compactMap(\.quota) + claudeProfiles.compactMap(\.quota) + [antigravity?.quota].compactMap { $0 })
+            .map { $0.reading(at: now) }
     }
 
     /// All clear only when every account has a current reading and none is low.
@@ -260,12 +263,13 @@ final class GuardAppModel: ObservableObject {
         let claude = claudeProfiles.flatMap { profile in
             profile.quota.map(current) ?? profile.tightestWindow.map { [$0.remainingPercent] } ?? []
         }
-        return (codex + claude).min()
+        return (codex + claude + (antigravity.map { current($0.quota) } ?? [])).min()
     }
 
     var attentionCount: Int {
         profiles.filter { $0.status == .attention || $0.status == .disconnected }.count
             + claudeProfiles.filter { $0.status == .attention || $0.status == .signedOut }.count
+            + (antigravity?.quota.lastFailure == nil ? 0 : 1)
     }
 
     var hasAttention: Bool { attentionCount > 0 }

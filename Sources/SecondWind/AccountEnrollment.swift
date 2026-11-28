@@ -97,6 +97,7 @@ extension ProviderKind {
         switch self {
         case .codex: "ChatGPT"
         case .claude: "Claude"
+        case .antigravity: "Google"
         }
     }
 }
@@ -179,6 +180,7 @@ extension GuardAppModel {
         switch ref.provider {
         case .codex: return profiles.first { $0.id == raw }?.signIn
         case .claude: return claudeProfiles.first { $0.id == raw }?.signIn
+        case .antigravity: return nil
         }
     }
 
@@ -191,7 +193,12 @@ extension GuardAppModel {
 
     /// Codex adds wait for its runtime to load; Claude reports its own unloaded state.
     func canAdd(_ provider: ProviderKind) -> Bool {
-        !isReadOnly && (provider == .claude || isReady)
+        guard !isReadOnly else { return false }
+        switch provider {
+        case .codex: return isReady
+        case .claude: return true
+        case .antigravity: return antigravity == nil && (isPreview || onAddAntigravity != nil)
+        }
     }
 
     // MARK: Moving through the flow
@@ -209,6 +216,7 @@ extension GuardAppModel {
         switch provider {
         case .codex: onAddProfile?()
         case .claude: onAddClaudeProfile?()
+        case .antigravity: onAddAntigravity?()
         }
     }
 
@@ -277,6 +285,7 @@ extension GuardAppModel {
             switch ref.provider {
             case .codex: onReconnect?(raw)
             case .claude: onConnectClaude?(raw)
+            case .antigravity: break
             }
         case .choose, .starting:
             break
@@ -296,7 +305,7 @@ extension GuardAppModel {
             onCancelClaudeSignIn?(raw)
         }
         let othersRemain = profiles.contains { $0.id != raw } || claudeProfiles.contains { $0.id != raw }
-            || hasRemoteAccounts
+            || antigravity != nil || hasRemoteAccounts
         enrollment = othersRemain ? nil : EnrollmentFlow(step: .choose)
         if isPreview {
             profiles.removeAll { $0.id == raw }
@@ -378,6 +387,10 @@ extension GuardAppModel {
     private func simulateEnrollment(provider: ProviderKind) {
         let ref = AccountRef(provider: provider, id: UUID())
         switch provider {
+        case .antigravity:
+            antigravity = PreviewFixtures.antigravityProfile()
+            enrollment = nil
+            return
         case .codex:
             profiles.append(PreviewFixtures.enrollingCodex(ref.id, name: AccountNaming.provisionalName, hint: "Expected Codex account"))
         case .claude:
@@ -394,6 +407,7 @@ extension GuardAppModel {
             if let index = profiles.firstIndex(where: { $0.id == raw }) { profiles[index].signIn = .waiting }
         case .claude:
             if let index = claudeProfiles.firstIndex(where: { $0.id == raw }) { claudeProfiles[index].signIn = .waiting }
+        case .antigravity: return
         }
         if var flow = enrollment, case .signIn(ref) = flow.step {
             flow.signInURL = PreviewFixtures.signInURL(for: ref.provider)
@@ -406,6 +420,7 @@ extension GuardAppModel {
             self.lastCheckedAt = self.referenceDate ?? Date()
             let email = ref.provider == .codex ? "sample@gmail.com" : "you@studio.example"
             switch ref.provider {
+            case .antigravity: return
             case .codex:
                 if let index = self.profiles.firstIndex(where: { $0.id == raw }) {
                     let taken = self.profiles.filter { $0.id != raw }.map(\.displayName)

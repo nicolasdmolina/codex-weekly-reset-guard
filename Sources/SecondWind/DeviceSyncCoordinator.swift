@@ -102,7 +102,7 @@ final class DeviceSyncCoordinator {
     func pass() async {
         guard let interface, interface.syncEnabled else { return }
         // Until both providers have answered, an empty roster would reject commands for real accounts.
-        guard !interface.providerStates.values.contains(.loading) else { return }
+        guard interface.providerStates[.codex] != .loading, interface.providerStates[.claude] != .loading else { return }
         guard let service = await makeService() else {
             interface.updateSyncStatus(.unavailable)
             await record(["publish": "skipped", "read": "skipped", "icloudDrive": "missing"])
@@ -226,7 +226,7 @@ final class DeviceSyncCoordinator {
                     RemoteAlertAccount(
                         device: copy.device.deviceID,
                         deviceName: copy.device.deviceName,
-                        provider: copy.account.provider == .codex ? .codex : .claude,
+                        provider: copy.account.provider,
                         profileID: copy.account.profileID,
                         email: copy.account.email,
                         name: copy.account.displayName

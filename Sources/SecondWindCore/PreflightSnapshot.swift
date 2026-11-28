@@ -7,7 +7,7 @@ import Foundation
 /// emails, names and plan details are never written. `providers` lists the account rosters
 /// loaded during the publishing app run; an absent provider means its accounts are not known yet.
 public struct PreflightSnapshot: Equatable, Sendable {
-    public static let currentSchemaVersion = 1
+    public static let currentSchemaVersion = 2
 
     public var publishedAt: Date
     public var providers: Set<QuotaProvider>
@@ -64,7 +64,7 @@ public enum PreflightSnapshotFile {
         guard let probe = try? JSONDecoder().decode(VersionProbe.self, from: data) else {
             return .failure(.invalid)
         }
-        guard probe.schemaVersion == PreflightSnapshot.currentSchemaVersion else {
+        guard (1...PreflightSnapshot.currentSchemaVersion).contains(probe.schemaVersion) else {
             return .failure(.unsupportedVersion)
         }
         let decoder = JSONDecoder()
@@ -173,7 +173,9 @@ private struct SnapshotFile: Codable {
             guard let record = entry.record else { return nil }
             records.append(record)
         }
-        return PreflightSnapshot(publishedAt: publishedAt, providers: loaded, accounts: records)
+        // Version 1 ran before Antigravity enrollment existed. Its roster was known empty.
+        let complete = schemaVersion == 1 ? loaded.union([.antigravity]) : loaded
+        return PreflightSnapshot(publishedAt: publishedAt, providers: complete, accounts: records)
     }
 }
 
@@ -309,6 +311,12 @@ extension QuotaWindowKind {
         case "weekly": self = .weekly
         case "monthly": self = .monthly
         default:
+            if key.hasPrefix("group:") {
+                let parts = key.split(separator: ":", maxSplits: 2)
+                guard parts.count == 3, let window = PreflightWindow(rawValue: String(parts[1])) else { return nil }
+                self = .group(window, String(parts[2]))
+                return
+            }
             let prefix = "weekly:"
             guard key.hasPrefix(prefix), key.count > prefix.count else { return nil }
             self = .modelWeekly(String(key.dropFirst(prefix.count)))

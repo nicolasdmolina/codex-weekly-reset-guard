@@ -141,7 +141,7 @@ final class GuardInterfaceModel: ObservableObject {
     static func maximumNameLength(for provider: ProviderKind) -> Int {
         switch provider {
         case .codex: 60
-        case .claude: 48
+        case .claude, .antigravity: 48
         }
     }
     static let highlightDuration: TimeInterval = 2.4
@@ -441,10 +441,12 @@ final class GuardInterfaceModel: ObservableObject {
         let present = Set(
             model.profiles.compactMap { AccountRef(provider: .codex, rawID: $0.id) }
                 + model.claudeProfiles.compactMap { AccountRef(provider: .claude, rawID: $0.id) }
+                + [model.antigravity?.ref].compactMap { $0 }
         )
         let published = switch target.provider {
         case .codex: model.isReady
         case .claude: !model.claudeProfiles.isEmpty
+        case .antigravity: model.antigravity != nil
         }
         switch RevealResolution.resolve(
             target: target,

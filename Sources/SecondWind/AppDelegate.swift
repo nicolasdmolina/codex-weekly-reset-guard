@@ -7,6 +7,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private let model: GuardAppModel
     /// Popover UI state and the user actions the app wires to the runtimes.
     let interface: GuardInterfaceModel
+    var antigravity: AntigravityMonitor?
     var finishQuotaUpdates: (() async -> Void)?
     var onPopoverOpen: (() -> Void)?
     private let runtime: GuardRuntimeController?
@@ -70,11 +71,13 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
     private func startProviders() {
         startupTask = Task { @MainActor [weak self] in
             guard let self else { return }
+            if let antigravity { antigravity.start() } else { interface.providerDidLoad(.antigravity) }
             async let codexCount = startCodex()
             async let claudeCount = startClaude()
             let counts = await (codexCount, claudeCount)
             guard !Task.isCancelled else { return }
-            if !model.isReadOnly, interface.allProvidersLoaded, counts.0 == 0, counts.1 == 0, !popover.isShown {
+            if !model.isReadOnly, interface.allProvidersLoaded, counts.0 == 0, counts.1 == 0,
+               model.antigravity == nil, !popover.isShown {
                 showPopover()
             }
         }
@@ -211,6 +214,7 @@ final class AppDelegate: NSObject, NSApplicationDelegate, NSPopoverDelegate {
         guard !isFinishingTermination else { return .terminateLater }
         isFinishingTermination = true
         startupTask?.cancel()
+        antigravity?.stop()
         Task {
             await claudeMonitor?.stop()
             await runtime.stop()

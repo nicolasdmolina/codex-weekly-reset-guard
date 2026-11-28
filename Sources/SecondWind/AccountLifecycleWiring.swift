@@ -11,9 +11,10 @@ struct AccountLifecycleHandlers: Sendable {
     init(
         codex: GuardRuntimeController,
         claude: ClaudeMonitorController?,
+        antigravity: AntigravityMonitor? = nil,
         onNotice: (@MainActor @Sendable (AccountRef, String) -> Void)? = nil
     ) {
-        rename = { [weak codex, weak claude] account, name in
+        rename = { [weak codex, weak claude, weak antigravity] account, name in
             switch account.provider {
             case .codex:
                 guard let codex else { throw AccountLifecycleError.unavailable }
@@ -21,9 +22,12 @@ struct AccountLifecycleHandlers: Sendable {
             case .claude:
                 guard let claude else { throw AccountLifecycleError.unavailable }
                 try await claude.renameProfile(profileID: account.id, displayName: name)
+            case .antigravity:
+                guard let antigravity else { throw AccountLifecycleError.unavailable }
+                try await antigravity.rename(account.id, to: name)
             }
         }
-        remove = { [weak codex, weak claude] account in
+        remove = { [weak codex, weak claude, weak antigravity] account in
             let outcome: AccountRemovalOutcome
             switch account.provider {
             case .codex:
@@ -32,6 +36,10 @@ struct AccountLifecycleHandlers: Sendable {
             case .claude:
                 guard let claude else { throw AccountLifecycleError.unavailable }
                 outcome = try await claude.removeProfile(profileID: account.id)
+            case .antigravity:
+                guard let antigravity else { throw AccountLifecycleError.unavailable }
+                try await antigravity.remove(account.id)
+                outcome = .complete
             }
             if let notice = outcome.notice, let onNotice {
                 await onNotice(account, notice)

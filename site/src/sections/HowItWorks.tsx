@@ -42,9 +42,9 @@ export function HowItWorks() {
               Codex redeems a saved reset for you
             </Heading>
             <Text as="p" color="secondary" className="prose">
-              For each Codex account you see how much of the week is left (or the month, on Codex
-              Free), when it renews and how many resets you have saved. Turn on auto-redeem and it uses a reset only when all of
-              this is true:
+              For each Codex account you see how much of the week is left, when it renews and how
+              many resets you have saved. Codex Free shows its monthly limit instead and never
+              auto-redeems. Turn on auto-redeem and it uses a reset only when all of this is true:
             </Text>
             <InView
               viewOptions={{ once: true, margin: '0px 0px -15% 0px' }}
@@ -98,8 +98,7 @@ export function HowItWorks() {
             </Heading>
             <Text as="p" color="secondary" className="prose">
               Second Wind follows the account signed in to the Antigravity CLI on your Mac. You see
-              how much of each model group&rsquo;s weekly and 5-hour limit is left and when it
-              refills. You get one notification at 10%. Turn on refill alerts in Settings to hear
+              the weekly and 5-hour limits it reports for each model group, and when they refill. You get one notification at 10%. Turn on refill alerts in Settings to hear
               when a used-up limit works again. Google applies the refill.
             </Text>
           </article>

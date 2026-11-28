@@ -49,8 +49,8 @@ export function Hero() {
             <span id="hero-title">Second Wind</span>
           </Heading>
           <Text as="p" size="lg" color="secondary" className="hero__lede" textWrap="pretty">
-            See your Codex, Claude and Antigravity usage limits for every account in the Mac menu
-            bar. When a limit runs low, it helps you use a reset before you run out.
+            See your Codex and Claude usage limits for every account, plus your Antigravity quota,
+            in the Mac menu bar. When a limit runs low, it helps you use a reset before you run out.
           </Text>
           <div className="hero__actions">
             <Button

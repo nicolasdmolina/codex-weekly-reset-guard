@@ -18,7 +18,7 @@ const questions = [
   },
   {
     q: 'Can I see accounts from my other Macs?',
-    a: 'Yes. Turn on Sync with your other Macs in Settings on each Mac. It uses your iCloud Drive. An account signed in on both Macs shows as one card, and a saved Codex reset is never spent twice.',
+    a: 'Yes, for Codex and Claude accounts. Turn on Sync with your other Macs in Settings on each Mac. It uses your iCloud Drive. The same account on two Macs shows as one card, and Second Wind won’t turn on Auto-redeem for an account another Mac already redeems.',
   },
   {
     q: 'I use Codex Weekly Reset Guard. What happens?',

@@ -14,7 +14,7 @@ const facts = [
   },
   {
     title: 'No analytics and no server.',
-    body: 'No tracking, no crash uploads, no backend of ours. Accounts and readings stay on your Mac. If you turn on sync, they also go to your other Macs through your own iCloud Drive. The official tools still talk to OpenAI, Anthropic and Google as they always do.',
+    body: 'No tracking, no crash uploads, no backend of ours. Accounts and readings stay on your Mac. If you turn on sync, Codex and Claude accounts and readings also go to your other Macs through your own iCloud Drive. The official tools still talk to OpenAI, Anthropic and Google as they always do.',
   },
   {
     title: 'Nothing is on until you turn it on.',

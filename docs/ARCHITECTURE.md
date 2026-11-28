@@ -105,8 +105,9 @@ a fixed Mac when none redeems, so it does not move as Macs publish.
 An account this Mac has is always one card. While its own reading is not
 current, the card shows another Mac's current reading. Its switch shows the
 redeemer's setting while this Mac's Auto-redeem is off; turning it off sends that
-Mac a command, failures report on this card, and the switch locks while that Mac
-is quiet. Turning it on always runs here. The caption names a quiet or troubled
+Mac a command and failures report on this card. A quiet redeemer hands the switch
+back to this Mac, as `AutoRedeemGuard` does, and the caption says when it was last
+seen. Turning it on always runs here. The caption names a quiet or troubled
 redeemer, and says when both Macs have Auto-redeem on. The menu bar uses the same
 cards. Remote alerts come from the newest current reading of each account this
 Mac does not read currently, keyed by provider and email, so a low window

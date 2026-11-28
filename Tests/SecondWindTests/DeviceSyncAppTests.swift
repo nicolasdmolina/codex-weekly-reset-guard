@@ -343,9 +343,14 @@ private let laptop = SyncDeviceID(UUID(uuidString: "22222222-0000-4000-8000-0000
     #expect(sent.first?.1 == AccountRef(provider: .codex, rawID: id))
     #expect(toggles.isEmpty)
 
-    // A Mac that went quiet with Auto-redeem on still shows as the one redeeming.
+    // A Mac that went quiet with Auto-redeem on is still named, but hands the switch back so this
+    // Mac can take over.
     model.remoteDevices = [miniSnapshot(autoRedeem: true, publishedAt: now.addingTimeInterval(-3 * 3_600))]
     #expect(model.remoteRedeemer(of: model.profiles[0], now: now)?.device.deviceID == mini)
+    #expect(model.drivenRedeemer(of: model.profiles[0], now: now) == nil)
+    model.setAccountAutoReset(profileID: id, enabled: true)
+    #expect(toggles == [true])
+    toggles = []
 
     // Once no other Mac redeems it, the switch runs Auto-redeem here.
     model.remoteDevices = [miniSnapshot(autoRedeem: false)]

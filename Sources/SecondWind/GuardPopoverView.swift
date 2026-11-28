@@ -318,6 +318,7 @@ struct GuardPopoverView: View {
                             redeemer: model.remoteRedeemer(of: profile, now: now).map { copy in
                                 (copy, model.remoteState(of: copy.account, in: copy.device, now: now))
                             },
+                            drivesRedeemer: model.drivenRedeemer(of: profile, now: now) != nil,
                             interface: interface,
                             isStaticRender: isStaticRender,
                             isReadOnly: model.isReadOnly,
@@ -766,6 +767,8 @@ private struct CodexAccountRow: View {
     let quota: AccountQuotaDisplay
     /// Another Mac that redeems this same account while this Mac's switch is off.
     var redeemer: (copy: GuardAppModel.RemoteCopy, state: RemoteAccountState)? = nil
+    /// True while the switch shows and changes the redeemer's setting instead of this Mac's.
+    var drivesRedeemer = false
     @ObservedObject var interface: GuardInterfaceModel
     let isStaticRender: Bool
     let isReadOnly: Bool
@@ -815,9 +818,8 @@ private struct CodexAccountRow: View {
     private var ref: AccountRef? { AccountRef(provider: .codex, rawID: profile.id) }
     private var showsAutoRedeem: Bool { profile.isConnected || profile.autoResetEnabled || redeemer != nil }
 
-    /// The other Mac the switch drives: only while this Mac's own Auto-redeem is off.
     private var driven: (copy: GuardAppModel.RemoteCopy, state: RemoteAccountState)? {
-        profile.autoResetEnabled ? nil : redeemer
+        drivesRedeemer ? redeemer : nil
     }
 
     /// What the switch shows: this Mac's setting, or the other Mac's while it redeems the account.
@@ -852,8 +854,7 @@ private struct CodexAccountRow: View {
 
     private var switchDisabled: Bool {
         if isReadOnly || isWaitingOnOtherMac { return true }
-        // A quiet Mac would not see a change sent from here before it expires.
-        if let driven { return !driven.copy.device.acceptsCommands || !driven.copy.device.freshness(at: now).isLive }
+        if driven != nil { return false }
         return !profile.isConnected && !profile.autoResetEnabled
     }
 

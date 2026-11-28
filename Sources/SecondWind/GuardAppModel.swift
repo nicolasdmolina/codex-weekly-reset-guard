@@ -445,13 +445,21 @@ final class GuardAppModel: ObservableObject {
         synced(provider: .codex, email: profile.email, now: now)?.redeemer
     }
 
-    /// The switch on an account card. Turning it off where only another Mac runs Auto-redeem asks
-    /// that Mac; turning it on always runs it here. Failures show on this card.
+    /// The other Mac a card's switch drives: one that redeems the account while this Mac's own
+    /// Auto-redeem is off and can take a change now. A quiet Mac hands the switch back, matching
+    /// `AutoRedeemGuard`, so this Mac can take over instead of waiting days for it to return.
+    func drivenRedeemer(of profile: GuardProfilePresentation, now: Date) -> RemoteCopy? {
+        guard !profile.autoResetEnabled, let copy = remoteRedeemer(of: profile, now: now) else { return nil }
+        if case .pending = remoteState(of: copy.account, in: copy.device, now: now) { return copy }
+        return copy.device.freshness(at: now).isLive && copy.device.acceptsCommands ? copy : nil
+    }
+
+    /// The switch on an account card. Turning it off where another Mac runs Auto-redeem asks that
+    /// Mac; turning it on always runs it here. Failures show on this card.
     func setAccountAutoReset(profileID: String, enabled: Bool) {
         if !enabled,
            let profile = profiles.first(where: { $0.id == profileID }),
-           !profile.autoResetEnabled,
-           let copy = remoteRedeemer(of: profile, now: referenceDate ?? Date()) {
+           let copy = drivenRedeemer(of: profile, now: referenceDate ?? Date()) {
             setRemoteAutoReset(
                 device: copy.device,
                 account: copy.account,

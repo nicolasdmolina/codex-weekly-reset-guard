@@ -142,7 +142,7 @@ public actor DeviceSyncService {
                     now: now()
                 )
                 // A build that cannot remove never says it accepts removal; refuse the request anyway.
-                if case .remove = decision, applyRemoval == nil { decision = .reject(.unsupportedProfile) }
+                if case .remove = decision, applyRemoval == nil { decision = .reject(.removalUnsupported) }
                 decisions.append(decision)
                 if decision != .reject(.alreadyApplied) {
                     // Saved before acting, so a crash mid-apply can never apply it twice.

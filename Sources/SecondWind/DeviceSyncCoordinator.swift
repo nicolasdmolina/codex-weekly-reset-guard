@@ -192,6 +192,7 @@ final class DeviceSyncCoordinator {
             case .unsupportedProfile: "reject:unsupportedProfile"
             case .autoRedeemOnElsewhere: "reject:autoRedeemOnElsewhere"
             case .unknownSender: "reject:unknownSender"
+            case .removalUnsupported: "reject:removalUnsupported"
             }
         }
     }

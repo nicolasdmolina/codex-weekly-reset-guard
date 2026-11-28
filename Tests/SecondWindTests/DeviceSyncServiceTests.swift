@@ -318,7 +318,7 @@ func unreadableSyncFolderStillPublishesWithoutAcceptingCommands(_ blocked: Strin
 
     _ = try await pair.viewer.send(.removeAccount(profileID: workID), to: hostID)
     let handled = try #require(try await pair.host.run())
-    #expect(handled.decisions == [.reject(.unsupportedProfile)])
+    #expect(handled.decisions == [.reject(.removalUnsupported)])
     let after = try #require(try await pair.viewer.run()?.devices?.first)
     #expect(after.accounts.contains { $0.profileID == workID })
 }

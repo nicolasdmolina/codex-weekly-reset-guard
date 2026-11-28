@@ -318,6 +318,8 @@ public enum CommandRejection: Equatable, Sendable {
     case autoRedeemOnElsewhere(deviceName: String)
     /// A removal must come from a Mac this one currently sees in the sync folder.
     case unknownSender
+    /// This build cannot remove accounts on request.
+    case removalUnsupported
 }
 
 public enum CommandDecision: Equatable, Sendable {

@@ -571,7 +571,8 @@ private struct AccountRow<Details: View, Actions: View>: View {
             VStack(alignment: .leading, spacing: SW.Space.sm + 2) {
                 heading
                 if case .renaming = editor { feedback }
-                if isConfirmingRemoval {
+                // A remote card whose Mac stopped taking removals closes its confirmation.
+                if isConfirmingRemoval && (!isReadOnly || remoteRemoval != nil) {
                     RemovalConfirmation(
                         name: name,
                         provider: provider,
@@ -584,7 +585,7 @@ private struct AccountRow<Details: View, Actions: View>: View {
                             if let remoteRemoval {
                                 remoteRemoval.onRemove()
                                 interface.cancelEditing()
-                            } else if let ref {
+                            } else if let ref, !isReadOnly {
                                 interface.remove(ref, displayName: name)
                             }
                         }

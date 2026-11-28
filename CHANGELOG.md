@@ -19,6 +19,10 @@
 - A Claude account can be added while Codex is still loading.
 - **Percentage in menu bar** in Settings can hide the “% left” figure next to
   the menu bar icon. It stays on by default.
+- Accounts whose plan has only a weekly limit no longer show a “Not reported”
+  5-hour row. Codex and Claude plans without a 5-hour limit show just the limits
+  they have, and can reach all clear. A limit the provider names but cannot
+  read still shows as not reported.
 
 ## 0.3.3
 

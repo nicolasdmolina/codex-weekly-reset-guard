@@ -38,7 +38,8 @@ amount left by default, or the amount used when the user chooses Used. A 1.5 pt
 coral tick marks the alert line: 3% remaining on a Codex weekly window with
 Auto-redeem enabled and 10% on other windows. It is coral because it marks where
 the user will need to act; where the fill covers it, a hairline gap is cut on each
-side so it stays crisp. An absent window reads “Not reported” and has no meter.
+side so it stays crisp. A window the provider names but does not report reads “Not reported” and has no
+meter; a limit the plan does not have is left out.
 Stale figures dim, the tick with them. Reduce Motion removes the refill animation.
 
 ## Adding an account

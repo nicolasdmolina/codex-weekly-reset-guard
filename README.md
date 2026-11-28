@@ -64,7 +64,8 @@ test "$(curl -sS -o /dev/null -w '%{http_code}' "$pages_url")" = 200 &&
 **Claude**
 
 - Monitor one or more Claude Pro or Max accounts, each signed in separately.
-- Show the 5-hour session limit, the weekly limit and any per-model weekly limits.
+- Show the weekly limit, any per-model weekly limits and, on plans that have one,
+  the 5-hour session limit.
 - Notify you once per limit cycle when any of them falls to **10% remaining**.
 - Open **Claude Settings › Usage** with one click, where you can reset a limit
   for free if Anthropic has given you one.

@@ -479,6 +479,7 @@ enum PreviewFixtures {
         let windows = [
             QuotaWindow(kind: .group(.session, "Gemini Models"), usedPercent: 93, resetsAt: reference.addingTimeInterval(3600)),
             QuotaWindow(kind: .group(.weekly, "Gemini Models"), usedPercent: 44, resetsAt: reference.addingTimeInterval(172800)),
+            QuotaWindow(kind: .group(.weekly, "Other models"), usedPercent: 0, resetsAt: nil),
         ]
         return AntigravityProfile(quota: QuotaAccountRecord(
             provider: .antigravity, accountID: ID.personal,

@@ -431,6 +431,7 @@ private func reasons(_ outcome: PreflightOutcome) -> [PreflightReason?] {
             Issue.record("valid fixture rejected"); return
         }
         #expect(read.accounts.first?.lastFailure?.reason == .signInRequired)
+        #expect(read.providers == [.codex, .antigravity], "Version 1 could not enroll an Antigravity account")
     }
 
     static let validFixture = """

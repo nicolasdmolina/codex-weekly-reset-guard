@@ -681,7 +681,7 @@ private struct AccountRow<Details: View, Actions: View>: View {
                 if let headline = quota.headline, let remaining = headline.remaining {
                     HeadlineFigure(
                         remaining: remaining,
-                        label: headline.label,
+                        label: headline.meterLabel,
                         convention: interface.preferences.quota,
                         tone: headline.isWarning ? .caution : .neutral,
                         isCurrent: headline.state == .current

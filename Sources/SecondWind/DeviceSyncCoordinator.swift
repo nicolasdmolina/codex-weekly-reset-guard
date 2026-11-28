@@ -216,8 +216,8 @@ final class DeviceSyncCoordinator {
             }
             return false
         }
-        // Alerts come only from what this pass actually read, one per account, never for a window
-        // this Mac alerts for itself.
+        // Alerts come only from what this pass actually read, never for a window this Mac alerts
+        // for itself. The alert key collapses the same window from several Macs into one notice.
         let fresh = read.filter { $0.freshness(at: now).isLive }
         for copy in model.remoteAlertSources(among: fresh, now: now) {
             let reading = copy.account.quotaRecord().reading(at: now, policy: .remote)

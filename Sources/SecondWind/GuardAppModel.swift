@@ -359,6 +359,8 @@ final class GuardAppModel: ObservableObject {
         let currentReading: RemoteCopy?
         /// The copy that redeems the account or waits on a change to it.
         let redeemer: RemoteCopy?
+        /// The first Mac that can take a change now.
+        let reachable: RemoteCopy?
         /// The copy a remote-only card names and drives: a live redeemer or one with a change in
         /// flight, else the first Mac that can take a change now, else a quiet redeemer, else the
         /// first Mac. A fixed order, so the card does not move between
@@ -404,7 +406,7 @@ final class GuardAppModel: ObservableObject {
         // A quiet redeemer yields to a Mac that can take a change, as `AutoRedeemGuard` ignores it.
         let activeRedeemer = redeemer.flatMap { redeemRank($0) >= 2 ? $0 : nil }
         return SyncedAccount(
-            key: key, copies: copies, currentReading: current, redeemer: redeemer,
+            key: key, copies: copies, currentReading: current, redeemer: redeemer, reachable: reachable,
             host: activeRedeemer ?? reachable ?? redeemer ?? byDevice[0]
         )
     }
@@ -431,11 +433,6 @@ final class GuardAppModel: ObservableObject {
         return synced(provider: provider, email: email, now: now)?.currentReading?.account
     }
 
-    /// The newest current reading of each account among `devices`, for remote low alerts.
-    func remoteAlertSources(among devices: [DeviceSnapshot], now: Date) -> [RemoteCopy] {
-        syncedAccounts(among: devices, now: now).compactMap(\.currentReading)
-    }
-
     /// True when this Mac alerts for this window itself: Claude monitoring does for every window
     /// it reads currently. Codex monitoring has no low alert of its own.
     func alertsLocally(_ account: SharedAccount, window kind: QuotaWindowKind, now: Date) -> Bool {
@@ -456,30 +453,42 @@ final class GuardAppModel: ObservableObject {
         synced(provider: .codex, email: profile.email, now: now)?.redeemer
     }
 
-    /// The other Mac a card's switch drives: one that redeems the account while this Mac's own
-    /// Auto-redeem is off and can take a change now. A quiet Mac hands the switch back, matching
+    /// The other Mac a card's switch drives while this Mac's own Auto-redeem is off: one that
+    /// redeems the account and can take a change now, or, while this Mac cannot redeem because it
+    /// is signed out, the first Mac that can. A quiet Mac hands the switch back, matching
     /// `AutoRedeemGuard`, so this Mac can take over instead of waiting days for it to return.
-    func drivenRedeemer(of profile: GuardProfilePresentation, now: Date) -> RemoteCopy? {
-        guard !profile.autoResetEnabled, let copy = remoteRedeemer(of: profile, now: now) else { return nil }
-        if case .pending = remoteState(of: copy.account, in: copy.device, now: now) { return copy }
-        return copy.device.freshness(at: now).isLive && copy.device.acceptsCommands ? copy : nil
+    func drivenRemote(of profile: GuardProfilePresentation, now: Date) -> RemoteCopy? {
+        guard !profile.autoResetEnabled,
+              let synced = synced(provider: .codex, email: profile.email, now: now)
+        else { return nil }
+        if let copy = synced.redeemer {
+            if case .pending = remoteState(of: copy.account, in: copy.device, now: now) { return copy }
+            if copy.device.freshness(at: now).isLive, copy.device.acceptsCommands { return copy }
+        }
+        return profile.isConnected ? nil : synced.reachable
     }
 
-    /// The switch on an account card. Turning it off where another Mac runs Auto-redeem asks that
-    /// Mac; turning it on always runs it here. Failures show on this card.
+    /// The switch on an account card. It changes the Mac `drivenRemote` names, through that Mac's
+    /// guards, and otherwise this Mac. Failures show on this card.
     func setAccountAutoReset(profileID: String, enabled: Bool) {
-        if !enabled,
-           let profile = profiles.first(where: { $0.id == profileID }),
-           let copy = drivenRedeemer(of: profile, now: referenceDate ?? Date()) {
+        if let profile = profiles.first(where: { $0.id == profileID }),
+           let copy = drivenRemote(of: profile, now: referenceDate ?? Date()) {
             setRemoteAutoReset(
                 device: copy.device,
                 account: copy.account,
-                enabled: false,
+                enabled: enabled,
                 reportingTo: AccountRef(provider: .codex, rawID: profileID)
             )
         } else {
             setAutoReset(profileID: profileID, enabled: enabled)
         }
+    }
+
+    /// The low windows other Macs read for alerting, from every Mac read this pass. The alert key
+    /// names the account and window, so the same window from two Macs notifies once, and a window
+    /// only one Mac reads is never lost behind another Mac's newer partial reading.
+    func remoteAlertSources(among devices: [DeviceSnapshot], now: Date) -> [RemoteCopy] {
+        syncedAccounts(among: devices, now: now).flatMap(\.copies)
     }
 
     func remoteState(of account: SharedAccount, in device: DeviceSnapshot, now: Date) -> RemoteAccountState {

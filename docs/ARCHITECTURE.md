@@ -104,16 +104,19 @@ else the first Mac that can take a change now, else a quiet redeemer, else the
 first Mac, so it does not move as Macs publish.
 
 An account this Mac has is always one card. While its own reading is not
-current, the card shows another Mac's current reading. Its switch shows the
-redeemer's setting while this Mac's Auto-redeem is off; turning it off sends that
-Mac a command and failures report on this card. A quiet redeemer hands the switch
-back to this Mac, as `AutoRedeemGuard` does, and the caption says when it was last
-seen. Turning it on always runs here. The caption names a quiet or troubled
-redeemer, and says when both Macs have Auto-redeem on. The menu bar uses the same
-cards. Remote alerts come from the newest current reading of each account,
-except a Claude window this Mac reads currently (Claude monitoring alerts for it
-here; Codex monitoring has no low alert of its own), keyed by provider and email, so a low window
-notifies once even when it moves between Macs.
+current, the card shows another Mac's current reading; readings are not mixed
+window by window, so the card's age stays true. While this Mac's Auto-redeem is
+off, the switch drives another Mac through that Mac's guards: a redeemer that is
+live or has a change in flight, or, while this Mac is signed out, the first Mac
+that can take a change. Otherwise it drives this Mac. A quiet redeemer hands the
+switch back, as `AutoRedeemGuard` does. Failures report on this card. The caption
+names the other Mac, says when it was last seen or needs attention, and says when
+both Macs have Auto-redeem on. The menu bar uses the same cards.
+
+Remote alerts check the low windows of every Mac read this pass, except a Claude
+window this Mac reads currently, since Claude monitoring alerts for it here;
+Codex monitoring has no low alert of its own. The alert key names provider, email
+and window, so the same low window notifies once even when several Macs report it.
 
 The viewing Mac reads remote windows through `QuotaReadPolicy.remote`. A snapshot
 or reading older than 10 minutes is stale: it shows its age and never alerts.

@@ -303,8 +303,8 @@ private let laptop = SyncDeviceID(UUID(uuidString: "22222222-0000-4000-8000-0000
     #expect(synced.first?.reading.device.deviceID == laptop)
     #expect(synced.first?.host.device.deviceID == mini)
 
-    // The low window alerts from the Mac that read it, not the Mac that redeems.
-    #expect(model.remoteAlertSources(among: model.remoteDevices, now: now).map(\.device.deviceID) == [laptop])
+    // Every Mac's reading is checked for low windows; the alert key keeps one notice per window.
+    #expect(Set(model.remoteAlertSources(among: model.remoteDevices, now: now).map(\.device.deviceID)) == [laptop, mini])
 
     // With no Mac redeeming, the card stays on a fixed Mac however publishing goes.
     model.remoteDevices[1].accounts[0].autoRedeemEnabled = false
@@ -386,7 +386,7 @@ private let laptop = SyncDeviceID(UUID(uuidString: "22222222-0000-4000-8000-0000
     // Mac can take over.
     model.remoteDevices = [miniSnapshot(autoRedeem: true, publishedAt: now.addingTimeInterval(-3 * 3_600))]
     #expect(model.remoteRedeemer(of: model.profiles[0], now: now)?.device.deviceID == mini)
-    #expect(model.drivenRedeemer(of: model.profiles[0], now: now) == nil)
+    #expect(model.drivenRemote(of: model.profiles[0], now: now) == nil)
     model.setAccountAutoReset(profileID: id, enabled: true)
     #expect(toggles == [true])
     toggles = []
@@ -418,11 +418,32 @@ private let laptop = SyncDeviceID(UUID(uuidString: "22222222-0000-4000-8000-0000
     let model = GuardAppModel(profiles: [local], referenceDate: now)
     model.remoteDevices = [miniSnapshot(autoRedeem: true)]
     // Both on: the switch is this Mac's, and the other Mac is named beside it.
-    #expect(model.drivenRedeemer(of: local, now: now) == nil)
+    #expect(model.drivenRemote(of: local, now: now) == nil)
     #expect(model.remoteRedeemer(of: local, now: now)?.device.deviceID == mini)
 
     // Once this Mac is off, the switch shows the Mac that still redeems, so a second tap turns it off there.
     local.autoResetEnabled = false
     model.profiles = [local]
-    #expect(model.drivenRedeemer(of: local, now: now)?.device.deviceID == mini)
+    #expect(model.drivenRemote(of: local, now: now)?.device.deviceID == mini)
+}
+
+@Test @MainActor func aSignedOutCardDrivesAnotherMacThatCanRedeem() {
+    var local = localWork()
+    local.status = .disconnected
+    let model = GuardAppModel(profiles: [local], referenceDate: now)
+    model.remoteDevices = [miniSnapshot(autoRedeem: false)]
+    var sent: [Bool] = []
+    var toggles: [Bool] = []
+    model.onSetRemoteAutoReset = { _, _, enabled, _ in sent.append(enabled) }
+    model.onToggleAutoReset = { _, enabled in toggles.append(enabled) }
+
+    #expect(model.drivenRemote(of: local, now: now)?.device.deviceID == mini)
+    model.setAccountAutoReset(profileID: local.id, enabled: true)
+    #expect(sent == [true])
+    #expect(toggles.isEmpty)
+
+    // Signed in here, the card drives this Mac again.
+    local.status = .healthy
+    model.profiles = [local]
+    #expect(model.drivenRemote(of: local, now: now) == nil)
 }

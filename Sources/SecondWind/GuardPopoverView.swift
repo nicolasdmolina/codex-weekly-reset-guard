@@ -318,7 +318,9 @@ struct GuardPopoverView: View {
                             redeemer: model.remoteRedeemer(of: profile, now: now).map { copy in
                                 (copy, model.remoteState(of: copy.account, in: copy.device, now: now))
                             },
-                            drivesRedeemer: model.drivenRedeemer(of: profile, now: now) != nil,
+                            driven: model.drivenRemote(of: profile, now: now).map { copy in
+                                (copy, model.remoteState(of: copy.account, in: copy.device, now: now))
+                            },
                             interface: interface,
                             isStaticRender: isStaticRender,
                             isReadOnly: model.isReadOnly,
@@ -767,8 +769,8 @@ private struct CodexAccountRow: View {
     let quota: AccountQuotaDisplay
     /// Another Mac that redeems this same account while this Mac's switch is off.
     var redeemer: (copy: GuardAppModel.RemoteCopy, state: RemoteAccountState)? = nil
-    /// True while the switch shows and changes the redeemer's setting instead of this Mac's.
-    var drivesRedeemer = false
+    /// The other Mac whose setting the switch shows and changes instead of this Mac's.
+    var driven: (copy: GuardAppModel.RemoteCopy, state: RemoteAccountState)? = nil
     @ObservedObject var interface: GuardInterfaceModel
     let isStaticRender: Bool
     let isReadOnly: Bool
@@ -816,11 +818,7 @@ private struct CodexAccountRow: View {
     }
 
     private var ref: AccountRef? { AccountRef(provider: .codex, rawID: profile.id) }
-    private var showsAutoRedeem: Bool { profile.isConnected || profile.autoResetEnabled || redeemer != nil }
-
-    private var driven: (copy: GuardAppModel.RemoteCopy, state: RemoteAccountState)? {
-        drivesRedeemer ? redeemer : nil
-    }
+    private var showsAutoRedeem: Bool { profile.isConnected || profile.autoResetEnabled || redeemer != nil || driven != nil }
 
     /// What the switch shows: this Mac's setting, or the other Mac's while it redeems the account.
     private var switchIsOn: Bool {
@@ -835,17 +833,21 @@ private struct CodexAccountRow: View {
     }
 
     private var otherMacNote: String? {
-        guard let redeemer, redeemer.copy.account.autoRedeemEnabled == true || driven != nil else { return nil }
-        let device = redeemer.copy.device
-        let name = device.deviceName
         // Both Macs on can happen when they turn it on within one sync; say so rather than hide it.
-        if profile.autoResetEnabled { return "Also on \(name)" }
-        switch redeemer.state {
+        if profile.autoResetEnabled {
+            return redeemer.flatMap { $0.copy.account.autoRedeemEnabled == true ? "Also on \($0.copy.device.deviceName)" : nil }
+        }
+        let shown = driven ?? redeemer.flatMap { $0.copy.account.autoRedeemEnabled == true ? $0 : nil }
+        guard let shown else { return nil }
+        let device = shown.copy.device
+        let name = device.deviceName
+        switch shown.state {
         case .pending: return "Asking \(name)…"
         case .notApplied: return "\(name) did not change it."
         case .live, .stale: break
         }
-        if redeemer.copy.account.attentionMessage != nil { return "On \(name), which needs attention" }
+        guard shown.copy.account.autoRedeemEnabled == true else { return "Set on \(name)" }
+        if shown.copy.account.attentionMessage != nil { return "On \(name), which needs attention" }
         if !device.freshness(at: now).isLive {
             return "On \(name), seen \(QuotaTimeFormat.age(of: device.publishedAt, reference: now))"
         }

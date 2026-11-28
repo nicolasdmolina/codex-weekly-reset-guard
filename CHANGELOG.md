@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.2
 
 - An account signed in on more than one Mac shows as one card instead of once
   per Mac. Accounts that only another Mac has sit in the Codex or Claude list

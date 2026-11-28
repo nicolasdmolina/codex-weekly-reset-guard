@@ -1,15 +1,15 @@
 {
   "release": {
     "repository": "nicolasdmolina/codex-weekly-reset-guard",
-    "tag": "v0.3.3",
+    "tag": "v0.4.0",
     "source": {
-      "file": "Second-Wind-0.3.3-source.zip",
-      "folder": "Second-Wind-0.3.3",
-      "sha256": "8aa1ae9b146a833bd6845e2277bc566217661351485924bfb7361a2a3afde437"
+      "file": "Second-Wind-0.4.0-source.zip",
+      "folder": "Second-Wind-0.4.0",
+      "sha256": "f79e2a6066c56123f87da3cf3c46d7dd0a4b0fc9928789f178d372d6e5df7f77"
     },
     "app": {
-      "file": "Second-Wind-0.3.3-mac.zip",
-      "sha256": "78b7a8eca53a8eae6508336471e0612cf0a0a82a1a52423b66f2d21ef1a8c34a",
+      "file": "Second-Wind-0.4.0-mac.zip",
+      "sha256": "ed3e4288ee1cc844c6bf65b7f56d50755c41104e3ffec3481dfd3d9b1761409d",
       "architectures": ["arm64", "x86_64"],
       "minimumSystemVersion": "14.0",
       "signing": "ad-hoc"

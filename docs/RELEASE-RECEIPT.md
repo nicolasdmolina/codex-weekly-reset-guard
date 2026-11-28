@@ -1,5 +1,24 @@
 # Release verification
 
+## 0.4.0, November 28, 2026 (UTC)
+
+The macOS check passed on commit `cdd9d62a472d0fcf3b4b2eddd0d27ad2cc9e4624`.
+All 390 tests passed locally. GitHub built the Mac and source ZIPs from that
+commit. Both public downloads matched their SHA-256 checksums and the build
+attestation.
+[Mac check](https://github.com/nicolasdmolina/codex-weekly-reset-guard/actions/runs/46089995790) ·
+[Release files](https://github.com/nicolasdmolina/codex-weekly-reset-guard/releases/tag/v0.4.0) ·
+[Build run](https://github.com/nicolasdmolina/codex-weekly-reset-guard/actions/runs/46089995826).
+
+| File | SHA-256 |
+| --- | --- |
+| `Second-Wind-0.4.0-mac.zip` | `ed3e4288ee1cc844c6bf65b7f56d50755c41104e3ffec3481dfd3d9b1761409d` |
+| `Second-Wind-0.4.0-source.zip` | `f79e2a6066c56123f87da3cf3c46d7dd0a4b0fc9928789f178d372d6e5df7f77` |
+
+The downloaded app's self-test passed on Apple silicon and under Rosetta for
+Intel. A weekly-only Claude account and a weekly-only Codex account read live
+with no 5-hour row and no unknown limit.
+
 ## 0.3.3, November 27, 2026 (UTC)
 
 The macOS check that caught the Claude command crash passed on commit

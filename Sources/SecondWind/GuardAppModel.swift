@@ -328,8 +328,97 @@ final class GuardAppModel: ObservableObject {
 
     // MARK: Other Macs
 
-    static func remoteKey(device: SyncDeviceID, account: SharedAccount) -> String {
+    nonisolated static func remoteKey(device: SyncDeviceID, account: SharedAccount) -> String {
         "\(device)|\(account.id)"
+    }
+
+    /// An account as another Mac shares it.
+    struct RemoteCopy {
+        let device: DeviceSnapshot
+        let account: SharedAccount
+
+        var key: String { GuardAppModel.remoteKey(device: device.deviceID, account: account) }
+    }
+
+    /// Accounts are the same account across Macs only when provider and email match. An account
+    /// with no email never merges, since its name alone can collide.
+    private static func accountKey(_ provider: QuotaProvider, email: String?) -> String? {
+        let email = DeviceSyncPolicy.normalizedEmail(email ?? "")
+        return email.isEmpty ? nil : "\(provider.rawValue)|\(email)"
+    }
+
+    private var localAccountKeys: Set<String> {
+        Set(
+            profiles.compactMap { Self.accountKey(.codex, email: $0.email) }
+                + claudeProfiles.compactMap { Self.accountKey(.claude, email: $0.email) }
+        )
+    }
+
+    /// Accounts from other Macs that this Mac does not also have, one card per account. When
+    /// several Macs share the same account, the copy that redeems it or the freshest one is shown.
+    func remoteOnlyAccounts(now: Date) -> [RemoteCopy] {
+        let local = localAccountKeys
+        var order: [String] = []
+        var chosen: [String: RemoteCopy] = [:]
+        for device in remoteDevices {
+            for account in device.accounts {
+                let key = Self.accountKey(account.provider, email: account.email)
+                    ?? Self.remoteKey(device: device.deviceID, account: account)
+                guard !local.contains(key) else { continue }
+                let copy = RemoteCopy(device: device, account: account)
+                guard let existing = chosen[key] else {
+                    order.append(key)
+                    chosen[key] = copy
+                    continue
+                }
+                if Self.ranks(copy, above: existing, now: now) { chosen[key] = copy }
+            }
+        }
+        return order.compactMap { chosen[$0] }
+    }
+
+    private static func ranks(_ copy: RemoteCopy, above other: RemoteCopy, now: Date) -> Bool {
+        let redeems = { (c: RemoteCopy) in c.account.autoRedeemEnabled == true && c.device.freshness(at: now).isLive }
+        if redeems(copy) != redeems(other) { return redeems(copy) }
+        return copy.device.publishedAt > other.device.publishedAt
+    }
+
+    /// The other Mac that redeems this Codex account, or has a change to it in flight. Its switch
+    /// stands in for this Mac's while this Mac's own is off.
+    func remoteRedeemer(of profile: GuardProfilePresentation, now: Date) -> RemoteCopy? {
+        guard !profile.autoResetEnabled, let key = Self.accountKey(.codex, email: profile.email) else { return nil }
+        for device in remoteDevices {
+            for account in device.accounts where Self.accountKey(account.provider, email: account.email) == key {
+                let pending = pendingRemoteCommands[Self.remoteKey(device: device.deviceID, account: account)] != nil
+                if pending || (account.autoRedeemEnabled == true && device.freshness(at: now).isLive) {
+                    return RemoteCopy(device: device, account: account)
+                }
+            }
+        }
+        return nil
+    }
+
+    /// The switch on an account card: it changes whichever Mac redeems the account, so turning it
+    /// off where another Mac runs it asks that Mac, and turning it on always runs it here.
+    func setAccountAutoReset(profileID: String, enabled: Bool) {
+        if let profile = profiles.first(where: { $0.id == profileID }),
+           let copy = remoteRedeemer(of: profile, now: referenceDate ?? Date()) {
+            setRemoteAutoReset(device: copy.device, account: copy.account, enabled: enabled)
+        } else {
+            setAutoReset(profileID: profileID, enabled: enabled)
+        }
+    }
+
+    /// True when this Mac reads the same account itself, so another Mac's alert would repeat its own.
+    func readsLocally(_ account: SharedAccount, now: Date) -> Bool {
+        guard let key = Self.accountKey(account.provider, email: account.email) else { return false }
+        let records: [QuotaAccountRecord?] = switch account.provider {
+        case .codex: profiles.filter { Self.accountKey(.codex, email: $0.email) == key }.map(\.quota)
+        case .claude: claudeProfiles.filter { Self.accountKey(.claude, email: $0.email) == key }.map(\.quota)
+        }
+        return records.contains { record in
+            record?.reading(at: now).windows.contains(where: \.isCurrent) ?? false
+        }
     }
 
     func remoteState(of account: SharedAccount, in device: DeviceSnapshot, now: Date) -> RemoteAccountState {

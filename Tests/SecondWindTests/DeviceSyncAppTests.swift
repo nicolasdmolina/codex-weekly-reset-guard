@@ -222,3 +222,93 @@ private struct SilentNotifier: AlertNotifier {
     let published = try #require(try shared.readSnapshots(excluding: SyncDeviceID()).first { $0.deviceID == id })
     #expect(!published.acceptsCommands)
 }
+
+// MARK: One card per account across Macs
+
+private func sharedAccount(_ id: UUID, email: String, autoRedeem: Bool? = false, provider: QuotaProvider = .codex) -> SharedAccount {
+    SharedAccount(profileID: id, provider: provider, displayName: "Account", email: email, autoRedeemEnabled: autoRedeem, windows: [])
+}
+
+private func device(_ id: SyncDeviceID, name: String, publishedAt: Date = now, accounts: [SharedAccount]) -> DeviceSnapshot {
+    DeviceSnapshot(deviceID: id, deviceName: name, publishedAt: publishedAt, accounts: accounts, appliedCommandIDs: [], acceptsCommands: true)
+}
+
+@Test @MainActor func anAccountOnThisMacAndAnotherShowsOnce() {
+    let model = GuardAppModel(profiles: [localWork()], referenceDate: now)
+    let other = UUID()
+    model.remoteDevices = [device(mini, name: "Mac mini", accounts: [
+        sharedAccount(remoteWorkID, email: " WORK@example.com "),
+        sharedAccount(other, email: "other@example.com"),
+    ])]
+    #expect(model.remoteOnlyAccounts(now: now).map(\.account.profileID) == [other])
+}
+
+@Test @MainActor func accountsWithoutAnEmailNeverMerge() {
+    var local = localWork()
+    local.email = nil
+    let model = GuardAppModel(profiles: [local], referenceDate: now)
+    let laptop = SyncDeviceID()
+    model.remoteDevices = [
+        device(mini, name: "Mac mini", accounts: [sharedAccount(remoteWorkID, email: "")]),
+        device(laptop, name: "MacBook", accounts: [sharedAccount(UUID(), email: "")]),
+    ]
+    #expect(model.remoteOnlyAccounts(now: now).count == 2)
+}
+
+@Test @MainActor func theSameAccountOnTwoOtherMacsShowsOnceFromTheOneThatRedeemsIt() {
+    let model = GuardAppModel(referenceDate: now)
+    let laptop = SyncDeviceID()
+    model.remoteDevices = [
+        device(mini, name: "Mac mini", publishedAt: now.addingTimeInterval(-60), accounts: [sharedAccount(remoteWorkID, email: "work@example.com", autoRedeem: true)]),
+        device(laptop, name: "MacBook", accounts: [sharedAccount(UUID(), email: "work@example.com")]),
+    ]
+    let shown = model.remoteOnlyAccounts(now: now)
+    #expect(shown.count == 1)
+    #expect(shown.first?.device.deviceID == mini)
+
+    // With neither redeeming, the freshest copy wins.
+    model.remoteDevices[0].accounts[0].autoRedeemEnabled = false
+    #expect(model.remoteOnlyAccounts(now: now).map(\.device.deviceID) == [laptop])
+}
+
+@Test @MainActor func theCardSwitchTurnsOffAutoRedeemWhereverItRuns() {
+    let model = GuardAppModel(profiles: [localWork()], referenceDate: now)
+    let remote = miniSnapshot(autoRedeem: true)
+    model.remoteDevices = [remote]
+    var sent: [Bool] = []
+    var toggles: [Bool] = []
+    model.onSetRemoteAutoReset = { _, _, enabled in sent.append(enabled) }
+    model.onToggleAutoReset = { _, enabled in toggles.append(enabled) }
+    let id = workID.uuidString.lowercased()
+
+    #expect(model.remoteRedeemer(of: model.profiles[0], now: now)?.device.deviceID == mini)
+    model.setAccountAutoReset(profileID: id, enabled: false)
+    #expect(sent == [false])
+    #expect(toggles.isEmpty)
+
+    // Once no other Mac redeems it, the switch runs Auto-redeem here.
+    model.remoteDevices = [miniSnapshot(autoRedeem: false)]
+    #expect(model.remoteRedeemer(of: model.profiles[0], now: now) == nil)
+    model.setAccountAutoReset(profileID: id, enabled: true)
+    #expect(toggles == [true])
+}
+
+@Test @MainActor func anotherMacsLowAlertIsSkippedOnlyWhenThisMacReadsTheAccount() {
+    var local = localWork()
+    let model = GuardAppModel(profiles: [local], referenceDate: now)
+    let account = sharedAccount(remoteWorkID, email: "work@example.com")
+    #expect(!model.readsLocally(account, now: now))
+
+    local.quota = QuotaAccountRecord(
+        provider: .codex,
+        accountID: workID,
+        lastSuccess: QuotaObservation(
+            observedAt: now.addingTimeInterval(-30),
+            windows: [QuotaWindow(kind: .weekly, usedPercent: 95, resetsAt: now.addingTimeInterval(86_400))],
+            inventory: .omitted
+        )
+    )
+    model.profiles = [local]
+    #expect(model.readsLocally(account, now: now))
+    #expect(!model.readsLocally(sharedAccount(UUID(), email: "other@example.com"), now: now))
+}

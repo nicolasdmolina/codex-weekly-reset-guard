@@ -219,7 +219,8 @@ final class DeviceSyncCoordinator {
         }
         // Alerts come only from what this pass actually read.
         for device in read where device.freshness(at: now).isLive {
-            for account in device.accounts {
+            // This Mac already alerts for an account it reads itself.
+            for account in device.accounts where !model.readsLocally(account, now: now) {
                 let reading = account.quotaRecord().reading(at: now, policy: .remote)
                 for low in reading.currentLowWindows {
                     alerts.post(.remoteLowQuota(

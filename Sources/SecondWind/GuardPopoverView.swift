@@ -303,7 +303,11 @@ struct GuardPopoverView: View {
                 NoticeRow(symbol: "info.circle", text: banner, tone: .neutral)
             }
 
-            if !model.profiles.isEmpty {
+            let remoteOnly = model.remoteOnlyAccounts(now: now)
+            let remoteCodex = remoteOnly.filter { $0.account.provider == .codex }
+            let remoteClaude = remoteOnly.filter { $0.account.provider == .claude }
+
+            if !model.profiles.isEmpty || !remoteCodex.isEmpty {
                 // Each card shows its own Auto-redeem switch, so the section header repeats nothing.
                 AccountSection(title: "Codex", detail: nil) {
                     ForEach(Array(model.profiles.enumerated()), id: \.element.id) { index, profile in
@@ -311,18 +315,22 @@ struct GuardPopoverView: View {
                         CodexAccountRow(
                             profile: profile,
                             quota: QuotaDisplayBuilder.codex(profile, now: now),
+                            redeemer: model.remoteRedeemer(of: profile, now: now).map { copy in
+                                (copy, model.remoteState(of: copy.account, in: copy.device, now: now))
+                            },
                             interface: interface,
                             isStaticRender: isStaticRender,
                             isReadOnly: model.isReadOnly,
                             now: now,
-                            onToggle: { model.setAutoReset(profileID: profile.id, enabled: $0) },
+                            onToggle: { model.setAccountAutoReset(profileID: profile.id, enabled: $0) },
                             onReconnect: { model.reconnect(profileID: profile.id) }
                         )
                     }
+                    remoteRows(remoteCodex, after: model.profiles.count, now: now)
                 }
             }
 
-            if !model.claudeProfiles.isEmpty {
+            if !model.claudeProfiles.isEmpty || !remoteClaude.isEmpty {
                 AccountSection(title: "Claude", detail: "Alert at 10%") {
                     ForEach(Array(model.claudeProfiles.enumerated()), id: \.element.id) { index, profile in
                         if index > 0 { RowDivider() }
@@ -338,28 +346,7 @@ struct GuardPopoverView: View {
                             onOpenUsage: { model.openClaudeUsage() }
                         )
                     }
-                }
-            }
-
-            ForEach(model.remoteDevices.filter { !$0.accounts.isEmpty }, id: \.deviceID) { device in
-                AccountSection(
-                    title: "On \(device.deviceName)",
-                    detail: "updated \(QuotaTimeFormat.age(of: device.publishedAt, reference: now))"
-                ) {
-                    ForEach(Array(device.accounts.enumerated()), id: \.element.id) { index, account in
-                        if index > 0 { RowDivider() }
-                        RemoteAccountRow(
-                            device: device,
-                            account: account,
-                            state: model.remoteState(of: account, in: device, now: now),
-                            quota: QuotaDisplayBuilder.remote(account, now: now),
-                            interface: interface,
-                            isStaticRender: isStaticRender,
-                            isReadOnly: model.isReadOnly,
-                            now: now,
-                            onToggle: { model.setRemoteAutoReset(device: device, account: account, enabled: $0) }
-                        )
-                    }
+                    remoteRows(remoteClaude, after: model.claudeProfiles.count, now: now)
                 }
             }
 
@@ -368,6 +355,24 @@ struct GuardPopoverView: View {
             }
         }
         .padding(SW.Space.lg)
+    }
+
+    /// Accounts only another Mac has, listed after this Mac's own in the same section.
+    private func remoteRows(_ copies: [GuardAppModel.RemoteCopy], after localCount: Int, now: Date) -> some View {
+        ForEach(Array(copies.enumerated()), id: \.element.key) { index, copy in
+            if localCount + index > 0 { RowDivider() }
+            RemoteAccountRow(
+                device: copy.device,
+                account: copy.account,
+                state: model.remoteState(of: copy.account, in: copy.device, now: now),
+                quota: QuotaDisplayBuilder.remote(copy.account, now: now),
+                interface: interface,
+                isStaticRender: isStaticRender,
+                isReadOnly: model.isReadOnly,
+                now: now,
+                onToggle: { model.setRemoteAutoReset(device: copy.device, account: copy.account, enabled: $0) }
+            )
+        }
     }
 
     // MARK: Footer
@@ -759,6 +764,8 @@ struct StatusPresentation {
 private struct CodexAccountRow: View {
     let profile: GuardProfilePresentation
     let quota: AccountQuotaDisplay
+    /// Another Mac that redeems this same account while this Mac's switch is off.
+    var redeemer: (copy: GuardAppModel.RemoteCopy, state: RemoteAccountState)? = nil
     @ObservedObject var interface: GuardInterfaceModel
     let isStaticRender: Bool
     let isReadOnly: Bool
@@ -806,23 +813,60 @@ private struct CodexAccountRow: View {
     }
 
     private var ref: AccountRef? { AccountRef(provider: .codex, rawID: profile.id) }
-    private var showsAutoRedeem: Bool { profile.isConnected || profile.autoResetEnabled }
+    private var showsAutoRedeem: Bool { profile.isConnected || profile.autoResetEnabled || redeemer != nil }
+
+    /// What the switch shows: this Mac's setting, or the other Mac's while it redeems the account.
+    private var switchIsOn: Bool {
+        guard let redeemer else { return profile.autoResetEnabled }
+        if case let .pending(requested) = redeemer.state { return requested }
+        return redeemer.copy.account.autoRedeemEnabled == true
+    }
+
+    private var isWaitingOnOtherMac: Bool {
+        if case .pending = redeemer?.state { return true }
+        return false
+    }
+
+    private var otherMacNote: String? {
+        guard let redeemer else { return nil }
+        let name = redeemer.copy.device.deviceName
+        switch redeemer.state {
+        case .pending: return "Asking \(name)…"
+        case .notApplied: return "\(name) did not change it."
+        case .live, .stale:
+            return redeemer.copy.account.autoRedeemEnabled == true ? "On \(name)" : nil
+        }
+    }
+
+    private var switchDisabled: Bool {
+        if isReadOnly || isWaitingOnOtherMac { return true }
+        if let redeemer { return !redeemer.copy.device.acceptsCommands }
+        return !profile.isConnected && !profile.autoResetEnabled
+    }
 
     /// The label sits right beside its switch, so the switch never floats on its own.
     private var autoRedeem: some View {
-        HStack(spacing: SW.Space.xs + 2) {
-            Text("Auto-redeem")
-                .font(.system(size: 11.5, weight: .medium))
-                .foregroundStyle(SW.Palette.textSecondary)
-            if isStaticRender {
-                StaticToggle(isOn: profile.autoResetEnabled, label: "Auto-redeem")
-            } else {
-                Toggle("Auto-redeem", isOn: Binding(get: { profile.autoResetEnabled }, set: { onToggle($0) }))
-                    .labelsHidden()
-                    .toggleStyle(.switch)
-                    .controlSize(.mini)
-                    .disabled(isReadOnly || (!profile.isConnected && !profile.autoResetEnabled))
-                    .help("Redeem a saved reset after two weekly readings at or below 3% left")
+        VStack(alignment: .trailing, spacing: SW.Space.xxs) {
+            HStack(spacing: SW.Space.xs + 2) {
+                Text("Auto-redeem")
+                    .font(.system(size: 11.5, weight: .medium))
+                    .foregroundStyle(SW.Palette.textSecondary)
+                if isStaticRender {
+                    StaticToggle(isOn: switchIsOn, label: "Auto-redeem")
+                        .opacity(isWaitingOnOtherMac ? 0.5 : 1)
+                } else {
+                    Toggle("Auto-redeem", isOn: Binding(get: { switchIsOn }, set: { onToggle($0) }))
+                        .labelsHidden()
+                        .toggleStyle(.switch)
+                        .controlSize(.mini)
+                        .disabled(switchDisabled)
+                        .help("Redeem a saved reset after two weekly readings at or below 3% left")
+                }
+            }
+            if let otherMacNote {
+                Text(otherMacNote)
+                    .font(.system(size: 11))
+                    .foregroundStyle(SW.Palette.textTertiary)
             }
         }
     }
@@ -973,8 +1017,8 @@ private struct RemoteAccountRow: View {
             ref: AccountRef(provider: provider, id: account.profileID),
             provider: provider,
             name: account.displayName,
-            hint: Self.maskedEmail(account.email),
-            badge: provider.title,
+            hint: "\(Self.maskedEmail(account.email)) · \(device.deviceName)",
+            badge: nil,
             quota: quota,
             status: status,
             interface: interface,

@@ -1,6 +1,8 @@
 import Foundation
 
-public struct ClaudeCommandOutput: Sendable, Equatable {
+public typealias ClaudeCommandOutput = CLICommandOutput
+
+public struct CLICommandOutput: Sendable, Equatable {
     public var status: Int32
     public var standardOutput: Data
 
@@ -91,6 +93,24 @@ public struct ProcessClaudeCommandRunner: ClaudeCommandRunning {
 
     public func run(arguments: [String], configDirectory: URL, timeout: Duration) async throws -> ClaudeCommandOutput {
         let process = try makeProcess(arguments: arguments, configDirectory: configDirectory)
+        do {
+            return try await BoundedCommand.run(process, maximumOutputBytes: maximumOutputBytes, timeout: timeout)
+        } catch let failure as BoundedCommand.Failure {
+            switch failure {
+            case .launchFailed: throw ClaudeCLIError.launchFailed
+            case .timedOut: throw ClaudeCLIError.timedOut
+            case .outputTooLarge: throw ClaudeCLIError.outputTooLarge
+            }
+        }
+    }
+}
+
+/// Captures fixed-size stdout without blocking the child on a full pipe. Callers configure
+/// their own executable, environment and working directory before handing over the process.
+enum BoundedCommand {
+    enum Failure: Error { case launchFailed, timedOut, outputTooLarge }
+
+    static func run(_ process: Process, maximumOutputBytes: Int, timeout: Duration) async throws -> CLICommandOutput {
         let output = Pipe()
         process.standardOutput = output
         process.standardInput = FileHandle.nullDevice
@@ -105,7 +125,7 @@ public struct ProcessClaudeCommandRunner: ClaudeCommandRunning {
                     try process.run()
                 } catch {
                     process.terminationHandler = nil
-                    continuation.resume(throwing: ClaudeCLIError.launchFailed)
+                    continuation.resume(throwing: Failure.launchFailed)
                     return
                 }
                 // The pipe buffers early output until it is safe to terminate on overflow.
@@ -130,13 +150,13 @@ public struct ProcessClaudeCommandRunner: ClaudeCommandRunning {
             if process.isRunning { process.terminate() }
         }
 
-        // A helper that outlives Claude Code could hold the pipe open; stop waiting shortly after exit.
+        // A helper that outlives the CLI could hold the pipe open. Stop waiting shortly after exit.
         DispatchQueue.global().asyncAfter(deadline: .now() + 2) { collector.finish() }
         let data = await collector.waitForEnd()
-        if collector.didTimeOut { throw ClaudeCLIError.timedOut }
-        if collector.didOverflow { throw ClaudeCLIError.outputTooLarge }
+        if collector.didTimeOut { throw Failure.timedOut }
+        if collector.didOverflow { throw Failure.outputTooLarge }
         try Task.checkCancellation()
-        return ClaudeCommandOutput(status: status, standardOutput: data)
+        return CLICommandOutput(status: status, standardOutput: data)
     }
 }
 

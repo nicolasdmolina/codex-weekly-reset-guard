@@ -355,6 +355,15 @@ struct GuardPopoverView: View {
                 }
             }
 
+            if let profile = model.antigravity {
+                AccountSection(title: "Antigravity", detail: "Alert at 10%") {
+                    AntigravityAccountRow(profile: profile, interface: interface, isStaticRender: isStaticRender,
+                                          isChecking: model.isCheckingAntigravity, now: now) {
+                        model.onRetryAntigravity?()
+                    }
+                }
+            }
+
             if !model.history.isEmpty {
                 ActivityList(events: Array(model.history.prefix(3)), referenceDate: model.referenceDate)
             }
@@ -592,8 +601,14 @@ private struct AccountRow<Details: View, Actions: View>: View {
                     )
                 } else {
                     if !quota.windows.isEmpty {
-                        VStack(spacing: SW.Space.sm - 1) {
-                            ForEach(quota.windows) { window in
+                        VStack(alignment: .leading, spacing: SW.Space.sm - 1) {
+                            ForEach(Array(quota.windows.enumerated()), id: \.element.id) { index, window in
+                                if let group = window.groupName, index == 0 || group != quota.windows[index - 1].groupName {
+                                    Text(group)
+                                        .font(.system(size: 11.5, weight: .semibold))
+                                        .foregroundStyle(SW.Palette.textSecondary)
+                                        .padding(.top, index == 0 ? 0 : SW.Space.xs)
+                                }
                                 WindowRow(
                                     window: window,
                                     convention: interface.preferences.quota,
@@ -688,7 +703,7 @@ private struct AccountRow<Details: View, Actions: View>: View {
                 if let headline = quota.headline, let remaining = headline.remaining {
                     HeadlineFigure(
                         remaining: remaining,
-                        label: headline.label,
+                        label: headline.meterLabel,
                         convention: interface.preferences.quota,
                         tone: headline.isWarning ? .caution : .neutral,
                         isCurrent: headline.state == .current
@@ -969,6 +984,36 @@ private struct CodexAccountRow: View {
     }
 }
 
+private struct AntigravityAccountRow: View {
+    let profile: AntigravityProfile
+    @ObservedObject var interface: GuardInterfaceModel
+    let isStaticRender: Bool
+    let isChecking: Bool
+    let now: Date
+    let retry: () -> Void
+
+    var body: some View {
+        let quota = profile.display(at: now)
+        let status: MonitorProfileStatus = if profile.problem != nil { .attention }
+            else if quota.age == .never { .checking }
+            else if quota.warningWindow != nil { .low }
+            else { .healthy }
+        let tone: SWTone = status == .attention ? .critical : status == .low ? .caution : .neutral
+        AccountRow(
+            ref: profile.ref, provider: .antigravity, name: profile.name, hint: "agy on this Mac", badge: nil,
+            quota: quota, status: StatusComposer.compose(
+                symbol: status.symbolName, title: status.title, base: profile.problem ?? status.title,
+                isRoutine: status == .healthy, tone: tone, quota: quota, providerName: "Antigravity", now: now
+            ),
+            interface: interface, isStaticRender: isStaticRender, isReadOnly: interface.isReadOnly, now: now
+        ) { EmptyView() } actions: {
+            if profile.problem != nil {
+                Button("Retry", action: retry).buttonStyle(SWSecondaryButtonStyle()).disabled(isChecking)
+            }
+        }
+    }
+}
+
 private struct ClaudeAccountRow: View {
     let profile: ClaudeProfilePresentation
     let quota: AccountQuotaDisplay
@@ -1069,7 +1114,7 @@ private struct RemoteAccountRow: View {
     let now: Date
     let onToggle: (Bool) -> Void
 
-    private var provider: ProviderKind { account.provider == .codex ? .codex : .claude }
+    private var provider: ProviderKind { account.provider }
 
     var body: some View {
         AccountRow(
@@ -1343,7 +1388,7 @@ struct WindowRow: View {
 
     var body: some View {
         HStack(spacing: SW.Space.sm) {
-            Text(window.label)
+            Text(window.meterLabel)
                 .font(.system(size: 11.5, weight: .medium))
                 .foregroundStyle(SW.Palette.textSecondary)
                 .frame(width: 52, alignment: .leading)
@@ -1669,7 +1714,8 @@ private struct RemovalConfirmation: View {
         VStack(alignment: .leading, spacing: SW.Space.sm) {
             Text("Remove \(name) from \(host ?? "Second Wind")?")
                 .font(.system(size: 12.5, weight: .semibold))
-            Text("Second Wind\(host.map { " on \($0)" } ?? "") deletes only its own copy of the sign-in. Your \(provider == .codex ? "Codex" : "Claude Code") sign-in elsewhere stays.")
+            Text(provider == .antigravity ? "Second Wind will stop checking agy on this Mac."
+                 : "Second Wind\(host.map { " on \($0)" } ?? "") deletes only its own copy of the sign-in. Your \(provider == .codex ? "Codex" : "Claude Code") sign-in elsewhere stays.")
                 .font(.system(size: 11.5))
                 .foregroundStyle(SW.Palette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)

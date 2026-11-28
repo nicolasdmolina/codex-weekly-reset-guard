@@ -110,6 +110,8 @@ import SecondWindCore
         PreflightEvaluator.evaluate(request, snapshot: PreflightSnapshotFile.read(from: file), now: Date())
     }
 
+    // This fixture enrolls only Claude. Publish the empty local CLI roster as at app launch.
+    model.onQuotaRecordsChanged?(.antigravity, [])
     _ = try await codex.start()
     interface.providerDidFail(.claude, reason: "Temporary test failure")
     try await claude.start()

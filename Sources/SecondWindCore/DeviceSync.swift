@@ -93,7 +93,7 @@ public struct SharedAccount: Codable, Equatable, Sendable, Identifiable {
             return QuotaAccountRecord(provider: provider, accountID: profileID)
         }
         let inventory: ResetInventoryReport = switch provider {
-        case .claude:
+        case .claude, .antigravity:
             .notTracked
         case .codex:
             savedResetCount.map {

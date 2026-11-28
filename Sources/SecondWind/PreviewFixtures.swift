@@ -13,6 +13,7 @@ enum PreviewKind: String, CaseIterable {
     case redeemed
     case authError = "auth-error"
     case overview
+    case antigravity
     case claudeLow = "claude-low"
     case claudeSignIn = "claude-signin"
     /// A used-up 5-hour window beside a healthy week, and a 1% week with
@@ -231,6 +232,9 @@ enum PreviewFixtures {
                 isPreview: true,
                 referenceDate: reference
             )
+        case .antigravity:
+            model = GuardAppModel(isPreview: true, referenceDate: reference)
+            model.antigravity = antigravityProfile()
         case .claudeLow:
             model = GuardAppModel(
                 profiles: [workHealthy()],
@@ -481,11 +485,24 @@ enum PreviewFixtures {
     }
 
     /// A stand-in sign-in page; previews never open it.
-    static func signInURL(for provider: ProviderKind) -> URL {
+    static func signInURL(for provider: ProviderKind) -> URL? {
         switch provider {
         case .codex: URL(string: "https://auth.openai.com/oauth/authorize?client=preview")!
         case .claude: URL(string: "https://claude.ai/oauth/authorize?client=preview")!
+        case .antigravity: nil
         }
+    }
+
+    static func antigravityProfile() -> AntigravityProfile {
+        let windows = [
+            QuotaWindow(kind: .group(.session, "Gemini Models"), usedPercent: 93, resetsAt: reference.addingTimeInterval(3600)),
+            QuotaWindow(kind: .group(.weekly, "Gemini Models"), usedPercent: 44, resetsAt: reference.addingTimeInterval(172800)),
+            QuotaWindow(kind: .group(.weekly, "Other models"), usedPercent: 0, resetsAt: nil),
+        ]
+        return AntigravityProfile(quota: QuotaAccountRecord(
+            provider: .antigravity, accountID: ID.personal,
+            lastSuccess: QuotaObservation(observedAt: reference, windows: windows, inventory: .notTracked)
+        ))
     }
 
     static func enrollingCodex(_ id: UUID, name: String, hint: String) -> GuardProfilePresentation {
@@ -608,7 +625,7 @@ enum PreviewFixtures {
         session: Double,
         weekly: Double,
         sonnet: Double? = nil,
-        status: ClaudeProfileStatus,
+        status: MonitorProfileStatus,
         detail: String,
         observedMinutesAgo: Double = 3
     ) -> ClaudeProfilePresentation {
@@ -836,11 +853,12 @@ enum PreviewFixtures {
             let expectedCount: Int = switch kind {
             case .onboarding, .remote, .remoteStale, .remoteReadOnly, .remoteRemove, .remoteRemoving: 0
             case .connect, .paused, .claudeSignIn, .settings, .settingsDenied, .providerFailed, .settingsSync,
-                 .onboardingError, .addWaiting, .addConnected, .monthlyOnly, .remoteMerged: 1
+                 .onboardingError, .addWaiting, .addConnected, .monthlyOnly, .remoteMerged, .antigravity: 1
             case .freshness, .reveal: 3
             default: 2
             }
             let ids = model.profiles.map(\.id) + model.claudeProfiles.map(\.id)
+                + [model.antigravity?.ref.id.uuidString].compactMap { $0 }
             guard ids.count == expectedCount else { throw PreviewError.invalidProfileCount(kind) }
             guard Set(ids).count == ids.count else {
                 throw PreviewError.duplicateProfileID(kind)

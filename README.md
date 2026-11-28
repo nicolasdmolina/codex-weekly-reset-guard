@@ -1,6 +1,6 @@
 # Second Wind
 
-A native macOS menu-bar app that watches your Codex and Claude usage limits and
+A native macOS menu-bar app that watches your Codex, Claude and Antigravity usage limits and
 helps you use a reset before you hit the wall. For Codex it can redeem a saved
 weekly reset for you. For Claude it warns you early and takes you straight to the
 page where you redeem one.
@@ -14,10 +14,10 @@ page where you redeem one.
   <img src="docs/images/claude-low.png" width="380" alt="A Claude account at 7% of its weekly limit, with a Use a reset button">
 </p>
 
-Independent community software. Not affiliated with or endorsed by OpenAI or
-Anthropic. Codex and ChatGPT are OpenAI products; Claude and Claude Code are
-Anthropic products. The OpenAI and Claude marks shown in the app are their
-owners' trademarks and only identify which service an account belongs to. Second Wind does not grant or purchase resets, and reset
+Independent community software. Not affiliated with or endorsed by OpenAI,
+Anthropic or Google. Antigravity is a Google product. Codex and ChatGPT are OpenAI
+products. Claude and Claude Code are Anthropic products. The service marks belong
+to their respective owners. Second Wind does not grant or purchase resets, and reset
 availability depends on your account, plan and app versions.
 
 Second Wind was called Codex Weekly Reset Guard before version 0.2.0. Installing
@@ -31,7 +31,7 @@ The Mac app and source downloads include SHA-256 checksums and GitHub build
 provenance. See [releases](https://github.com/nicolasdmolina/codex-weekly-reset-guard/releases)
 and the [verification instructions](docs/RELEASING.md#what-verify_releasesh-checks).
 
-Second Wind shows Codex and Claude usage in your Mac menu bar and can use a saved Codex weekly reset when you run low.
+Second Wind shows the lowest remaining allowance in your Mac menu bar and can use a saved Codex weekly reset when you run low.
 
 The hero screenshot is [docs/images/website-hero.png](docs/images/website-hero.png).
 
@@ -71,6 +71,13 @@ test "$(curl -sS -o /dev/null -w '%{http_code}' "$pages_url")" = 200 &&
 - Open **Claude Settings › Usage** with one click, where you can reset a limit
   for free if Anthropic has given you one.
 
+**Antigravity**
+
+- Choose **Add account › Antigravity** to follow the account currently signed in to the official `agy` CLI on this Mac.
+- See the remaining percentage and next reported refill for each model group's weekly and five-hour limits. Second Wind checks every five minutes and when you click **Check now**.
+- Receive a warning at 10% remaining. Enable refill notices in Settings to hear when a previously exhausted limit becomes usable again. Google applies the refill.
+- Switching accounts in `agy` changes the account this local monitor follows. Removing it from Second Wind stops the checks.
+
 **Your other Macs**
 
 - Turn on **Sync with your other Macs** in Settings to see accounts from a Mac
@@ -108,7 +115,7 @@ to open it, select **System Settings → Privacy & Security → Open Anyway** to
 approve this copy. A managed Mac may require its administrator. A damaged-app
 or malware alert means you should stop. [Apple’s first-open guide](https://support.apple.com/en-us/102445).
 
-Install the official Codex or Claude tools for whichever service you use.
+Install the official tools for whichever service you use.
 
 ## Build and install
 
@@ -117,6 +124,7 @@ plus the official tools for the services you want to watch:
 
 - Codex: the [Codex CLI or desktop app](https://developers.openai.com/codex/quickstart).
 - Claude: [Claude Code](https://docs.anthropic.com/en/docs/claude-code/setup).
+- Antigravity: [Antigravity CLI](https://antigravity.google/docs/cli-tutorial). Open `agy` and sign in once before adding it.
 
 No API key and no third-party Swift package is required.
 
@@ -138,6 +146,8 @@ architectures. Each app carries an ad-hoc signature that macOS can check for
 changes to its contents.
 
 ## First run
+
+For Antigravity, choose **Antigravity** to start checking the local CLI. For Codex or Claude, follow these steps.
 
 1. Choose **Codex** or **Claude**. Your browser opens that service's sign-in.
 2. Sign in with the account you want to watch. Second Wind comes back by itself
@@ -251,4 +261,4 @@ See [architecture](docs/ARCHITECTURE.md), [design](DESIGN.md),
 ## License
 
 [MIT](LICENSE), copyright 2026 Nicky Molina. Apple system frameworks and your
-separately installed Codex and Claude Code software remain under their own terms.
+separately installed Codex, Claude Code and Antigravity software remain under their own terms.

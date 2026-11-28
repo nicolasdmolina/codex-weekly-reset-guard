@@ -15,7 +15,7 @@ struct PreflightInvocation: Equatable, Sendable {
 /// `SecondWind --preflight`: a read-only quota check for scripts that are about to start a
 /// long job. It reads only the snapshot the running app publishes.
 enum PreflightCommandLine {
-    static let usage = "--preflight [--session <0-100>] [--weekly <0-100>] [--provider codex|claude] [--account <uuid>] [--json] [--snapshot <absolute-path>]"
+    static let usage = "--preflight [--session <0-100>] [--weekly <0-100>] [--provider codex|claude|antigravity] [--account <uuid>] [--json] [--snapshot <absolute-path>]"
     static let usageExitCode: Int32 = 64
 
     private static let options: Set<String> = [
@@ -63,7 +63,7 @@ enum PreflightCommandLine {
                 weekly = try percent(value, option: option)
             case "--provider":
                 guard let parsed = QuotaProvider(rawValue: value) else {
-                    throw GuardCommandLineError.invalidPreflight("--provider must be codex or claude.")
+                    throw GuardCommandLineError.invalidPreflight("--provider must be codex, claude or antigravity.")
                 }
                 provider = parsed
             case "--account":
@@ -151,7 +151,7 @@ enum PreflightCommandLine {
 
     private static func checkLine(_ check: PreflightCheck, now: Date) -> String {
         var label = check.requirement.window == .session ? "Session" : "Weekly"
-        if case let .modelWeekly(model)? = check.window?.kind {
+        if let model = check.window?.kind.modelScope {
             label += " (\(model))"
         }
         let minimum = check.requirement.minimumPercent
@@ -275,7 +275,7 @@ enum PreflightCommandLine {
             try container.encode(check.result.rawValue, forKey: .result)
             try container.encode(check.reason?.rawValue, forKey: .reason)
             try container.encode(check.failure?.preflightCode, forKey: .failure)
-            let scope: String? = if case let .modelWeekly(model)? = check.window?.kind { model } else { nil }
+            let scope = check.window?.kind.modelScope
             try container.encode(scope, forKey: .scope)
             try container.encode(check.window?.remainingPercent, forKey: .remainingPercent)
             try container.encode(check.window?.resetsAt, forKey: .resetsAt)

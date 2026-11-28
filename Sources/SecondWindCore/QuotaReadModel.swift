@@ -4,9 +4,12 @@ import Foundation
 // display, alert and preflight data only: nothing here can authorize a reset. Redemption reads
 // the canonical weekly window through `RateLimitClassifier.classify` and nothing else.
 
-public enum QuotaProvider: String, Codable, Sendable, Hashable, CaseIterable {
+public enum QuotaProvider: String, Codable, Sendable, Hashable, CaseIterable, Identifiable {
+    public var id: String { rawValue }
+
     case codex
     case claude
+    case antigravity
 }
 
 public enum QuotaWindowKind: Hashable, Codable, Sendable {
@@ -18,6 +21,15 @@ public enum QuotaWindowKind: Hashable, Codable, Sendable {
     case monthly
     /// A weekly limit for one model family, such as Claude's "Sonnet only".
     case modelWeekly(String)
+    /// Antigravity reports independent limits per model group.
+    case group(PreflightWindow, String)
+
+    public var modelScope: String? {
+        switch self {
+        case let .group(_, name), let .modelWeekly(name): name
+        default: nil
+        }
+    }
 
     public var key: String {
         switch self {
@@ -25,6 +37,7 @@ public enum QuotaWindowKind: Hashable, Codable, Sendable {
         case .weekly: "weekly"
         case .monthly: "monthly"
         case let .modelWeekly(name): "weekly:\(name)"
+        case let .group(window, name): "group:\(window.rawValue):\(name)"
         }
     }
 }
@@ -200,7 +213,7 @@ public struct QuotaReadPolicy: Equatable, Sendable {
     public static func standard(for provider: QuotaProvider) -> QuotaReadPolicy {
         switch provider {
         case .codex: codex
-        case .claude: claude
+        case .claude, .antigravity: claude
         }
     }
 }
@@ -362,7 +375,7 @@ public struct QuotaAccountReading: Equatable, Sendable, Identifiable {
             let expiryPassed = snapshot.nextExpiryPassed(by: now)
             inventory = .known(snapshot, isCurrent: accountFresh && !expiryPassed)
         case .omitted, nil:
-            inventory = record.provider == .claude
+            inventory = record.provider != .codex
                 ? .notTracked
                 : .unknown(lastKnown: record.lastKnownInventory)
         }
@@ -480,7 +493,7 @@ extension QuotaWindowKind {
         case .session: 0
         case .weekly: 1
         case .monthly: 2
-        case .modelWeekly: 3
+        case .modelWeekly, .group: 3
         }
     }
 }

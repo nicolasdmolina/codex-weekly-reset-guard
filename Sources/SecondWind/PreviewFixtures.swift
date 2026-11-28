@@ -62,6 +62,8 @@ enum PreviewKind: String, CaseIterable {
     case settingsSync = "settings-sync"
     /// A synced Mac that publishes but cannot read commands, so its switches are read-only here.
     case remoteReadOnly = "remote-read-only"
+    /// One account on this Mac and the Mac mini, redeemed there, plus one only on the Mac mini.
+    case remoteMerged = "remote-merged"
 }
 
 @MainActor
@@ -409,6 +411,13 @@ enum PreviewFixtures {
             var mini = miniSnapshot(publishedSecondsAgo: 25, workAutoRedeem: false)
             mini.acceptsCommands = false
             model.remoteDevices = [mini]
+            syncStatus = .on
+        case .remoteMerged:
+            var personal = personalHealthy()
+            personal.autoResetEnabled = false
+            personal.email = "personal@example.com"
+            model = GuardAppModel(profiles: [personal], isPreview: true, referenceDate: reference)
+            model.remoteDevices = [miniSnapshot(publishedSecondsAgo: 25, workAutoRedeem: false)]
             syncStatus = .on
         case .settingsSync:
             syncStatus = .unavailable
@@ -798,7 +807,7 @@ enum PreviewFixtures {
             let expectedCount: Int = switch kind {
             case .onboarding, .remote, .remoteStale, .remoteReadOnly: 0
             case .connect, .paused, .claudeSignIn, .settings, .settingsDenied, .providerFailed, .settingsSync,
-                 .onboardingError, .addWaiting, .addConnected, .monthlyOnly: 1
+                 .onboardingError, .addWaiting, .addConnected, .monthlyOnly, .remoteMerged: 1
             case .freshness, .reveal: 3
             default: 2
             }

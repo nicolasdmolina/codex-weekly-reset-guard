@@ -79,8 +79,7 @@ final class DeviceSyncCoordinator {
         Task { await pass() }
     }
 
-    func send(to device: SyncDeviceID, account: SharedAccount, enabled: Bool) {
-        let ref = AccountRef(provider: .codex, id: account.profileID)
+    func send(to device: SyncDeviceID, account: SharedAccount, enabled: Bool, reportingTo ref: AccountRef) {
         let deviceName = model?.remoteDevices.first { $0.deviceID == device }?.deviceName ?? "the other Mac"
         guard let service else {
             model?.reportActionFailure("Sync is not connected. Try again in a moment.", for: ref)
@@ -217,22 +216,23 @@ final class DeviceSyncCoordinator {
             }
             return false
         }
-        // Alerts come only from what this pass actually read.
-        for device in read where device.freshness(at: now).isLive {
-            for account in device.accounts {
-                let reading = account.quotaRecord().reading(at: now, policy: .remote)
-                for low in reading.currentLowWindows {
-                    alerts.post(.remoteLowQuota(
-                        RemoteAlertAccount(
-                            device: device.deviceID,
-                            deviceName: device.deviceName,
-                            provider: account.provider == .codex ? .codex : .claude,
-                            profileID: account.profileID,
-                            name: account.displayName
-                        ),
-                        window: low.window
-                    ))
-                }
+        // Alerts come only from what this pass actually read, never for a window this Mac alerts
+        // for itself. The alert key collapses the same window from several Macs into one notice.
+        let fresh = read.filter { $0.freshness(at: now).isLive }
+        for copy in model.remoteAlertSources(among: fresh, now: now) {
+            let reading = copy.account.quotaRecord().reading(at: now, policy: .remote)
+            for low in reading.currentLowWindows where !model.alertsLocally(copy.account, window: low.window.kind, now: now) {
+                alerts.post(.remoteLowQuota(
+                    RemoteAlertAccount(
+                        device: copy.device.deviceID,
+                        deviceName: copy.device.deviceName,
+                        provider: copy.account.provider == .codex ? .codex : .claude,
+                        profileID: copy.account.profileID,
+                        email: copy.account.email,
+                        name: copy.account.displayName
+                    ),
+                    window: low.window
+                ))
             }
         }
     }

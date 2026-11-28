@@ -1,5 +1,13 @@
 # Changelog
 
+## Unreleased
+
+- An account signed in on more than one Mac shows as one card instead of once
+  per Mac. Accounts that only another Mac has sit in the Codex or Claude list
+  with that Mac's name. A card shows the newest reading from any Mac, its
+  Auto-redeem switch follows whichever Mac redeems the account, and a low limit
+  notifies once.
+
 ## 0.4.1
 
 - Codex Free accounts show their monthly limit. They used to fail every check

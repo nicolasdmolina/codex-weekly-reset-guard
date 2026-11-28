@@ -68,8 +68,8 @@ func connectLiveFeatures(
     )
     interface.changeSync = { sync.setEnabled($0) }
     model.onSyncNow = { sync.syncNow() }
-    model.onSetRemoteAutoReset = { device, account, enabled in
-        sync.send(to: device, account: account, enabled: enabled)
+    model.onSetRemoteAutoReset = { device, account, enabled, card in
+        sync.send(to: device, account: account, enabled: enabled, reportingTo: card)
     }
     delegate.onPopoverOpen = { sync.syncNow() }
     sync.start()

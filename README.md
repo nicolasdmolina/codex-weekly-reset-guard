@@ -76,6 +76,8 @@ test "$(curl -sS -o /dev/null -w '%{http_code}' "$pages_url")" = 200 &&
 - Turn on **Sync with your other Macs** in Settings to see accounts from a Mac
   that stays on, such as a Mac mini, on your laptop. Sync uses your iCloud Drive
   and is off until you turn it on.
+- An account signed in on both Macs shows as one card. Accounts only on another
+  Mac sit with your own, marked with that Mac's name.
 - Turn a synced Codex account's **Auto-redeem** on or off from either Mac. The
   Mac that hosts the account makes the change and confirms it.
 - Get the same low-quota notifications for accounts on your other Macs.

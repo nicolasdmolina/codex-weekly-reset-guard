@@ -201,7 +201,8 @@ final class GuardAppModel: ObservableObject {
     var onQuotaRecordsChanged: ((QuotaProvider, [QuotaAccountRecord]) -> Void)?
     /// Awaitable form of `onToggleAutoReset`: the same runtime path, returning whether it held.
     var applyAutoReset: ((String, Bool) async -> Bool)?
-    var onSetRemoteAutoReset: ((SyncDeviceID, SharedAccount, Bool) -> Void)?
+    /// Sends a change to another Mac; failures report to the given card.
+    var onSetRemoteAutoReset: ((SyncDeviceID, SharedAccount, Bool, AccountRef) -> Void)?
     var onSyncNow: (() -> Void)?
 
     init(
@@ -328,8 +329,185 @@ final class GuardAppModel: ObservableObject {
 
     // MARK: Other Macs
 
-    static func remoteKey(device: SyncDeviceID, account: SharedAccount) -> String {
+    nonisolated static func remoteKey(device: SyncDeviceID, account: SharedAccount) -> String {
         "\(device)|\(account.id)"
+    }
+
+    /// An account as another Mac shares it.
+    struct RemoteCopy {
+        let device: DeviceSnapshot
+        let account: SharedAccount
+
+        var key: String { GuardAppModel.remoteKey(device: device.deviceID, account: account) }
+    }
+
+    /// Accounts are the same account across Macs only when provider and email match. An account
+    /// with no email never merges, since its name alone can collide.
+    private static func accountKey(_ provider: QuotaProvider, email: String?) -> String? {
+        let email = DeviceSyncPolicy.normalizedEmail(email ?? "")
+        return email.isEmpty ? nil : "\(provider.rawValue)|\(email)"
+    }
+
+    /// One account as every other Mac shares it. Whose reading to show and whose Auto-redeem
+    /// switch to drive are separate choices: the Mac that redeems is not always the one that read
+    /// last.
+    struct SyncedAccount {
+        /// `accountKey`, or one Mac's own key for an account with no email.
+        let key: String
+        let copies: [RemoteCopy]
+        /// The copy with the newest current reading, if any copy has one.
+        let currentReading: RemoteCopy?
+        /// The copy that redeems the account or waits on a change to it.
+        let redeemer: RemoteCopy?
+        /// The first Mac that can take a change now, preferring a healthy copy.
+        let reachable: RemoteCopy?
+        /// The copy a remote-only card names and drives: a live redeemer or one with a change in
+        /// flight, else the first Mac that can take a change now, else a quiet redeemer, else the
+        /// first Mac. A fixed order, so the card does not move between
+        /// Macs as each reads.
+        let host: RemoteCopy
+
+        /// The figures a card shows: the newest current reading, else the host's last one.
+        var reading: RemoteCopy { currentReading ?? host }
+    }
+
+    /// Other Macs' accounts, one entry per account, in the order the Macs list them.
+    func syncedAccounts(among devices: [DeviceSnapshot]? = nil, now: Date) -> [SyncedAccount] {
+        var order: [String] = []
+        var groups: [String: [RemoteCopy]] = [:]
+        for device in devices ?? remoteDevices {
+            for account in device.accounts {
+                let key = Self.accountKey(account.provider, email: account.email)
+                    ?? Self.remoteKey(device: device.deviceID, account: account)
+                if groups[key] == nil { order.append(key) }
+                groups[key, default: []].append(RemoteCopy(device: device, account: account))
+            }
+        }
+        return order.compactMap { key in groups[key].map { synced(key: key, copies: $0, now: now) } }
+    }
+
+    private func synced(key: String, copies: [RemoteCopy], now: Date) -> SyncedAccount {
+        let byDevice = copies.sorted { $0.device.deviceID.description < $1.device.deviceID.description }
+        let observed = { (copy: RemoteCopy) -> Date? in
+            let record = copy.account.quotaRecord()
+            let current = record.reading(at: now, policy: .remote).windows.contains(where: \.isCurrent)
+            return current ? record.lastSuccess?.observedAt : nil
+        }
+        let current = byDevice
+            .compactMap { copy in observed(copy).map { (copy, $0) } }
+            .max { $0.1 < $1.1 }?.0
+        let redeemRank = { (copy: RemoteCopy) -> Int in
+            if case .pending = self.remoteState(of: copy.account, in: copy.device, now: now) { return 4 }
+            guard copy.account.autoRedeemEnabled == true else { return 0 }
+            guard copy.device.freshness(at: now).isLive else { return 1 }
+            // Among live redeemers, one that can take a change can be turned off from here.
+            return copy.device.acceptsCommands ? 3 : 2
+        }
+        let redeemer = byDevice.filter { redeemRank($0) > 0 }.max { redeemRank($0) < redeemRank($1) }
+        // Prefer a reachable Mac whose copy is healthy, since a signed-out copy cannot redeem.
+        let canTake = byDevice.filter { $0.device.freshness(at: now).isLive && $0.device.acceptsCommands }
+        let reachable = canTake.first { $0.account.attentionMessage == nil } ?? canTake.first
+        // A quiet redeemer yields to a Mac that can take a change, as `AutoRedeemGuard` ignores it.
+        let activeRedeemer = redeemer.flatMap { redeemRank($0) >= 2 ? $0 : nil }
+        return SyncedAccount(
+            key: key, copies: copies, currentReading: current, redeemer: redeemer, reachable: reachable,
+            host: activeRedeemer ?? reachable ?? redeemer ?? byDevice[0]
+        )
+    }
+
+    /// Other Macs' copies of an account this Mac also has.
+    func synced(provider: QuotaProvider, email: String?, now: Date) -> SyncedAccount? {
+        guard let key = Self.accountKey(provider, email: email) else { return nil }
+        return syncedAccounts(now: now).first { $0.key == key }
+    }
+
+    /// Accounts only other Macs have. An account this Mac also has always stays one card here,
+    /// whether or not its own reading is current.
+    func remoteOnlyAccounts(now: Date) -> [SyncedAccount] {
+        let local = Set(
+            profiles.compactMap { Self.accountKey(.codex, email: $0.email) }
+                + claudeProfiles.compactMap { Self.accountKey(.claude, email: $0.email) }
+        )
+        return syncedAccounts(now: now).filter { !local.contains($0.key) }
+    }
+
+    /// Another Mac's current reading, for a card whose own reading is not current.
+    func borrowedReading(provider: QuotaProvider, email: String?, record: QuotaAccountRecord?, now: Date) -> SharedAccount? {
+        guard !Self.isCurrent(record, now: now) else { return nil }
+        return synced(provider: provider, email: email, now: now)?.currentReading?.account
+    }
+
+    /// True when this Mac alerts for this window itself: Claude monitoring does for every window
+    /// it reads currently, so another Mac's reading adds nothing unless it is newer. Codex
+    /// monitoring has no low alert of its own.
+    func alertsLocally(_ account: SharedAccount, window kind: QuotaWindowKind, now: Date) -> Bool {
+        guard account.provider == .claude, let key = Self.accountKey(.claude, email: account.email) else { return false }
+        let remoteObservedAt = account.quotaRecord().lastSuccess?.observedAt ?? .distantPast
+        return claudeProfiles.contains { profile in
+            guard Self.accountKey(.claude, email: profile.email) == key,
+                  let record = profile.quota,
+                  let localObservedAt = record.lastSuccess?.observedAt,
+                  localObservedAt >= remoteObservedAt
+            else { return false }
+            return record.reading(at: now).windows.contains { $0.isCurrent && $0.window.kind == kind }
+        }
+    }
+
+    private static func isCurrent(_ record: QuotaAccountRecord?, now: Date) -> Bool {
+        record?.reading(at: now).windows.contains(where: \.isCurrent) ?? false
+    }
+
+    /// The other Mac that redeems this Codex account or waits on a change to it, whatever this
+    /// Mac's own switch says. A Mac that went quiet still counts: it may redeem again when it wakes.
+    func remoteRedeemer(of profile: GuardProfilePresentation, now: Date) -> RemoteCopy? {
+        synced(provider: .codex, email: profile.email, now: now)?.redeemer
+    }
+
+    /// The other Mac a card's switch drives while this Mac's own Auto-redeem is off: one that
+    /// redeems the account and can take a change now, or, while this Mac cannot redeem because it
+    /// is signed out, the first Mac that can. A quiet Mac hands the switch back, matching
+    /// `AutoRedeemGuard`, so this Mac can take over instead of waiting days for it to return.
+    func drivenRemote(of profile: GuardProfilePresentation, now: Date) -> RemoteCopy? {
+        guard !profile.autoResetEnabled,
+              let synced = synced(provider: .codex, email: profile.email, now: now)
+        else { return nil }
+        if let copy = synced.redeemer {
+            if case .pending = remoteState(of: copy.account, in: copy.device, now: now) { return copy }
+            if copy.device.freshness(at: now).isLive {
+                // A live redeemer that cannot take a change keeps the switch locked on it; no
+                // other Mac could turn Auto-redeem on while it runs.
+                return copy.device.acceptsCommands ? copy : nil
+            }
+        }
+        return profile.isConnected ? nil : synced.reachable
+    }
+
+    /// The switch on an account card. It changes the Mac `drivenRemote` names, through that Mac's
+    /// guards, and otherwise this Mac. `shown` is the other Mac the card named when it was drawn;
+    /// if that changed before the click, nothing is sent and the card asks for another try.
+    /// Failures show on this card.
+    func setAccountAutoReset(profileID: String, enabled: Bool, shown: String? = nil, drawnAt: Date? = nil) {
+        guard let profile = profiles.first(where: { $0.id == profileID }) else { return }
+        let ref = AccountRef(provider: .codex, rawID: profileID)
+        // Judged on the clock the card was drawn with, so a Mac crossing the quiet line between
+        // popover ticks does not bounce every click until the next tick.
+        let copy = drivenRemote(of: profile, now: drawnAt ?? referenceDate ?? Date())
+        guard copy?.key == shown else {
+            if let ref { reportActionFailure("The other Mac changed. Try again.", for: ref) }
+            return
+        }
+        if let copy {
+            setRemoteAutoReset(device: copy.device, account: copy.account, enabled: enabled, reportingTo: ref)
+        } else {
+            setAutoReset(profileID: profileID, enabled: enabled)
+        }
+    }
+
+    /// The low windows other Macs read for alerting, from every Mac read this pass. The alert key
+    /// names the account and window, so the same window from two Macs notifies once, and a window
+    /// only one Mac reads is never lost behind another Mac's newer partial reading.
+    func remoteAlertSources(among devices: [DeviceSnapshot], now: Date) -> [RemoteCopy] {
+        syncedAccounts(among: devices, now: now).flatMap(\.copies)
     }
 
     func remoteState(of account: SharedAccount, in device: DeviceSnapshot, now: Date) -> RemoteAccountState {
@@ -342,10 +520,10 @@ final class GuardAppModel: ObservableObject {
     }
 
     /// Sends an absolute Auto-redeem setting to the Mac that hosts the account.
-    func setRemoteAutoReset(device: DeviceSnapshot, account: SharedAccount, enabled: Bool) {
+    func setRemoteAutoReset(device: DeviceSnapshot, account: SharedAccount, enabled: Bool, reportingTo card: AccountRef? = nil) {
         guard !isReadOnly, account.provider == .codex, device.acceptsCommands else { return }
         let key = Self.remoteKey(device: device.deviceID, account: account)
-        let ref = AccountRef(provider: .codex, id: account.profileID)
+        let ref = card ?? AccountRef(provider: .codex, id: account.profileID)
         if case .pending = remoteState(of: account, in: device, now: referenceDate ?? Date()) { return }
         if enabled {
             let local = profiles.contains {
@@ -364,7 +542,7 @@ final class GuardAppModel: ObservableObject {
             pendingRemoteCommands[key] = PendingRemoteCommand(commandID: UUID(), enabled: enabled, issuedAt: referenceDate ?? Date())
             return
         }
-        onSetRemoteAutoReset?(device.deviceID, account, enabled)
+        onSetRemoteAutoReset?(device.deviceID, account, enabled, ref)
     }
 
     /// What this Mac shares: every account, with its readings and the Auto-redeem setting.

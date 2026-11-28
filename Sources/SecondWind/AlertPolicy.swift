@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import SecondWindCore
 
@@ -19,10 +20,22 @@ struct RemoteAlertAccount: Equatable, Sendable {
     let deviceName: String
     let provider: ProviderKind
     let profileID: UUID
+    var email: String = ""
     let name: String
 
-    /// Never starts with a provider name, so a local roster never prunes it.
-    var token: String { "remote:\(device)|\(provider.rawValue):\(profileID.uuidString.lowercased())" }
+    /// One account across every other Mac, so a window that moves between Macs alerts once. An
+    /// account with no email stays tied to its Mac. Never starts with a provider name, so a local
+    /// roster never prunes it.
+    var token: String {
+        let email = DeviceSyncPolicy.normalizedEmail(email)
+        guard !email.isEmpty else {
+            return "remote:\(device)|\(provider.rawValue):\(profileID.uuidString.lowercased())"
+        }
+        // The ledger and Notification Center keep this id, so it carries a digest, not the email.
+        let digest = SHA256.hash(data: Data("\(provider.rawValue)|\(email)".utf8))
+            .prefix(12).map { String(format: "%02x", $0) }.joined()
+        return "remote:\(provider.rawValue):\(digest)"
+    }
 }
 
 enum AttentionReason: String, Codable, Sendable {

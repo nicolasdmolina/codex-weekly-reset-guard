@@ -14,6 +14,8 @@ public enum QuotaWindowKind: Hashable, Codable, Sendable {
     case session
     /// The weekly limit shared by every model.
     case weekly
+    /// The 30-day limit on plans that have one instead of a weekly limit.
+    case monthly
     /// A weekly limit for one model family, such as Claude's "Sonnet only".
     case modelWeekly(String)
 
@@ -21,6 +23,7 @@ public enum QuotaWindowKind: Hashable, Codable, Sendable {
         switch self {
         case .session: "session"
         case .weekly: "weekly"
+        case .monthly: "monthly"
         case let .modelWeekly(name): "weekly:\(name)"
         }
     }
@@ -148,6 +151,14 @@ public struct QuotaObservation: Equatable, Sendable {
         self.unreportedWindows = unreportedWindows
         self.inventory = inventory
         self.includedUsageAccess = includedUsageAccess
+    }
+
+    /// The plan has a monthly limit in place of a weekly one: the weekly limit is neither
+    /// reported nor expected, and the monthly limit was read.
+    public var hasNoWeeklyLimit: Bool {
+        windows.contains { $0.kind == .monthly }
+            && !windows.contains { $0.kind == .weekly }
+            && !unreportedWindows.contains(.weekly)
     }
 }
 
@@ -468,7 +479,8 @@ extension QuotaWindowKind {
         switch self {
         case .session: 0
         case .weekly: 1
-        case .modelWeekly: 2
+        case .monthly: 2
+        case .modelWeekly: 3
         }
     }
 }

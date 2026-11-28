@@ -83,6 +83,32 @@ private func seconds(_ offset: TimeInterval) -> Int64 {
     #expect(reading.hasConfirmedWindows)
 }
 
+@Test func codexFreePlanShowsOnlyItsMonthlyLimit() throws {
+    let snapshot = RateLimitSnapshot(
+        limitID: "codex",
+        primary: RateLimitWindow(usedPercent: 0, windowDurationMinutes: 43_200, resetsAt: now.addingTimeInterval(20 * 86_400)),
+        observedAt: now
+    )
+    let observation = try observation(snapshot)
+    #expect(observation.hasNoWeeklyLimit)
+    let reading = codexRecord(observation).reading(at: now)
+    #expect(reading.windows.map(\.window.kind) == [.monthly])
+    #expect(reading.unknownWindows.isEmpty)
+    #expect(reading.hasConfirmedWindows)
+    #expect(RateLimitClassifier().classify(snapshot, now: now) == .rejected(.weeklyWindowMissing))
+}
+
+@Test func incompleteMonthlyLaneIsUnknownAndNotAPlanWithoutAWeek() throws {
+    let snapshot = RateLimitSnapshot(
+        limitID: "codex",
+        primary: RateLimitWindow(usedPercent: 0, windowDurationMinutes: 43_200, resetsAt: nil),
+        observedAt: now
+    )
+    let observation = try observation(snapshot)
+    #expect(!observation.hasNoWeeklyLimit)
+    #expect(codexRecord(observation).reading(at: now).unknownWindows == [.monthly])
+}
+
 @Test func codexLaneWithUnrecognisedLengthKeepsFiveHourUnknown() throws {
     let reading = codexRecord(try observation(codexSnapshot(sessionDuration: 60))).reading(at: now)
     #expect(reading.windows.map(\.window.kind) == [.weekly])

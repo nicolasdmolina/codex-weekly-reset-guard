@@ -240,6 +240,7 @@ enum QuotaDisplayBuilder {
         switch kind {
         case .session: "5-hour"
         case .weekly: "Weekly"
+        case .monthly: "Monthly"
         case let .modelWeekly(name): name.replacingOccurrences(of: " only", with: "")
         }
     }
@@ -264,7 +265,8 @@ enum QuotaDisplayBuilder {
     private static func order(_ id: String) -> Int {
         if id == QuotaWindowKind.session.key { return 0 }
         if id == QuotaWindowKind.weekly.key { return 1 }
-        return 2
+        if id == QuotaWindowKind.monthly.key { return 2 }
+        return 3
     }
 
     private static func level(remaining: Double, low: Double) -> QuotaLevel {

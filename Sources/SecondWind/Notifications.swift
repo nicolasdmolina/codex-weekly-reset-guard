@@ -282,6 +282,7 @@ enum AlertText {
         switch kind {
         case .session: "5-hour"
         case .weekly: "weekly"
+        case .monthly: "monthly"
         case let .modelWeekly(model): "\(model.replacingOccurrences(of: " only", with: "")) weekly"
         }
     }

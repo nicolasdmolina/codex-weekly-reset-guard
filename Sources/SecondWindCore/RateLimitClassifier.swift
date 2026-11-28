@@ -19,6 +19,8 @@ public struct RateLimitClassifier: Sendable {
     public static let canonicalLimitID = "codex"
     public static let weeklyDurationMinutes = 10_080.0
     public static let sessionDurationMinutes = 300.0
+    /// The 30-day limit on plans without a weekly one, such as Codex Free.
+    public static let monthlyDurationMinutes = 43_200.0
 
     public var durationToleranceFraction: Double
 
@@ -102,16 +104,21 @@ public struct RateLimitClassifier: Sendable {
                 found[.weekly, default: []].append(window)
             } else if isDuration(duration, near: Self.sessionDurationMinutes) {
                 found[.session, default: []].append(window)
+            } else if isDuration(duration, near: Self.monthlyDurationMinutes) {
+                found[.monthly, default: []].append(window)
             } else {
                 hasUnlabelledLane = true
             }
         }
         // The sole candidate must also be complete: Codex always sends a valid percentage and a
-        // reset time. Ambiguous or incomplete windows are unknown, never shown. Some plans have
-        // no five-hour limit: when every lane sent is labelled and none is five hours, the account
-        // has none, rather than an unknown one.
-        let hasNoSessionLimit = !hasUnlabelledLane && found[.session] == nil && (found[.weekly]?.count ?? 0) <= 1
-        let expected: [QuotaWindowKind] = hasNoSessionLimit ? [.weekly] : [.session, .weekly]
+        // reset time. Ambiguous or incomplete windows are unknown, never shown. Plans differ: when
+        // every lane sent has its own recognised length, a five-hour limit that is absent is not
+        // part of the plan, and neither is a weekly one when a monthly limit takes its place.
+        let lanesAreClear = !hasUnlabelledLane && found.values.allSatisfy { $0.count == 1 }
+        var expected: [QuotaWindowKind] = []
+        if !lanesAreClear || found[.session] != nil { expected.append(.session) }
+        if !lanesAreClear || found[.weekly] != nil || found[.monthly] == nil { expected.append(.weekly) }
+        if found[.monthly] != nil { expected.append(.monthly) }
         let windows = expected.compactMap { kind -> QuotaWindow? in
             guard let matches = found[kind], matches.count == 1, let window = matches.first,
                   window.usedPercent.isFinite,

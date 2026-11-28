@@ -21,6 +21,8 @@ enum PreviewKind: String, CaseIterable {
     /// Plans with only a weekly limit: Codex sends one weekly lane, and Claude Code prints no
     /// session line. Neither shows a 5-hour row.
     case weeklyOnly = "weekly-only"
+    /// Codex Free: one 30-day lane in place of the 5-hour and weekly limits.
+    case monthlyOnly = "monthly-only"
     /// One current account, one whose reset time passed after its last
     /// reading, one stale Claude account. No "all clear".
     case freshness
@@ -264,6 +266,8 @@ enum PreviewFixtures {
                 isPreview: true,
                 referenceDate: reference
             )
+        case .monthlyOnly:
+            model = GuardAppModel(profiles: [monthlyOnlyCodex()], isPreview: true, referenceDate: reference)
         case .freshness:
             model = GuardAppModel(
                 profiles: [
@@ -636,6 +640,28 @@ enum PreviewFixtures {
         return profile
     }
 
+    /// Built through the real classifier from the shape Codex sends a Free plan.
+    private static func monthlyOnlyCodex() -> GuardProfilePresentation {
+        let observedAt = reference.addingTimeInterval(-40)
+        let snapshot = RateLimitSnapshot(
+            limitID: "codex",
+            primary: RateLimitWindow(usedPercent: 12, windowDurationMinutes: 43_200, resetsAt: reference.addingTimeInterval(24 * 86_400)),
+            secondary: nil,
+            observedAt: observedAt
+        )
+        let inventory = ResetInventorySnapshot(availableCount: 0, expiries: .listed([]), fetchedAt: observedAt)
+        let observation = RateLimitClassifier().quotaObservation(
+            snapshot, inventory: .reported(inventory), includedUsageAccess: .allowed
+        )
+        var profile = codex(
+            ID.work, "Free", hint: "f•••@example.com", status: .healthy, detail: "Monthly usage is current.",
+            autoReset: false,
+            record: QuotaAccountRecord(provider: .codex, accountID: ID.work, lastSuccess: observation)
+        )
+        profile.planName = "Free"
+        return profile
+    }
+
     /// Parsed from the text Claude Code prints for a plan without a session limit.
     private static func weeklyOnlyClaude() -> ClaudeProfilePresentation {
         let text = """
@@ -772,7 +798,7 @@ enum PreviewFixtures {
             let expectedCount: Int = switch kind {
             case .onboarding, .remote, .remoteStale, .remoteReadOnly: 0
             case .connect, .paused, .claudeSignIn, .settings, .settingsDenied, .providerFailed, .settingsSync,
-                 .onboardingError, .addWaiting, .addConnected: 1
+                 .onboardingError, .addWaiting, .addConnected, .monthlyOnly: 1
             case .freshness, .reveal: 3
             default: 2
             }

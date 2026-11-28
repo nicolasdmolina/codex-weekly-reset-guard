@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- Codex Free accounts show their monthly limit. They used to fail every check
+  with “The weekly limit could not be classified safely.” Auto-redeem acts only
+  on a weekly limit, so it never redeems on these accounts.
+
 ## 0.4.0
 
 - Adding an account no longer asks for an email or a name: choose Codex or

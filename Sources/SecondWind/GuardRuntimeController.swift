@@ -286,6 +286,16 @@ actor GuardRuntimeController {
         var pendingLoginID: String?
     }
 
+    /// Codex reported a monthly limit in place of a weekly one. Only an ordinary check accepts
+    /// it; every redemption path treats it as the failure it is for the reset policy.
+    private struct PlanWithoutWeeklyLimit: Error {
+        let inventory: ResetCreditInventory?
+    }
+
+    private struct AcceptedPlanWithoutWeeklyLimit: Error {
+        let inventory: ResetCreditInventory?
+    }
+
     private struct Reading: Sendable {
         let weeklyLimit: CanonicalWeeklyLimit
         let inventory: ResetCreditInventory
@@ -1001,12 +1011,18 @@ actor GuardRuntimeController {
         await publish()
 
         do {
-            let reading = try await readVerified(
-                profile: profile,
-                session: session,
-                refreshIdentity: refreshIdentity,
-                generation: generation
-            )
+            let reading: Reading
+            do {
+                reading = try await readVerified(
+                    profile: profile,
+                    session: session,
+                    refreshIdentity: refreshIdentity,
+                    generation: generation
+                )
+            } catch let plan as PlanWithoutWeeklyLimit {
+                // Accepted only for this ordinary read; a policy re-read still fails.
+                throw AcceptedPlanWithoutWeeklyLimit(inventory: plan.inventory)
+            }
             guard readGenerations[profileID, default: 0] == generation else {
                 throw DiscardedRead()
             }
@@ -1033,6 +1049,18 @@ actor GuardRuntimeController {
                     generation: generation
                 )
             }
+            lastCheckedAt = now()
+        } catch let noWeekly as AcceptedPlanWithoutWeeklyLimit where readGenerations[profileID, default: 0] == generation {
+            // A plan whose monthly limit takes the place of a weekly one. The reading is current,
+            // and there is no weekly limit for Auto-redeem to act on, so the policy never runs.
+            var live = liveProfiles[profileID] ?? LiveProfileState()
+            live.connectionStatus = .verified
+            live.weeklyLimit = nil
+            live.inventory = noWeekly.inventory
+            live.detail = "Monthly usage is current."
+            liveProfiles[profileID] = live
+            lastLoggedFailure[profileID] = nil
+            checkFailureBanners[profileID] = nil
             lastCheckedAt = now()
         } catch {
             if !(error is DiscardedRead),
@@ -1080,8 +1108,9 @@ actor GuardRuntimeController {
         }
         let snapshot = canonicalSnapshot.domainValue(observedAt: observedAt)
         // Display evidence only. The policy below still trusts nothing but `classify`.
+        let displayObservation = response.quotaObservation(observedAt: observedAt, classifier: classifier)
         if evidenceIsCurrent {
-            if let observation = response.quotaObservation(observedAt: observedAt, classifier: classifier) {
+            if let observation = displayObservation {
                 var record = quotaRecords[profile.id]
                     ?? QuotaAccountRecord(provider: .codex, accountID: profile.id)
                 record.recordSuccess(observation)
@@ -1095,6 +1124,9 @@ actor GuardRuntimeController {
         case let .canonical(value):
             weeklyLimit = value
         case let .rejected(failure):
+            if failure == .weeklyWindowMissing, let displayObservation, displayObservation.hasNoWeeklyLimit {
+                throw PlanWithoutWeeklyLimit(inventory: response.rateLimitResetCredits?.domainValue())
+            }
             throw GuardRuntimeError.rejectedWeeklyLimit(Self.safeClassificationReason(failure))
         }
         guard let inventory = response.rateLimitResetCredits?.domainValue() else {
@@ -1995,6 +2027,9 @@ extension GuardAppModel {
             return usedUp
                 ? "5-hour limit is used up. It renews on its own."
                 : "5-hour limit is running low."
+        case .monthly:
+            // Auto-redeem acts only on the weekly limit, so it is not offered here.
+            return usedUp ? "Monthly limit is used up." : "Monthly limit is running low."
         case .weekly, .modelWeekly:
             let state = usedUp ? "Weekly limit is used up." : "Weekly limit is running low."
             if !autoResetEnabled, case let .known(saved, _) = inventory, saved.availableCount > 0 {

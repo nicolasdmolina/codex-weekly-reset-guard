@@ -53,8 +53,9 @@ test "$(curl -sS -o /dev/null -w '%{http_code}' "$pages_url")" = 200 &&
 **Codex**
 
 - Monitor one or more separately signed-in Codex accounts.
-- See how much of each five-hour and weekly allowance remains and when each renews.
-  Low-quota warnings also work with **Auto-redeem** off.
+- See how much of each five-hour and weekly allowance remains and when each renews,
+  or the monthly allowance on plans such as Codex Free. Low-quota warnings also
+  work with **Auto-redeem** off.
 - See how many saved resets are available and when they expire. An unavailable
   inventory is shown as unknown. Expiry reminders are optional.
 - Optionally redeem after two fresh weekly readings at or below **3% remaining**,

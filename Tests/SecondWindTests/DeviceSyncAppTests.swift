@@ -447,3 +447,25 @@ private let laptop = SyncDeviceID(UUID(uuidString: "22222222-0000-4000-8000-0000
     model.profiles = [local]
     #expect(model.drivenRemote(of: local, now: now) == nil)
 }
+
+@Test func theSameLowWindowFromTwoMacsNotifiesOnce() {
+    var ledger = AlertLedger()
+    let low = QuotaWindow(kind: .weekly, usedPercent: 95, resetsAt: now.addingTimeInterval(86_400))
+    let fromMini = RemoteAlertAccount(device: mini, deviceName: "Mac mini", provider: .codex, profileID: remoteWorkID, email: "work@example.com", name: "Work")
+    let fromLaptop = RemoteAlertAccount(device: laptop, deviceName: "MacBook", provider: .codex, profileID: UUID(), email: "work@example.com", name: "Work")
+    #expect(AlertPolicy.post(.remoteLowQuota(fromMini, window: low), ledger: &ledger, now: now).deliveries.count == 1)
+    #expect(AlertPolicy.post(.remoteLowQuota(fromLaptop, window: low), ledger: &ledger, now: now).deliveries.isEmpty)
+}
+
+@Test @MainActor func aSignedOutCardPrefersAHealthyMac() {
+    var local = localWork()
+    local.status = .disconnected
+    let model = GuardAppModel(profiles: [local], referenceDate: now)
+    var signedOut = sharedAccount(remoteWorkID, email: "work@example.com")
+    signedOut.attentionMessage = "Sign in again."
+    model.remoteDevices = [
+        device(mini, name: "Mac mini", accounts: [signedOut]),
+        device(laptop, name: "MacBook", accounts: [sharedAccount(UUID(), email: "work@example.com")]),
+    ]
+    #expect(model.drivenRemote(of: local, now: now)?.device.deviceID == laptop)
+}

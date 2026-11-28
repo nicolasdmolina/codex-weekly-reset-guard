@@ -359,7 +359,7 @@ final class GuardAppModel: ObservableObject {
         let currentReading: RemoteCopy?
         /// The copy that redeems the account or waits on a change to it.
         let redeemer: RemoteCopy?
-        /// The first Mac that can take a change now.
+        /// The first Mac that can take a change now, preferring a healthy copy.
         let reachable: RemoteCopy?
         /// The copy a remote-only card names and drives: a live redeemer or one with a change in
         /// flight, else the first Mac that can take a change now, else a quiet redeemer, else the
@@ -402,7 +402,9 @@ final class GuardAppModel: ObservableObject {
             return copy.device.freshness(at: now).isLive ? 2 : 1
         }
         let redeemer = byDevice.filter { redeemRank($0) > 0 }.max { redeemRank($0) < redeemRank($1) }
-        let reachable = byDevice.first { $0.device.freshness(at: now).isLive && $0.device.acceptsCommands }
+        // Prefer a reachable Mac whose copy is healthy, since a signed-out copy cannot redeem.
+        let canTake = byDevice.filter { $0.device.freshness(at: now).isLive && $0.device.acceptsCommands }
+        let reachable = canTake.first { $0.account.attentionMessage == nil } ?? canTake.first
         // A quiet redeemer yields to a Mac that can take a change, as `AutoRedeemGuard` ignores it.
         let activeRedeemer = redeemer.flatMap { redeemRank($0) >= 2 ? $0 : nil }
         return SyncedAccount(

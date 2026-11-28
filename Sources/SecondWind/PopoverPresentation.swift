@@ -167,7 +167,6 @@ enum QuotaDisplayBuilder {
         return AccountQuotaDisplay(windows: windows, inventory: nil, age: .never, isConfirmed: false)
     }
 
-    /// An account another Mac hosts, read with the remote stale line.
     /// This Mac's card, showing another Mac's current reading while its own is not current.
     @MainActor
     static func codex(_ profile: GuardProfilePresentation, model: GuardAppModel, now: Date) -> AccountQuotaDisplay {
@@ -181,6 +180,7 @@ enum QuotaDisplayBuilder {
             .map { remote($0, now: now) } ?? claude(profile, now: now)
     }
 
+    /// An account another Mac hosts, read with the remote stale line.
     static func remote(_ account: SharedAccount, now: Date) -> AccountQuotaDisplay {
         let lowLine = QuotaReadPolicy.remote.lowRemainingPercent
         return display(

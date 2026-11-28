@@ -1,7 +1,7 @@
 # Releasing
 
 The public repository is
-[nicolasdmolina/codex-weekly-reset-guard](https://github.com/nicolasdmolina/codex-weekly-reset-guard).
+[nicolasdmolina/second-wind](https://github.com/nicolasdmolina/second-wind).
 Preparing a release locally publishes nothing. Pushing a tag, publishing a draft
 release and deploying the website each need the maintainer's authorization.
 

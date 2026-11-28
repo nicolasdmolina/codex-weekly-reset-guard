@@ -11,13 +11,13 @@ import { AxeBuilder } from '@axe-core/playwright';
 const url = process.argv[2] ?? 'http://localhost:4317/';
 const manifestPath = process.argv[3] ?? fileURLToPath(new URL('../src/release.json', import.meta.url));
 const { release } = JSON.parse(await readFile(manifestPath, 'utf8'));
-const repo = 'https://github.com/nicolasdmolina/codex-weekly-reset-guard';
+const repo = 'https://github.com/nicolasdmolina/second-wind';
 const downloads = release && `${repo}/releases/download/${release.tag}`;
 // Expectations restated from the manifest, independently of the site's own parser.
 const expected =
   release === null
     ? { state: 'main', hero: '#install', download: /download source/i, href: `${repo}/archive/refs/heads/main.zip`,
-        steps: /cd ~\/Downloads\/codex-weekly-reset-guard-main\n\.\/scripts\/install_app\.sh --launch/, checksum: null }
+        steps: /cd ~\/Downloads\/second-wind-main\n\.\/scripts\/install_app\.sh --launch/, checksum: null }
     : release.app === null
       ? { state: 'source', hero: '#install', download: /download source/i, href: `${downloads}/${release.source.file}`,
           steps: new RegExp(`cd ~/Downloads/${release.source.folder}\n\\./scripts/install_app\\.sh --launch`),

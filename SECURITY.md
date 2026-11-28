@@ -8,7 +8,7 @@ Code's local `/usage` command and never redeems a reset.
 ## Reporting a vulnerability
 
 Use the **Report a vulnerability** button on the repository's
-[Security advisories page](https://github.com/nicolasdmolina/codex-weekly-reset-guard/security/advisories)
+[Security advisories page](https://github.com/nicolasdmolina/second-wind/security/advisories)
 for private reporting. Private vulnerability reporting is enabled. If that button is unavailable, open an issue asking
 for a private contact channel without including exploit details or private data.
 

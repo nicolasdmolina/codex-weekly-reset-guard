@@ -1,4 +1,6 @@
-import { REPO_URL, REPOSITORY, SOURCE_FOLDER, SOURCE_ZIP_URL } from './config.ts';
+import {
+  LAST_PRE_RENAME_VERSION, PRE_RENAME_REPOSITORY, REPO_URL, REPOSITORY, SOURCE_FOLDER, SOURCE_ZIP_URL,
+} from './config.ts';
 
 // src/release.json is written only by the release verifier, after the public files pass their
 // checksum and GitHub build-provenance checks. The app is a universal ZIP with an ad-hoc code
@@ -152,9 +154,18 @@ export function macRequirement(app: VerifiedApp): string {
   return arm ? `a Mac with Apple silicon and ${system}` : `an Intel Mac with ${system}`;
 }
 
+function signingRepository(file: string): string {
+  const version = /^Second-Wind-(\d+)\.(\d+)\.(\d+)-/.exec(file)?.slice(1).map(Number);
+  const last = LAST_PRE_RENAME_VERSION.split('.').map(Number);
+  if (!version) return REPOSITORY;
+  const order = version.map((part, index) => part - last[index]).find((difference) => difference !== 0) ?? 0;
+  return order <= 0 ? PRE_RENAME_REPOSITORY : REPOSITORY;
+}
+
 export function checkCommands(download: VerifiedDownload): string {
   const path = `~/Downloads/${download.file}`;
-  return [`shasum -a 256 ${path}`, `gh attestation verify ${path} --repo ${REPOSITORY}`].join('\n');
+  const repository = signingRepository(download.file);
+  return [`shasum -a 256 ${path}`, `gh attestation verify ${path} --repo ${repository}`].join('\n');
 }
 
 function escapeHtml(text: string): string {

@@ -14,7 +14,7 @@ const shipped = JSON.parse(await readFile(here('../src/release.json'), 'utf8'));
 
 const plan = (manifest) => release.planInstall(release.parseReleaseManifest(manifest));
 const downloads = (manifest) =>
-  `https://github.com/nicolasdmolina/codex-weekly-reset-guard/releases/download/${manifest.release.tag}`;
+  `https://github.com/nicolasdmolina/second-wind/releases/download/${manifest.release.tag}`;
 let count = 0;
 const check = (label, run) => {
   run();
@@ -46,6 +46,12 @@ check('an app release offers the universal ZIP', () => {
     'shasum -a 256 ~/Downloads/Second-Wind-0.3.1-mac.zip\n' +
       'gh attestation verify ~/Downloads/Second-Wind-0.3.1-mac.zip --repo nicolasdmolina/codex-weekly-reset-guard',
   );
+});
+check('attestations follow the repo name at signing time', () => {
+  const at = (file) => release.checkCommands({ file, url: '', sha256: '' }).split('\n')[1];
+  assert.match(at('Second-Wind-0.4.4-mac.zip'), /--repo nicolasdmolina\/codex-weekly-reset-guard$/);
+  assert.match(at('Second-Wind-0.4.5-mac.zip'), /--repo nicolasdmolina\/second-wind$/);
+  assert.match(at('Second-Wind-0.10.0-mac.zip'), /--repo nicolasdmolina\/second-wind$/);
 });
 check('the fallback page follows each state', () => {
   assert.match(release.installNoscriptHtml(plan({ release: null })), /main\.zip/);

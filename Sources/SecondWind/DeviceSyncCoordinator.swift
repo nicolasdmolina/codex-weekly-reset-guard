@@ -217,23 +217,22 @@ final class DeviceSyncCoordinator {
             }
             return false
         }
-        // Alerts come only from what this pass actually read.
-        for device in read where device.freshness(at: now).isLive {
-            // This Mac already alerts for an account it reads itself.
-            for account in device.accounts where !model.readsLocally(account, now: now) {
-                let reading = account.quotaRecord().reading(at: now, policy: .remote)
-                for low in reading.currentLowWindows {
-                    alerts.post(.remoteLowQuota(
-                        RemoteAlertAccount(
-                            device: device.deviceID,
-                            deviceName: device.deviceName,
-                            provider: account.provider == .codex ? .codex : .claude,
-                            profileID: account.profileID,
-                            name: account.displayName
-                        ),
-                        window: low.window
-                    ))
-                }
+        // Alerts come only from what this pass actually read, one per account, never for an
+        // account this Mac reads itself.
+        let fresh = read.filter { $0.freshness(at: now).isLive }
+        for copy in model.remoteCopies(among: fresh, now: now) {
+            let reading = copy.account.quotaRecord().reading(at: now, policy: .remote)
+            for low in reading.currentLowWindows {
+                alerts.post(.remoteLowQuota(
+                    RemoteAlertAccount(
+                        device: copy.device.deviceID,
+                        deviceName: copy.device.deviceName,
+                        provider: copy.account.provider == .codex ? .codex : .claude,
+                        profileID: copy.account.profileID,
+                        name: copy.account.displayName
+                    ),
+                    window: low.window
+                ))
             }
         }
     }

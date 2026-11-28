@@ -303,9 +303,9 @@ struct GuardPopoverView: View {
                 NoticeRow(symbol: "info.circle", text: banner, tone: .neutral)
             }
 
-            let remoteOnly = model.remoteOnlyAccounts(now: now)
-            let remoteCodex = remoteOnly.filter { $0.account.provider == .codex }
-            let remoteClaude = remoteOnly.filter { $0.account.provider == .claude }
+            let remote = model.remoteCopies(now: now)
+            let remoteCodex = remote.filter { $0.account.provider == .codex }
+            let remoteClaude = remote.filter { $0.account.provider == .claude }
 
             if !model.profiles.isEmpty || !remoteCodex.isEmpty {
                 // Each card shows its own Auto-redeem switch, so the section header repeats nothing.
@@ -840,7 +840,8 @@ private struct CodexAccountRow: View {
 
     private var switchDisabled: Bool {
         if isReadOnly || isWaitingOnOtherMac { return true }
-        if let redeemer { return !redeemer.copy.device.acceptsCommands }
+        // A quiet Mac would not see a change sent from here before it expires.
+        if let redeemer { return !redeemer.copy.device.acceptsCommands || !redeemer.copy.device.freshness(at: now).isLive }
         return !profile.isConnected && !profile.autoResetEnabled
     }
 

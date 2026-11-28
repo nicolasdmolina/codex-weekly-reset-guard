@@ -94,14 +94,16 @@ same function as the local Auto-redeem switch. The policy engine, its fail-close
 rules and idempotency stay the only route to a reset. The host deletes the file
 and lists the ID in its next snapshot, which the sender treats as the answer.
 
-The popover lists each account once. A remote account whose provider and
-normalized email match an account on this Mac folds into that card, which shows
-this Mac's reading; accounts with no email never merge. A remote account several
-Macs share shows once, from the Mac that redeems it or else the freshest
-snapshot. While another Mac's live snapshot redeems a merged Codex account, the
-card's switch shows that Mac's setting and turning it off sends that Mac a
-command; turning it on always runs here. Remote alerts are skipped for an
-account this Mac reads currently, so one low window notifies once.
+The popover lists each account once. Accounts on different Macs are the same
+account when provider and normalized email match; accounts with no email never
+merge. `remoteCopies` picks one copy per account: a copy with a change in flight,
+then one that redeems it, then a current one, then a fixed Mac, so the card does
+not move as Macs publish. The copy is hidden while this Mac has a current reading
+of the account. The menu bar and remote alerts use the same list, so one low
+window notifies once. While another Mac redeems a merged Codex account, even one
+that has gone quiet, the card's switch shows that Mac's setting. Turning it off
+sends that Mac a command, and the switch locks while that Mac is quiet. Turning
+it on always runs here.
 
 The viewing Mac reads remote windows through `QuotaReadPolicy.remote`. A snapshot
 or reading older than 10 minutes is stale: it shows its age and never alerts.

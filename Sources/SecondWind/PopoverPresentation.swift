@@ -303,7 +303,7 @@ struct PopoverSummary: Equatable {
         let codex = model.profiles.map { (name: $0.displayName, display: QuotaDisplayBuilder.codex($0, now: now)) }
         let claude = model.claudeProfiles.map { (name: $0.displayName, display: QuotaDisplayBuilder.claude($0, now: now)) }
         // An account on this Mac and another counts once, through this Mac's own reading.
-        let remote = model.remoteOnlyAccounts(now: now).map {
+        let remote = model.remoteCopies(now: now).map {
             (name: $0.account.displayName, display: QuotaDisplayBuilder.remote($0.account, now: now))
         }
         let accounts = codex + claude + remote

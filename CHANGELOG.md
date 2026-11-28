@@ -5,7 +5,8 @@
 - An account signed in on more than one Mac shows as one card instead of once
   per Mac. Accounts that only another Mac has sit in the Codex or Claude list
   with that Mac's name. The Auto-redeem switch shows whichever Mac redeems the
-  account and turns it off there, and a low limit notifies once.
+  account and turns it off there, and a low limit notifies once. If this Mac
+  has no current reading for the account, the other Mac's card stays visible.
 
 ## 0.4.1
 

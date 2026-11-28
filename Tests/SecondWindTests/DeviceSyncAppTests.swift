@@ -233,48 +233,90 @@ private func device(_ id: SyncDeviceID, name: String, publishedAt: Date = now, a
     DeviceSnapshot(deviceID: id, deviceName: name, publishedAt: publishedAt, accounts: accounts, appliedCommandIDs: [], acceptsCommands: true)
 }
 
-@Test @MainActor func anAccountOnThisMacAndAnotherShowsOnce() {
-    let model = GuardAppModel(profiles: [localWork()], referenceDate: now)
+private func reading(weeklyUsed: Double = 50, observedAt: Date = now.addingTimeInterval(-30)) -> QuotaAccountRecord {
+    QuotaAccountRecord(
+        provider: .codex,
+        accountID: workID,
+        lastSuccess: QuotaObservation(
+            observedAt: observedAt,
+            windows: [QuotaWindow(kind: .weekly, usedPercent: weeklyUsed, resetsAt: now.addingTimeInterval(86_400))],
+            inventory: .omitted
+        )
+    )
+}
+
+private let laptop = SyncDeviceID(UUID(uuidString: "22222222-0000-4000-8000-000000000002")!)
+
+@Test @MainActor func anAccountThisMacReadsShowsOnceAndOthersStay() {
+    var local = localWork()
+    local.quota = reading()
+    let model = GuardAppModel(profiles: [local], referenceDate: now)
     let other = UUID()
     model.remoteDevices = [device(mini, name: "Mac mini", accounts: [
         sharedAccount(remoteWorkID, email: " WORK@example.com "),
         sharedAccount(other, email: "other@example.com"),
     ])]
-    #expect(model.remoteOnlyAccounts(now: now).map(\.account.profileID) == [other])
+    #expect(model.remoteCopies(now: now).map(\.account.profileID) == [other])
+}
+
+@Test @MainActor func anotherMacsCopyStaysWhileThisMacHasNoCurrentReading() {
+    var local = localWork()
+    let model = GuardAppModel(profiles: [local], referenceDate: now)
+    model.remoteDevices = [device(mini, name: "Mac mini", accounts: [sharedAccount(remoteWorkID, email: "work@example.com")])]
+    #expect(model.remoteCopies(now: now).map(\.account.profileID) == [remoteWorkID])
+
+    local.quota = reading(observedAt: now.addingTimeInterval(-3 * 3_600))
+    model.profiles = [local]
+    #expect(model.remoteCopies(now: now).count == 1)
+
+    local.quota = reading()
+    model.profiles = [local]
+    #expect(model.remoteCopies(now: now).isEmpty)
 }
 
 @Test @MainActor func accountsWithoutAnEmailNeverMerge() {
     var local = localWork()
     local.email = nil
+    local.quota = reading()
     let model = GuardAppModel(profiles: [local], referenceDate: now)
-    let laptop = SyncDeviceID()
     model.remoteDevices = [
         device(mini, name: "Mac mini", accounts: [sharedAccount(remoteWorkID, email: "")]),
         device(laptop, name: "MacBook", accounts: [sharedAccount(UUID(), email: "")]),
     ]
-    #expect(model.remoteOnlyAccounts(now: now).count == 2)
+    #expect(model.remoteCopies(now: now).count == 2)
 }
 
-@Test @MainActor func theSameAccountOnTwoOtherMacsShowsOnceFromTheOneThatRedeemsIt() {
+@Test @MainActor func anAccountOnTwoOtherMacsKeepsOneSteadyCard() {
     let model = GuardAppModel(referenceDate: now)
-    let laptop = SyncDeviceID()
+    let miniCopy = sharedAccount(remoteWorkID, email: "work@example.com")
+    let laptopCopy = sharedAccount(UUID(), email: "work@example.com")
     model.remoteDevices = [
-        device(mini, name: "Mac mini", publishedAt: now.addingTimeInterval(-60), accounts: [sharedAccount(remoteWorkID, email: "work@example.com", autoRedeem: true)]),
-        device(laptop, name: "MacBook", accounts: [sharedAccount(UUID(), email: "work@example.com")]),
+        device(laptop, name: "MacBook", accounts: [laptopCopy]),
+        device(mini, name: "Mac mini", accounts: [miniCopy]),
     ]
-    let shown = model.remoteOnlyAccounts(now: now)
-    #expect(shown.count == 1)
-    #expect(shown.first?.device.deviceID == mini)
+    let shown = { model.remoteCopies(now: now).map(\.device.deviceID) }
+    #expect(shown() == [mini])
 
-    // With neither redeeming, the freshest copy wins.
-    model.remoteDevices[0].accounts[0].autoRedeemEnabled = false
-    #expect(model.remoteOnlyAccounts(now: now).map(\.device.deviceID) == [laptop])
+    // Publishing order never moves the card.
+    model.remoteDevices[0].publishedAt = now.addingTimeInterval(5)
+    #expect(shown() == [mini])
+    model.remoteDevices.reverse()
+    #expect(shown() == [mini])
+
+    // A Mac that redeems the account wins, and a change in flight wins over that.
+    model.remoteDevices[1].accounts[0].autoRedeemEnabled = true
+    #expect(shown() == [laptop])
+    model.pendingRemoteCommands[GuardAppModel.remoteKey(device: mini, account: miniCopy)] =
+        PendingRemoteCommand(commandID: UUID(), enabled: false, issuedAt: now)
+    #expect(shown() == [mini])
+
+    // Alerts pick among the Macs read this pass, so a quiet Mac never hides a fresh one.
+    #expect(model.remoteCopies(among: [model.remoteDevices[1]], now: now).map(\.device.deviceID) == [laptop])
 }
 
 @Test @MainActor func theCardSwitchTurnsOffAutoRedeemWhereverItRuns() {
     let model = GuardAppModel(profiles: [localWork()], referenceDate: now)
-    let remote = miniSnapshot(autoRedeem: true)
-    model.remoteDevices = [remote]
+    model.remoteDevices = [miniSnapshot(autoRedeem: true)]
     var sent: [Bool] = []
     var toggles: [Bool] = []
     model.onSetRemoteAutoReset = { _, _, enabled in sent.append(enabled) }
@@ -285,6 +327,10 @@ private func device(_ id: SyncDeviceID, name: String, publishedAt: Date = now, a
     model.setAccountAutoReset(profileID: id, enabled: false)
     #expect(sent == [false])
     #expect(toggles.isEmpty)
+
+    // A Mac that went quiet with Auto-redeem on still shows as the one redeeming.
+    model.remoteDevices = [miniSnapshot(autoRedeem: true, publishedAt: now.addingTimeInterval(-3 * 3_600))]
+    #expect(model.remoteRedeemer(of: model.profiles[0], now: now)?.device.deviceID == mini)
 
     // Once no other Mac redeems it, the switch runs Auto-redeem here.
     model.remoteDevices = [miniSnapshot(autoRedeem: false)]
@@ -298,24 +344,4 @@ private func device(_ id: SyncDeviceID, name: String, publishedAt: Date = now, a
     model.setAccountAutoReset(profileID: id, enabled: true)
     #expect(toggles == [true, true])
     #expect(sent == [false])
-}
-
-@Test @MainActor func anotherMacsLowAlertIsSkippedOnlyWhenThisMacReadsTheAccount() {
-    var local = localWork()
-    let model = GuardAppModel(profiles: [local], referenceDate: now)
-    let account = sharedAccount(remoteWorkID, email: "work@example.com")
-    #expect(!model.readsLocally(account, now: now))
-
-    local.quota = QuotaAccountRecord(
-        provider: .codex,
-        accountID: workID,
-        lastSuccess: QuotaObservation(
-            observedAt: now.addingTimeInterval(-30),
-            windows: [QuotaWindow(kind: .weekly, usedPercent: 95, resetsAt: now.addingTimeInterval(86_400))],
-            inventory: .omitted
-        )
-    )
-    model.profiles = [local]
-    #expect(model.readsLocally(account, now: now))
-    #expect(!model.readsLocally(sharedAccount(UUID(), email: "other@example.com"), now: now))
 }

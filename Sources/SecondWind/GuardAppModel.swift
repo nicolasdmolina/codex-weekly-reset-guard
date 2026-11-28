@@ -347,55 +347,70 @@ final class GuardAppModel: ObservableObject {
         return email.isEmpty ? nil : "\(provider.rawValue)|\(email)"
     }
 
-    private var localAccountKeys: Set<String> {
-        Set(
-            profiles.compactMap { Self.accountKey(.codex, email: $0.email) }
-                + claudeProfiles.compactMap { Self.accountKey(.claude, email: $0.email) }
+    /// Accounts this Mac reads itself right now. Another Mac's copy of one adds nothing.
+    private func locallyReadKeys(now: Date) -> Set<String> {
+        let current = { (record: QuotaAccountRecord?) in
+            record?.reading(at: now).windows.contains(where: \.isCurrent) ?? false
+        }
+        return Set(
+            profiles.filter { current($0.quota) }.compactMap { Self.accountKey(.codex, email: $0.email) }
+                + claudeProfiles.filter { current($0.quota) }.compactMap { Self.accountKey(.claude, email: $0.email) }
         )
     }
 
-    /// Accounts from other Macs that this Mac does not also have, one card per account. When
-    /// several Macs share the same account, the copy that redeems it or the freshest one is shown.
-    func remoteOnlyAccounts(now: Date) -> [RemoteCopy] {
-        let local = localAccountKeys
+    /// Accounts from other Macs worth showing, one copy per account. A copy is hidden when this
+    /// Mac reads the same account currently, so the popover, the menu bar and alerts each count
+    /// it once.
+    func remoteCopies(among devices: [DeviceSnapshot]? = nil, now: Date) -> [RemoteCopy] {
+        let local = locallyReadKeys(now: now)
         var order: [String] = []
         var chosen: [String: RemoteCopy] = [:]
-        for device in remoteDevices {
+        for device in devices ?? remoteDevices {
             for account in device.accounts {
                 let key = Self.accountKey(account.provider, email: account.email)
                     ?? Self.remoteKey(device: device.deviceID, account: account)
                 guard !local.contains(key) else { continue }
                 let copy = RemoteCopy(device: device, account: account)
-                guard let existing = chosen[key] else {
+                if let existing = chosen[key] {
+                    if ranks(copy, above: existing, now: now) { chosen[key] = copy }
+                } else {
                     order.append(key)
                     chosen[key] = copy
-                    continue
                 }
-                if Self.ranks(copy, above: existing, now: now) { chosen[key] = copy }
             }
         }
         return order.compactMap { chosen[$0] }
     }
 
-    private static func ranks(_ copy: RemoteCopy, above other: RemoteCopy, now: Date) -> Bool {
-        let redeems = { (c: RemoteCopy) in c.account.autoRedeemEnabled == true && c.device.freshness(at: now).isLive }
-        if redeems(copy) != redeems(other) { return redeems(copy) }
-        return copy.device.publishedAt > other.device.publishedAt
+    /// Which Mac's copy stands for an account seen on several: one with a change in flight, then
+    /// one that redeems it, then a current one. Ties keep a fixed Mac so the card never alternates
+    /// between Macs as each publishes.
+    private func ranks(_ copy: RemoteCopy, above other: RemoteCopy, now: Date) -> Bool {
+        let score = { (c: RemoteCopy) in
+            (
+                self.pendingRemoteCommands[c.key] == nil ? 0 : 1,
+                c.account.autoRedeemEnabled == true ? 1 : 0,
+                c.device.freshness(at: now).isLive ? 1 : 0
+            )
+        }
+        let (a, b) = (score(copy), score(other))
+        if a != b { return a > b }
+        return copy.device.deviceID.description < other.device.deviceID.description
     }
 
     /// The other Mac that redeems this Codex account, or has a change to it in flight. Its switch
-    /// stands in for this Mac's while this Mac's own is off.
+    /// stands in for this Mac's while this Mac's own is off. A Mac that went quiet still counts:
+    /// it may redeem again when it wakes.
     func remoteRedeemer(of profile: GuardProfilePresentation, now: Date) -> RemoteCopy? {
         guard !profile.autoResetEnabled, let key = Self.accountKey(.codex, email: profile.email) else { return nil }
-        for device in remoteDevices {
-            for account in device.accounts where Self.accountKey(account.provider, email: account.email) == key {
-                let pending = pendingRemoteCommands[Self.remoteKey(device: device.deviceID, account: account)] != nil
-                if pending || (account.autoRedeemEnabled == true && device.freshness(at: now).isLive) {
-                    return RemoteCopy(device: device, account: account)
-                }
-            }
+        let copies = remoteDevices.flatMap { device in
+            device.accounts
+                .filter { Self.accountKey($0.provider, email: $0.email) == key }
+                .map { RemoteCopy(device: device, account: $0) }
         }
-        return nil
+        let best = copies.max { ranks($1, above: $0, now: now) }
+        guard let best, pendingRemoteCommands[best.key] != nil || best.account.autoRedeemEnabled == true else { return nil }
+        return best
     }
 
     /// The switch on an account card: it changes whichever Mac redeems the account, so turning it
@@ -407,18 +422,6 @@ final class GuardAppModel: ObservableObject {
             setRemoteAutoReset(device: copy.device, account: copy.account, enabled: enabled)
         } else {
             setAutoReset(profileID: profileID, enabled: enabled)
-        }
-    }
-
-    /// True when this Mac reads the same account itself, so another Mac's alert would repeat its own.
-    func readsLocally(_ account: SharedAccount, now: Date) -> Bool {
-        guard let key = Self.accountKey(account.provider, email: account.email) else { return false }
-        let records: [QuotaAccountRecord?] = switch account.provider {
-        case .codex: profiles.filter { Self.accountKey(.codex, email: $0.email) == key }.map(\.quota)
-        case .claude: claudeProfiles.filter { Self.accountKey(.claude, email: $0.email) == key }.map(\.quota)
-        }
-        return records.contains { record in
-            record?.reading(at: now).windows.contains(where: \.isCurrent) ?? false
         }
     }
 

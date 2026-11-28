@@ -502,3 +502,17 @@ private let laptop = SyncDeviceID(UUID(uuidString: "22222222-0000-4000-8000-0000
     model.remoteDevices[1].accounts[0].autoRedeemEnabled = true
     #expect(model.drivenRemote(of: profile, now: now)?.device.deviceID == laptop)
 }
+
+@Test @MainActor func aClickIsJudgedOnTheClockTheCardWasDrawnWith() {
+    let profile = localWork()
+    let model = GuardAppModel(profiles: [profile], referenceDate: now)
+    // Live when the card was drawn two minutes ago, quiet by the model's clock now.
+    model.remoteDevices = [miniSnapshot(autoRedeem: true, publishedAt: now.addingTimeInterval(-11 * 60))]
+    let drawnAt = now.addingTimeInterval(-2 * 60)
+    let shown = model.drivenRemote(of: profile, now: drawnAt)?.key
+    #expect(shown != nil)
+    var sent: [Bool] = []
+    model.onSetRemoteAutoReset = { _, _, enabled, _ in sent.append(enabled) }
+    model.setAccountAutoReset(profileID: profile.id, enabled: false, shown: shown, drawnAt: drawnAt)
+    #expect(sent == [false])
+}

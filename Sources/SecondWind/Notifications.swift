@@ -177,7 +177,9 @@ actor AlertRouter {
         if saved, !plan.cancellations.isEmpty {
             await notifier.cancel(plan.cancellations)
         }
-        let deliveries = saved ? plan.deliveries : plan.deliveries.filter { !$0.notice.needsDurableLedger }
+        let deliveries = saved ? plan.deliveries : plan.deliveries.filter {
+            !$0.notice.needsDurableLedger && $0.account?.provider != .antigravity
+        }
         var unscheduled: [String] = []
         for delivery in deliveries {
             do {
@@ -283,6 +285,7 @@ enum AlertText {
         case .session: "5-hour"
         case .weekly: "weekly"
         case .monthly: "monthly"
+        case let .group(period, name): "\(name) \(period == .weekly ? "weekly" : "5-hour")"
         case let .modelWeekly(model): "\(model.replacingOccurrences(of: " only", with: "")) weekly"
         }
     }

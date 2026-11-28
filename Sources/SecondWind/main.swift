@@ -143,7 +143,8 @@ do {
     let delegate = MainActor.assumeIsolated {
         let delegate = AppDelegate(model: model, runtime: services?.codex, claudeMonitor: services?.claude)
         guard let services, let configuration = runtimeConfiguration else { return delegate }
-        model.onCheckNow = {
+        model.onCheckNow = { [weak delegate] in
+            delegate?.antigravity?.checkNow()
             Task { _ = await services.codex.checkNow() }
             Task { await services.claude.checkNow() }
         }

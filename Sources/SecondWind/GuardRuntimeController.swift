@@ -2030,6 +2030,8 @@ extension GuardAppModel {
         case .monthly:
             // Auto-redeem acts only on the weekly limit, so it is not offered here.
             return usedUp ? "Monthly limit is used up." : "Monthly limit is running low."
+        case .group:
+            return usedUp ? "Model group limit is used up." : "Model group limit is running low."
         case .weekly, .modelWeekly:
             let state = usedUp ? "Weekly limit is used up." : "Weekly limit is running low."
             if !autoResetEnabled, case let .known(saved, _) = inventory, saved.availableCount > 0 {

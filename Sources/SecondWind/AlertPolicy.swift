@@ -165,6 +165,20 @@ enum AlertPolicy {
             entry.lastReadingAt = reading.observedAt
             ledger.sent = ledger.sent.filter { !$0.key.hasPrefix("\(token)|attention|") }
             let savedResets = record.lastKnownInventory?.availableCount
+            if record.provider == .antigravity {
+                for current in verified.windows where current.isCurrent {
+                    let window = current.window
+                    let id = "\(token)|low|\(window.kind.key)|\(cycle(resetsAt: window.resetsAt, observedAt: nil))"
+                    guard current.level >= .low else {
+                        // An undated bucket can alert again after a confirmed recovery.
+                        if window.resetsAt == nil { ledger.sent[id] = nil }
+                        continue
+                    }
+                    guard ledger.sent[id] == nil else { continue }
+                    ledger.sent[id] = AlertLedger.Sent(until: window.resetsAt ?? .distantFuture)
+                    plan.deliveries.append(AlertDelivery(id: id, account: account, name: name, notice: .lowQuota(window)))
+                }
+            }
             let refills = verified.windows.filter(\.isCurrent).compactMap { current in
                 trackRefill(
                     current.window,
@@ -391,7 +405,7 @@ enum AlertPolicy {
     /// permission; its fresh windows are the provider's word.
     private static func allowsUse(_ reading: QuotaObservation, provider: QuotaProvider) -> Bool {
         switch provider {
-        case .claude:
+        case .claude, .antigravity:
             return true
         case .codex:
             if case .allowed = reading.includedUsageAccess { return true }
@@ -455,10 +469,6 @@ enum AlertPolicy {
 
 extension AccountRef {
     init(_ record: QuotaAccountRecord) {
-        let provider: ProviderKind = switch record.provider {
-        case .codex: .codex
-        case .claude: .claude
-        }
-        self.init(provider: provider, id: record.accountID)
+        self.init(provider: record.provider, id: record.accountID)
     }
 }

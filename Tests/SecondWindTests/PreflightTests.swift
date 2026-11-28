@@ -66,7 +66,7 @@ private func claude(
 
 private func snapshot(
     _ accounts: [QuotaAccountRecord],
-    providers: Set<QuotaProvider> = [.codex, .claude]
+    providers: Set<QuotaProvider> = Set(QuotaProvider.allCases)
 ) -> Result<PreflightSnapshot, PreflightSnapshotReadFailure> {
     .success(PreflightSnapshot(publishedAt: now, providers: providers, accounts: accounts))
 }
@@ -377,6 +377,7 @@ private func reasons(_ outcome: PreflightOutcome) -> [PreflightReason?] {
         // Claude's persisted report reloads with its old timestamp; it must not count yet.
         try await relaunch.publish(provider: .claude, records: [claude(observedAt: now.addingTimeInterval(-60))], now: now)
         try await relaunch.publish(provider: .codex, records: [], now: now)
+        try await relaunch.publish(provider: .antigravity, records: [], now: now)
         let reloaded = PreflightEvaluator.evaluate(request(weekly: 10, provider: .claude), snapshot: PreflightSnapshotFile.read(from: url), now: now)
         #expect(reloaded.reason == .noReading)
         let removed = PreflightEvaluator.evaluate(request(weekly: 10, account: codexID), snapshot: PreflightSnapshotFile.read(from: url), now: now)
@@ -397,7 +398,7 @@ private func reasons(_ outcome: PreflightOutcome) -> [PreflightReason?] {
         try write("not json", to: url)
         #expect(PreflightSnapshotFile.read(from: url) == .failure(.invalid))
 
-        try write(#"{"schemaVersion":2}"#, to: url)
+        try write(#"{"schemaVersion":99}"#, to: url)
         #expect(PreflightSnapshotFile.read(from: url) == .failure(.unsupportedVersion))
 
         let valid = Self.validFixture
@@ -478,7 +479,7 @@ private func reasons(_ outcome: PreflightOutcome) -> [PreflightReason?] {
             (["--session", "inf"], .invalidPreflight("--session must be a whole number from 0 to 100.")),
             (["--session", ""], .invalidPreflight("--session must be a whole number from 0 to 100.")),
             (["--session", "\u{0665}"], .invalidPreflight("--session must be a whole number from 0 to 100.")),
-            (["--weekly", "10", "--provider", "openai"], .invalidPreflight("--provider must be codex or claude.")),
+            (["--weekly", "10", "--provider", "openai"], .invalidPreflight("--provider must be codex, claude or antigravity.")),
             (["--weekly", "10", "--account", "work"], .invalidPreflight("--account must be an account ID (a UUID).")),
             (["--weekly", "10", "--snapshot", "relative.json"], .invalidPreflight("--snapshot must be an absolute path.")),
             (["--weekly", "10", "--doctor"], .unknownOption("--doctor")),

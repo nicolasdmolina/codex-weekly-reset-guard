@@ -290,6 +290,7 @@ private struct ChooseServiceScreen: View {
         return switch provider {
         case .codex: "Sign in with ChatGPT"
         case .claude: "Sign in with Claude Pro or Max"
+        case .antigravity: "Monitor the account signed in to agy"
         }
     }
 }
@@ -316,7 +317,7 @@ private struct ProviderChoiceRow: View {
                         .foregroundStyle(SW.Palette.textSecondary)
                 }
                 Spacer(minLength: SW.Space.sm)
-                Image(systemName: "arrow.up.forward")
+                Image(systemName: provider == .antigravity ? "plus" : "arrow.up.forward")
                     .font(.system(size: 11, weight: .semibold))
                     .foregroundStyle(isHovering && isAvailable ? SW.Palette.textSecondary : SW.Palette.textTertiary)
                     .offset(x: isHovering && isAvailable ? 1.5 : 0, y: isHovering && isAvailable ? -1.5 : 0)
@@ -333,7 +334,8 @@ private struct ProviderChoiceRow: View {
             withAnimation(.easeOut(duration: SW.Motion.quick)) { isHovering = hovering }
         }
         .accessibilityLabel("Add a \(provider.title) account")
-        .accessibilityHint("Opens the \(provider.signInAccountName) sign-in in your browser")
+        .accessibilityHint(provider == .antigravity ? "Starts monitoring agy on this Mac"
+                           : "Opens the \(provider.signInAccountName) sign-in in your browser")
     }
 }
 

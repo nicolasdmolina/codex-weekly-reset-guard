@@ -635,7 +635,7 @@ extension GuardAppModel {
                 )
             }
         }
-        let status: ClaudeProfileStatus
+        let status: MonitorProfileStatus
         let detail: String
         switch profile.status {
         case .checking:

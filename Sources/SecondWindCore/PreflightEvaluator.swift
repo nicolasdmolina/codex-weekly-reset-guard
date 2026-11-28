@@ -1,12 +1,13 @@
 import Foundation
 
-public enum PreflightWindow: String, Sendable, Equatable, CaseIterable {
+public enum PreflightWindow: String, Codable, Sendable, Hashable, CaseIterable {
     case session
     case weekly
 
     /// The window that must be reported, plus any per-model windows that can only lower it.
     func includes(_ kind: QuotaWindowKind) -> Bool {
         switch (self, kind) {
+        case let (_, .group(window, _)): window == self
         case (.session, .session), (.weekly, .weekly), (.weekly, .modelWeekly): true
         default: false
         }
@@ -248,7 +249,9 @@ public enum PreflightEvaluator {
         if reading.provider == .codex && reading.includedUsageAccess == .unknown {
             return make(.unknown, .usageUnconfirmed)
         }
-        guard family.contains(where: { $0.window.kind == requirement.window.requiredKind }),
+        let reportsLimit = reading.provider == .antigravity ? !family.isEmpty
+            : family.contains { $0.window.kind == requirement.window.requiredKind }
+        guard reportsLimit,
               !reading.unknownWindows.contains(where: requirement.window.includes) else {
             return make(.unknown, .windowMissing)
         }

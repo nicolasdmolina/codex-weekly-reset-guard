@@ -25,6 +25,16 @@ struct WindowDisplay: Identifiable, Equatable {
     /// Remaining percent at which the meter's tick sits.
     let alertLine: Double
 
+    var kind: QuotaWindowKind?
+    var groupName: String? {
+        if case let .group(_, name) = kind { return name }
+        return nil
+    }
+    var meterLabel: String {
+        if case let .group(period, _) = kind { return period == .weekly ? "Weekly" : "5-hour" }
+        return label
+    }
+
     var isWarning: Bool { state == .current && level >= .low }
 }
 
@@ -206,7 +216,7 @@ enum QuotaDisplayBuilder {
                 resetsAt: window.window.resetsAt,
                 state: window.resetPassed ? .awaitingRefill : (window.isCurrent ? .current : accountState),
                 level: window.level,
-                alertLine: alertLine(window.window.kind)
+                alertLine: alertLine(window.window.kind), kind: window.window.kind
             )
         }
         windows += reading.unknownWindows
@@ -219,10 +229,15 @@ enum QuotaDisplayBuilder {
                     resetsAt: nil,
                     state: .unreported,
                     level: .ok,
-                    alertLine: alertLine(kind)
+                    alertLine: alertLine(kind), kind: kind
                 )
             }
-        windows.sort { order($0.id) < order($1.id) }
+        windows.sort { lhs, rhs in
+            if let first = lhs.groupName, let second = rhs.groupName {
+                return first == second ? lhs.meterLabel < rhs.meterLabel : first < second
+            }
+            return order(lhs.id) < order(rhs.id)
+        }
 
         let age: ReadingAge = switch reading.freshness {
         case .missing: .never
@@ -254,6 +269,8 @@ enum QuotaDisplayBuilder {
         case .session: "5-hour"
         case .weekly: "Weekly"
         case .monthly: "Monthly"
+        case let .group(period, name):
+            "\(name.replacingOccurrences(of: #"(?i) models$"#, with: "", options: .regularExpression)) \(period == .weekly ? "weekly" : "5-hour")"
         case let .modelWeekly(name): name.replacingOccurrences(of: " only", with: "")
         }
     }
@@ -319,7 +336,8 @@ struct PopoverSummary: Equatable {
         let remote = model.remoteOnlyAccounts(now: now).map {
             (name: $0.host.account.displayName, display: QuotaDisplayBuilder.remote($0.reading.account, now: now))
         }
-        let accounts = codex + claude + remote
+        let agy = model.antigravity.map { [(name: $0.name, display: $0.display(at: now))] } ?? []
+        let accounts = codex + claude + agy + remote
         let currentWindows = accounts.flatMap { account in
             account.display.windows.filter { $0.state == .current }.compactMap(\.remaining)
         }
@@ -372,9 +390,13 @@ struct PopoverSummary: Equatable {
             summary.tone = .caution
         } else if let warning, let remaining = warning.1.remaining {
             let (name, window) = warning
-            summary.text = window.level == .exhausted
-                ? "\(name) \(window.label.lowercased()) limit used up"
-                : "\(name) \(window.label.lowercased()) limit: \(convention.text(remaining: remaining))"
+            if window.groupName != nil {
+                summary.text = "\(window.label) · \(convention.text(remaining: remaining))"
+            } else {
+                summary.text = window.level == .exhausted
+                    ? "\(name) \(window.label.lowercased()) limit used up"
+                    : "\(name) \(window.label.lowercased()) limit: \(convention.text(remaining: remaining))"
+            }
             summary.tone = .caution
         } else if let provider = loading.first {
             summary.text = "Loading \(provider.title) accounts…"

@@ -1,14 +1,18 @@
 # Privacy and runtime data
 
 Second Wind has no analytics, advertising SDK, crash uploader or project backend.
-It talks to Codex and Claude only through their official local tools:
+It reads usage through each provider's official local tool.
 
 - One official Codex app-server process per Codex account. It communicates with
   OpenAI for sign-in, account information, usage and an eligible reset request.
 - The official `claude` executable for each Claude account. It communicates with
   Anthropic for sign-in, account status and plan usage.
+- The official `agy` executable runs its built-in `/usage` command with the local
+  Google sign-in. Second Wind accepts quota data only when the CLI reports the
+  usage command, zero turns and zero tokens. It stores the monitor's ID, name and
+  pause setting in app preferences. The Antigravity monitor stays on this Mac.
 
-OpenAI's and Anthropic's own service policies apply to those calls.
+Each provider's service policies apply to those calls.
 
 ## Local storage
 

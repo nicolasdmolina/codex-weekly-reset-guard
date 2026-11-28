@@ -99,8 +99,8 @@ account when provider and normalized email match; accounts with no email never
 merge. `syncedAccounts` groups other Macs' copies by account and makes two
 separate choices. The reading is the copy with the newest current observation.
 The redeemer is a copy with a change in flight, else one with Auto-redeem on,
-preferring a live snapshot. A remote-only card names and drives the redeemer, or
-a fixed Mac when none redeems, so it does not move as Macs publish.
+preferring a live snapshot. A remote-only card names and drives the redeemer,
+else the first Mac that can take a change now, else the first Mac, so it does not move as Macs publish.
 
 An account this Mac has is always one card. While its own reading is not
 current, the card shows another Mac's current reading. Its switch shows the
@@ -109,8 +109,9 @@ Mac a command and failures report on this card. A quiet redeemer hands the switc
 back to this Mac, as `AutoRedeemGuard` does, and the caption says when it was last
 seen. Turning it on always runs here. The caption names a quiet or troubled
 redeemer, and says when both Macs have Auto-redeem on. The menu bar uses the same
-cards. Remote alerts come from the newest current reading of each account this
-Mac does not read currently, keyed by provider and email, so a low window
+cards. Remote alerts come from the newest current reading of each account,
+except a Claude account this Mac reads currently (Claude monitoring alerts for it
+here; Codex monitoring has no low alert of its own), keyed by provider and email, so a low window
 notifies once even when it moves between Macs.
 
 The viewing Mac reads remote windows through `QuotaReadPolicy.remote`. A snapshot

@@ -359,8 +359,9 @@ final class GuardAppModel: ObservableObject {
         let currentReading: RemoteCopy?
         /// The copy that redeems the account or waits on a change to it.
         let redeemer: RemoteCopy?
-        /// The copy a remote-only card names and drives. A fixed Mac when none redeems, so the
-        /// card does not move between Macs as each reads.
+        /// The copy a remote-only card names and drives: the redeemer, else the first Mac that can
+        /// take a change now, else the first Mac. A fixed order, so the card does not move between
+        /// Macs as each reads.
         let host: RemoteCopy
 
         /// The figures a card shows: the newest current reading, else the host's last one.
@@ -398,7 +399,11 @@ final class GuardAppModel: ObservableObject {
             return copy.device.freshness(at: now).isLive ? 2 : 1
         }
         let redeemer = byDevice.filter { redeemRank($0) > 0 }.max { redeemRank($0) < redeemRank($1) }
-        return SyncedAccount(key: key, copies: copies, currentReading: current, redeemer: redeemer, host: redeemer ?? byDevice[0])
+        let reachable = byDevice.first { $0.device.freshness(at: now).isLive && $0.device.acceptsCommands }
+        return SyncedAccount(
+            key: key, copies: copies, currentReading: current, redeemer: redeemer,
+            host: redeemer ?? reachable ?? byDevice[0]
+        )
     }
 
     /// Other Macs' copies of an account this Mac also has.
@@ -423,12 +428,12 @@ final class GuardAppModel: ObservableObject {
         return synced(provider: provider, email: email, now: now)?.currentReading?.account
     }
 
-    /// Accounts whose low windows this Mac alerts for on another Mac's behalf: every account it
-    /// does not read currently itself, from the newest current reading among `devices`.
+    /// Accounts whose low windows this Mac alerts for on another Mac's behalf, from the newest
+    /// current reading among `devices`. A Claude account this Mac reads currently is left out
+    /// because Claude monitoring alerts for it here; Codex monitoring has no low alert of its own.
     func remoteAlertSources(among devices: [DeviceSnapshot], now: Date) -> [RemoteCopy] {
         let localCurrent = Set(
-            profiles.filter { Self.isCurrent($0.quota, now: now) }.compactMap { Self.accountKey(.codex, email: $0.email) }
-                + claudeProfiles.filter { Self.isCurrent($0.quota, now: now) }.compactMap { Self.accountKey(.claude, email: $0.email) }
+            claudeProfiles.filter { Self.isCurrent($0.quota, now: now) }.compactMap { Self.accountKey(.claude, email: $0.email) }
         )
         return syncedAccounts(among: devices, now: now)
             .filter { !localCurrent.contains($0.key) }

@@ -306,12 +306,29 @@ private let laptop = SyncDeviceID(UUID(uuidString: "22222222-0000-4000-8000-0000
     // The low window alerts from the Mac that read it, not the Mac that redeems.
     #expect(model.remoteAlertSources(among: model.remoteDevices, now: now).map(\.device.deviceID) == [laptop])
 
+    // A Codex account this Mac also reads still alerts, since Codex monitoring has none of its own.
+    var local = localWork()
+    local.quota = reading()
+    model.profiles = [local]
+    #expect(model.remoteAlertSources(among: model.remoteDevices, now: now).count == 1)
+    model.profiles = []
+
     // With no Mac redeeming, the card stays on a fixed Mac however publishing goes.
     model.remoteDevices[1].accounts[0].autoRedeemEnabled = false
     let host = model.remoteOnlyAccounts(now: now).first?.host.device.deviceID
     model.remoteDevices.reverse()
     model.remoteDevices[0].publishedAt = now.addingTimeInterval(5)
     #expect(model.remoteOnlyAccounts(now: now).first?.host.device.deviceID == host)
+}
+
+@Test @MainActor func aRemoteOnlyCardDrivesAMacThatCanTakeTheChange() {
+    let model = GuardAppModel(referenceDate: now)
+    // The first Mac by ID is asleep; the other is live, so its switch stays usable.
+    model.remoteDevices = [
+        device(mini, name: "Mac mini", publishedAt: now.addingTimeInterval(-3 * 3_600), accounts: [sharedAccount(remoteWorkID, email: "work@example.com")]),
+        device(laptop, name: "MacBook", accounts: [sharedAccount(UUID(), email: "work@example.com")]),
+    ]
+    #expect(model.remoteOnlyAccounts(now: now).first?.host.device.deviceID == laptop)
 }
 
 @Test @MainActor func aRefusedChangeNeverHidesTheMacThatIsOn() {

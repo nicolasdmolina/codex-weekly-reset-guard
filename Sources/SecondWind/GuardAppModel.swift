@@ -473,7 +473,11 @@ final class GuardAppModel: ObservableObject {
         else { return nil }
         if let copy = synced.redeemer {
             if case .pending = remoteState(of: copy.account, in: copy.device, now: now) { return copy }
-            if copy.device.freshness(at: now).isLive, copy.device.acceptsCommands { return copy }
+            if copy.device.freshness(at: now).isLive {
+                // A live redeemer that cannot take a change keeps the switch locked on it; no
+                // other Mac could turn Auto-redeem on while it runs.
+                return copy.device.acceptsCommands ? copy : nil
+            }
         }
         return profile.isConnected ? nil : synced.reachable
     }

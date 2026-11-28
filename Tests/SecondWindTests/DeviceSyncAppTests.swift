@@ -490,6 +490,15 @@ private let laptop = SyncDeviceID(UUID(uuidString: "22222222-0000-4000-8000-0000
     #expect(model.remoteRedeemer(of: profile, now: now)?.device.deviceID == mini)
     #expect(model.drivenRemote(of: profile, now: now) == nil)
 
-    model.remoteDevices.append(device(laptop, name: "MacBook", accounts: [sharedAccount(UUID(), email: "work@example.com", autoRedeem: true)]))
+    // Signed out here, a third Mac that can take a change is not offered while the read-only one runs.
+    var signedOut = profile
+    signedOut.status = .disconnected
+    model.profiles = [signedOut]
+    model.remoteDevices.append(device(laptop, name: "MacBook", accounts: [sharedAccount(UUID(), email: "work@example.com")]))
+    #expect(model.drivenRemote(of: signedOut, now: now) == nil)
+
+    // A live redeemer that takes commands ranks above the read-only one.
+    model.profiles = [profile]
+    model.remoteDevices[1].accounts[0].autoRedeemEnabled = true
     #expect(model.drivenRemote(of: profile, now: now)?.device.deviceID == laptop)
 }

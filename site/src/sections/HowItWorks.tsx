@@ -43,8 +43,8 @@ export function HowItWorks() {
             </Heading>
             <Text as="p" color="secondary" className="prose">
               For each Codex account you see how much of the week is left, when it renews and how
-              many resets you have saved. Turn on auto-redeem and it uses a reset only when all of
-              this is true:
+              many resets you have saved. Codex Free shows its monthly limit instead and never
+              auto-redeems. Turn on auto-redeem and it uses a reset only when all of this is true:
             </Text>
             <InView
               viewOptions={{ once: true, margin: '0px 0px -15% 0px' }}
@@ -90,6 +90,16 @@ export function HowItWorks() {
               Claude&rsquo;s usage settings, where you can reset it yourself if Anthropic has given you
               one. Anthropic doesn&rsquo;t let other apps do that step, so Second Wind doesn&rsquo;t
               try.
+            </Text>
+          </article>
+          <article className="compare__col compare__col--wide">
+            <Heading level={3} className="compare__title">
+              Antigravity shows each model group&rsquo;s quota
+            </Heading>
+            <Text as="p" color="secondary" className="prose">
+              Second Wind follows the account signed in to the Antigravity CLI on your Mac. You see
+              the weekly and 5-hour limits it reports for each model group, and when they refill. You get one notification at 10%. Turn on refill alerts in Settings to hear
+              when a used-up limit works again. Google applies the refill.
             </Text>
           </article>
         </div>

@@ -23,8 +23,8 @@ export function SiteFooter() {
         </div>
         <Text as="p" size="sm" color="secondary" className="site-footer__legal">
           Second Wind is independent, open-source software. It is not made by, affiliated with or
-          endorsed by OpenAI or Anthropic. Codex and ChatGPT are OpenAI products. Claude and Claude
-          Code are Anthropic products. Copyright 2026 Nicky Molina, released under the MIT license.
+          endorsed by OpenAI, Anthropic or Google. Codex and ChatGPT are OpenAI products. Claude and
+          Claude Code are Anthropic products. Antigravity is a Google product. Copyright 2026 Nicky Molina, released under the MIT license.
         </Text>
       </div>
     </footer>

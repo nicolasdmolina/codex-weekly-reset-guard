@@ -39,5 +39,5 @@ export const desktopScreens = [codexLow, overview, claudeLow];
 
 export const onboardingScreen = {
   src: './screens/onboarding.png',
-  alt: 'Second Wind first-run screen: choose Codex or Claude, enter the account email and an optional name, then add the account.',
+  alt: 'Second Wind first-run screen: add your first account by choosing Codex, Claude or Antigravity.',
 };

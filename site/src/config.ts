@@ -18,6 +18,7 @@ export const LICENSE_URL = `${REPO_URL}/blob/main/LICENSE`;
 
 export const CODEX_SETUP_URL = 'https://developers.openai.com/codex/quickstart';
 export const CLAUDE_CODE_SETUP_URL = 'https://code.claude.com/docs/en/setup';
+export const ANTIGRAVITY_CLI_SETUP_URL = 'https://antigravity.google/docs/cli-tutorial';
 
 // Apple's guide to opening apps that aren't notarized (System Settings > Privacy & Security).
 export const APPLE_OPEN_APPS_URL = 'https://support.apple.com/en-us/102445';

@@ -231,3 +231,54 @@ private func command(_ enabled: Bool, profile: UUID = workID, issuedAt: Date = n
         command(false), host: mini, hostAccounts: [codexAccount(autoRedeem: true)], handledCommandIDs: [], otherDevices: [elsewhere], now: now
     ) == .apply(profileID: workID, enabled: false))
 }
+
+// MARK: Remote removal
+
+@Test func olderSnapshotsDoNotAcceptRemoval() throws {
+    let json = """
+    {"schemaVersion":1,"deviceID":"11111111-0000-4000-8000-000000000001","deviceName":"Mac mini",
+     "publishedAt":"2026-09-21T12:00:00Z","accounts":[],"appliedCommandIDs":[],"acceptsCommands":true}
+    """
+    let decoder = JSONDecoder()
+    decoder.dateDecodingStrategy = .iso8601
+    let decoded = try decoder.decode(DeviceSnapshot.self, from: Data(json.utf8))
+    #expect(decoded.acceptsCommands)
+    #expect(!decoded.acceptsRemoval)
+    #expect(!decoded.canRemove(at: decoded.publishedAt))
+
+    var accepting = decoded
+    accepting.acceptsRemoval = true
+    let encoder = JSONEncoder()
+    encoder.dateEncodingStrategy = .iso8601
+    let roundTripped = try decoder.decode(DeviceSnapshot.self, from: encoder.encode(accepting))
+    #expect(roundTripped.canRemove(at: decoded.publishedAt))
+    // A quiet Mac would not read the request in time.
+    #expect(!roundTripped.canRemove(at: decoded.publishedAt.addingTimeInterval(DeviceSyncPolicy.staleAfter + 1)))
+}
+
+@Test func hostRemovesOnlyAKnownAccountForAMacItSees() {
+    let removal = RemoteCommand(issuedBy: laptop, issuedAt: now, action: .removeAccount(profileID: workID))
+    let sender = snapshot(laptop, name: "MacBook", accounts: [])
+    let claude = SharedAccount(profileID: claudeID, provider: .claude, displayName: "Studio", email: "s@example.com", autoRedeemEnabled: nil, windows: [])
+    #expect(RemoteCommandPolicy.decide(
+        removal, host: mini, hostAccounts: [codexAccount()], handledCommandIDs: [], otherDevices: [sender], now: now
+    ) == .remove(profileID: workID))
+    // Claude accounts can be removed too.
+    let claudeRemoval = RemoteCommand(issuedBy: laptop, issuedAt: now, action: .removeAccount(profileID: claudeID))
+    #expect(RemoteCommandPolicy.decide(
+        claudeRemoval, host: mini, hostAccounts: [claude], handledCommandIDs: [], otherDevices: [sender], now: now
+    ) == .remove(profileID: claudeID))
+    #expect(RemoteCommandPolicy.decide(
+        removal, host: mini, hostAccounts: [claude], handledCommandIDs: [], otherDevices: [sender], now: now
+    ) == .reject(.unknownProfile))
+    #expect(RemoteCommandPolicy.decide(
+        removal, host: mini, hostAccounts: [codexAccount()], handledCommandIDs: [], otherDevices: [], now: now
+    ) == .reject(.unknownSender))
+    #expect(RemoteCommandPolicy.decide(
+        removal, host: mini, hostAccounts: [codexAccount()], handledCommandIDs: [removal.id], otherDevices: [sender], now: now
+    ) == .reject(.alreadyApplied))
+    #expect(RemoteCommandPolicy.decide(
+        RemoteCommand(issuedBy: laptop, issuedAt: now.addingTimeInterval(-31 * 60), action: .removeAccount(profileID: workID)),
+        host: mini, hostAccounts: [codexAccount()], handledCommandIDs: [], otherDevices: [sender], now: now
+    ) == .reject(.expired))
+}

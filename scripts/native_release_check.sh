@@ -26,7 +26,7 @@ if [[ "$SHOULD_RENDER_PREVIEWS" == true ]]; then
   for preview in onboarding onboarding-error connect paused healthy near redeemed auth-error overview claude-low claude-signin \
     monitor-low weekly-only monthly-only freshness inventory used-exact settings settings-denied rename remove reveal provider-failed usage-blocked \
     add-waiting add-already-added add-private-window add-connected add-connected-claude \
-    remote remote-stale settings-sync remote-read-only remote-merged; do
+    remote remote-stale settings-sync remote-read-only remote-merged remote-remove remote-removing; do
     test -s "$ARTIFACTS/$preview.png"
   done
 fi

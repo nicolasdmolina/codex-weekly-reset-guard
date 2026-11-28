@@ -79,9 +79,13 @@ decision kinds and any error domain and code.
 - `devices/<deviceID>.json` is a `DeviceSnapshot`, written only by the Mac it
   describes. It holds each account's name, email, windows, saved-reset count,
   Codex Auto-redeem setting and any attention message, plus up to 50 handled
-  command IDs. It holds no tokens, file paths or idempotency keys.
-- `commands/<target>/<commandID>.json` is one `RemoteCommand`. The only action
-  is `setAutoRedeem(profileID, enabled)`, an absolute state. Each Mac creates its
+  command IDs and whether it `acceptsRemoval`. It holds no tokens, file paths or
+  idempotency keys.
+- `commands/<target>/<commandID>.json` is one `RemoteCommand`. Its action is
+  `setAutoRedeem(profileID, enabled)`, an absolute state, or
+  `removeAccount(profileID)`. A Mac sends a removal only to a Mac whose live
+  snapshot says `acceptsRemoval`; older versions cannot decode it and delete the
+  file without acting. Each Mac creates its
   own command folder on every pass, so senders write into a folder iCloud Drive
   has already synced.
 
@@ -93,6 +97,14 @@ another Mac's current snapshot already redeems. An accepted command calls the
 same function as the local Auto-redeem switch. The policy engine, its fail-closed
 rules and idempotency stay the only route to a reset. The host deletes the file
 and lists the ID in its next snapshot, which the sender treats as the answer.
+
+A removal must come from a Mac the host currently sees in the folder and name
+one of its accounts. It calls the same function as the local Remove, so it
+deletes only Second Wind's copy of the sign-in and keeps any uncertain reset
+record. The snapshot from that pass leaves the account out. The sender asks
+every Mac holding a copy, and counts a removal as done when the account is gone
+from that Mac's snapshot. An acknowledgement with the account still listed, or
+no answer within a command's lifetime, shows "<Mac> did not remove <name>."
 
 The popover lists each account once. Accounts on different Macs are the same
 account when provider and normalized email match; accounts with no email never

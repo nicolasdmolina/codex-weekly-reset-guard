@@ -4,6 +4,10 @@
 
 - A long email or Mac name no longer pushes the big “% left” figure onto two
   lines. The line under the account name shortens instead.
+- An account that only another Mac has can be removed from this Mac: choose
+  **Remove from <Mac>…** in its options menu. That Mac removes it the same way
+  its own Remove does. Both Macs need this version; until then the option does
+  not appear.
 
 ## 0.4.2
 

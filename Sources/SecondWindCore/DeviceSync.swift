@@ -122,6 +122,9 @@ public struct DeviceSnapshot: Codable, Equatable, Sendable {
     /// True only when the pass that wrote this snapshot could list this device's command folder.
     /// Absent in older files, which read as false.
     public var acceptsCommands: Bool
+    /// True when this device can remove one of its accounts on another Mac's request. Absent in
+    /// older files, which read as false, so a Mac never asks a version that would drop the request.
+    public var acceptsRemoval: Bool
 
     public init(
         schemaVersion: Int = DeviceSnapshot.currentSchemaVersion,
@@ -130,7 +133,8 @@ public struct DeviceSnapshot: Codable, Equatable, Sendable {
         publishedAt: Date,
         accounts: [SharedAccount],
         appliedCommandIDs: [UUID],
-        acceptsCommands: Bool = false
+        acceptsCommands: Bool = false,
+        acceptsRemoval: Bool = false
     ) {
         self.schemaVersion = schemaVersion
         self.deviceID = deviceID
@@ -139,10 +143,11 @@ public struct DeviceSnapshot: Codable, Equatable, Sendable {
         self.accounts = accounts
         self.appliedCommandIDs = appliedCommandIDs
         self.acceptsCommands = acceptsCommands
+        self.acceptsRemoval = acceptsRemoval
     }
 
     private enum CodingKeys: String, CodingKey {
-        case schemaVersion, deviceID, deviceName, publishedAt, accounts, appliedCommandIDs, acceptsCommands
+        case schemaVersion, deviceID, deviceName, publishedAt, accounts, appliedCommandIDs, acceptsCommands, acceptsRemoval
     }
 
     public init(from decoder: any Decoder) throws {
@@ -154,6 +159,12 @@ public struct DeviceSnapshot: Codable, Equatable, Sendable {
         accounts = try container.decode([SharedAccount].self, forKey: .accounts)
         appliedCommandIDs = try container.decode([UUID].self, forKey: .appliedCommandIDs)
         acceptsCommands = try container.decodeIfPresent(Bool.self, forKey: .acceptsCommands) ?? false
+        acceptsRemoval = try container.decodeIfPresent(Bool.self, forKey: .acceptsRemoval) ?? false
+    }
+
+    /// True when a removal sent now would be read and acted on.
+    public func canRemove(at now: Date) -> Bool {
+        acceptsCommands && acceptsRemoval && freshness(at: now).isLive
     }
 
     public func freshness(at now: Date) -> SnapshotFreshness {
@@ -164,6 +175,9 @@ public struct DeviceSnapshot: Codable, Equatable, Sendable {
 /// An absolute state, never a toggle, so a repeat or late delivery cannot invert the intent.
 public enum RemoteAction: Codable, Equatable, Sendable {
     case setAutoRedeem(profileID: UUID, enabled: Bool)
+    /// Removes one account from the host, the same way its own Remove does. Sent only to a Mac
+    /// whose snapshot says `acceptsRemoval`; an older Mac cannot read it and deletes the file.
+    case removeAccount(profileID: UUID)
 }
 
 /// `commands/<targetDeviceID>/<commandID>.json`. Unique names, so two Macs never edit one file.
@@ -302,10 +316,13 @@ public enum CommandRejection: Equatable, Sendable {
     /// Only Codex profiles have Auto-redeem.
     case unsupportedProfile
     case autoRedeemOnElsewhere(deviceName: String)
+    /// A removal must come from a Mac this one currently sees in the sync folder.
+    case unknownSender
 }
 
 public enum CommandDecision: Equatable, Sendable {
     case apply(profileID: UUID, enabled: Bool)
+    case remove(profileID: UUID)
     case reject(CommandRejection)
 }
 
@@ -340,6 +357,14 @@ public enum RemoteCommandPolicy {
                 return .reject(.autoRedeemOnElsewhere(deviceName: other.deviceName))
             }
             return .apply(profileID: profileID, enabled: enabled)
+        case let .removeAccount(profileID):
+            guard hostAccounts.contains(where: { $0.profileID == profileID }) else {
+                return .reject(.unknownProfile)
+            }
+            guard otherDevices.contains(where: { $0.deviceID == command.issuedBy }) else {
+                return .reject(.unknownSender)
+            }
+            return .remove(profileID: profileID)
         }
     }
 }

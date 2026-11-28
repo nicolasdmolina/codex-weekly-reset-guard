@@ -80,6 +80,8 @@ test "$(curl -sS -o /dev/null -w '%{http_code}' "$pages_url")" = 200 &&
   Mac sit with your own, marked with that Mac's name.
 - Turn a synced Codex account's **Auto-redeem** on or off from either Mac. The
   Mac that hosts the account makes the change and confirms it.
+- Remove an account that only another Mac has from its options menu. That Mac
+  removes it the same way its own **Remove** would.
 - Get the same low-quota notifications for accounts on your other Macs.
 - Second Wind will not turn on Auto-redeem for an account another Mac already
   redeems, so a saved reset is never spent twice.

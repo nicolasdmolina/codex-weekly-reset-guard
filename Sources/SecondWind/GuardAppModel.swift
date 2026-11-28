@@ -175,6 +175,8 @@ final class GuardAppModel: ObservableObject {
     @Published var remoteDevices: [DeviceSnapshot] = []
     /// Auto-redeem changes this Mac sent to another Mac, keyed by `remoteKey`.
     @Published var pendingRemoteCommands: [String: PendingRemoteCommand] = [:]
+    /// Removals this Mac asked another Mac for, keyed by `remoteKey`.
+    @Published var pendingRemovals: [String: PendingRemoval] = [:]
     /// Synthetic previews use one reference clock for every relative date label.
     let referenceDate: Date?
 
@@ -203,6 +205,10 @@ final class GuardAppModel: ObservableObject {
     var applyAutoReset: ((String, Bool) async -> Bool)?
     /// Sends a change to another Mac; failures report to the given card.
     var onSetRemoteAutoReset: ((SyncDeviceID, SharedAccount, Bool, AccountRef) -> Void)?
+    /// Asks another Mac to remove one of its accounts; failures report to the given card.
+    var onRemoveRemoteAccount: ((SyncDeviceID, SharedAccount, AccountRef) -> Void)?
+    /// This Mac's own Remove, which a removal request from another Mac runs.
+    var removeLocalAccount: ((AccountRef) async throws -> Void)?
     var onSyncNow: (() -> Void)?
 
     init(
@@ -311,6 +317,27 @@ final class GuardAppModel: ObservableObject {
               let applyAutoReset
         else { return false }
         return await applyAutoReset(rawID, enabled)
+    }
+
+    /// A removal request from another Mac. It runs this Mac's own Remove, so it deletes only
+    /// Second Wind's copy of the sign-in, exactly as removing the account here would.
+    func applyRemoteRemoval(profileID: UUID) async -> Bool {
+        guard !isReadOnly, !isPreview, let removeLocalAccount else { return false }
+        let rawID = profileID.uuidString.lowercased()
+        let provider: ProviderKind
+        if profiles.contains(where: { $0.id == rawID }) {
+            provider = .codex
+        } else if claudeProfiles.contains(where: { $0.id == rawID }) {
+            provider = .claude
+        } else {
+            return false
+        }
+        do {
+            try await removeLocalAccount(AccountRef(provider: provider, id: profileID))
+            return true
+        } catch {
+            return false
+        }
     }
 
     /// Why Auto-redeem must stay off for this email, or nil. Another Mac whose current snapshot
@@ -545,6 +572,53 @@ final class GuardAppModel: ObservableObject {
         onSetRemoteAutoReset?(device.deviceID, account, enabled, ref)
     }
 
+    /// The Macs a remote-only card's Remove would ask: every Mac holding a copy that can take a
+    /// removal now, so the card does not come back from a second Mac.
+    func removalHosts(of synced: SyncedAccount, now: Date) -> [RemoteCopy] {
+        synced.copies.filter { $0.device.canRemove(at: now) && pendingRemovals[$0.key] == nil }
+    }
+
+    func isRemoving(_ synced: SyncedAccount) -> Bool {
+        synced.copies.contains { pendingRemovals[$0.key] != nil }
+    }
+
+    /// Asks each Mac that has this account to remove it.
+    func removeRemoteAccount(_ synced: SyncedAccount, reportingTo card: AccountRef) {
+        guard !isReadOnly else { return }
+        let now = referenceDate ?? Date()
+        let hosts = removalHosts(of: synced, now: now)
+        guard !hosts.isEmpty else {
+            reportActionFailure("\(synced.host.device.deviceName) can't take this change now. Try again in a moment.", for: card)
+            return
+        }
+        for copy in hosts {
+            if isPreview {
+                pendingRemovals[copy.key] = PendingRemoval(
+                    commandID: UUID(), issuedAt: now, device: copy.device.deviceID, deviceName: copy.device.deviceName,
+                    profileID: copy.account.profileID, displayName: copy.account.displayName, card: card
+                )
+            } else {
+                onRemoveRemoteAccount?(copy.device.deviceID, copy.account, card)
+            }
+        }
+    }
+
+    /// Drops removals the host has settled, reporting the ones it did not make.
+    func settleRemovals(now: Date) {
+        for (key, pending) in pendingRemovals {
+            let device = remoteDevices.first { $0.deviceID == pending.device }
+            switch pending.outcome(in: device, now: now) {
+            case .waiting:
+                continue
+            case .removed:
+                pendingRemovals[key] = nil
+            case .notRemoved:
+                pendingRemovals[key] = nil
+                reportActionFailure("\(pending.deviceName) did not remove \(pending.displayName).", for: pending.card)
+            }
+        }
+    }
+
     /// What this Mac shares: every account, with its readings and the Auto-redeem setting.
     func sharedAccounts() -> [SharedAccount] {
         let codex = profiles.compactMap { profile -> SharedAccount? in
@@ -611,5 +685,30 @@ final class GuardAppModel: ObservableObject {
             return
         }
         NSWorkspace.shared.open(claudeUsageSettingsURL)
+    }
+}
+
+/// A removal this Mac asked another Mac for, until that Mac's snapshot settles it.
+struct PendingRemoval: Equatable {
+    let commandID: UUID
+    let issuedAt: Date
+    let device: SyncDeviceID
+    let deviceName: String
+    let profileID: UUID
+    let displayName: String
+    /// The card that shows a failure.
+    let card: AccountRef
+
+    enum Outcome: Equatable { case waiting, removed, notRemoved }
+
+    /// Removed once the host publishes without the account. A handled command that left the
+    /// account in place, or no answer within a command's lifetime, means it was not removed.
+    func outcome(in device: DeviceSnapshot?, now: Date) -> Outcome {
+        if let device {
+            if !device.accounts.contains(where: { $0.profileID == profileID }) { return .removed }
+            if device.appliedCommandIDs.contains(commandID) { return .notRemoved }
+        }
+        let expired = now.timeIntervalSince(issuedAt) > DeviceSyncPolicy.commandLifetime + DeviceSyncPolicy.allowedClockSkew
+        return expired ? .notRemoved : .waiting
     }
 }

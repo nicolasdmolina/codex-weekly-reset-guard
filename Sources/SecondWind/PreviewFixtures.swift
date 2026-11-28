@@ -64,6 +64,10 @@ enum PreviewKind: String, CaseIterable {
     case remoteReadOnly = "remote-read-only"
     /// One account on this Mac and the Mac mini, redeemed there, plus one only on the Mac mini.
     case remoteMerged = "remote-merged"
+    /// Confirming removal of an account only the Mac mini has.
+    case remoteRemove = "remote-remove"
+    /// That removal sent and not yet answered.
+    case remoteRemoving = "remote-removing"
 }
 
 @MainActor
@@ -429,6 +433,20 @@ enum PreviewFixtures {
             }
             model.remoteDevices = [mini]
             syncStatus = .on
+        case .remoteRemove:
+            model = GuardAppModel(isPreview: true, referenceDate: reference)
+            model.remoteDevices = [miniSnapshot(publishedSecondsAgo: 25, workAutoRedeem: false)]
+            syncStatus = .on
+            stage = { interface in interface.confirmRemoval(AccountRef(provider: .codex, id: ID.miniWork)) }
+        case .remoteRemoving:
+            model = GuardAppModel(isPreview: true, referenceDate: reference)
+            let mini = miniSnapshot(publishedSecondsAgo: 25, workAutoRedeem: false)
+            model.remoteDevices = [mini]
+            model.pendingRemovals[GuardAppModel.remoteKey(device: ID.mini, account: mini.accounts[1])] = PendingRemoval(
+                commandID: UUID(), issuedAt: reference.addingTimeInterval(-10), device: ID.mini, deviceName: mini.deviceName,
+                profileID: ID.miniWork, displayName: "Work", card: AccountRef(provider: .codex, id: ID.miniWork)
+            )
+            syncStatus = .on
         case .settingsSync:
             syncStatus = .unavailable
             model = GuardAppModel(profiles: [personalHealthy()], isPreview: true, referenceDate: reference)
@@ -739,7 +757,8 @@ enum PreviewFixtures {
                 ),
             ],
             appliedCommandIDs: [],
-            acceptsCommands: true
+            acceptsCommands: true,
+            acceptsRemoval: true
         )
     }
 
@@ -815,7 +834,7 @@ enum PreviewFixtures {
         for kind in PreviewKind.allCases {
             let model = model(for: kind)
             let expectedCount: Int = switch kind {
-            case .onboarding, .remote, .remoteStale, .remoteReadOnly: 0
+            case .onboarding, .remote, .remoteStale, .remoteReadOnly, .remoteRemove, .remoteRemoving: 0
             case .connect, .paused, .claudeSignIn, .settings, .settingsDenied, .providerFailed, .settingsSync,
                  .onboardingError, .addWaiting, .addConnected, .monthlyOnly, .remoteMerged: 1
             case .freshness, .reveal: 3

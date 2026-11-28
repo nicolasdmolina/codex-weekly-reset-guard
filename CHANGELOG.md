@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.0
 
 - Adding an account no longer asks for an email or a name: choose Codex or
   Claude and sign in. The first sign-in decides which account it is, every later

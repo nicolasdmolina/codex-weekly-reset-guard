@@ -1,5 +1,10 @@
 # Changelog
 
+## Unreleased
+
+- A long email or Mac name no longer pushes the big “% left” figure onto two
+  lines. The line under the account name shortens instead.
+
 ## 0.4.2
 
 - An account signed in on more than one Mac shows as one card instead of once

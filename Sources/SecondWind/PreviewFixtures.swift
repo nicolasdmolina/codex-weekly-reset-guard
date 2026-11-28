@@ -18,6 +18,9 @@ enum PreviewKind: String, CaseIterable {
     /// A used-up 5-hour window beside a healthy week, and a 1% week with
     /// Auto-redeem off and no 5-hour window reported.
     case monitorLow = "monitor-low"
+    /// Plans with only a weekly limit: Codex sends one weekly lane, and Claude Code prints no
+    /// session line. Neither shows a 5-hour row.
+    case weeklyOnly = "weekly-only"
     /// One current account, one whose reset time passed after its last
     /// reading, one stale Claude account. No "all clear".
     case freshness
@@ -254,6 +257,13 @@ enum PreviewFixtures {
                     record: codexRecord(ID.work, session: nil, weekly: 1, weeklyResetHours: 30, saved: 1, expiresInDays: 4)
                 ),
             ], isPreview: true, referenceDate: reference)
+        case .weeklyOnly:
+            model = GuardAppModel(
+                profiles: [weeklyOnlyCodex()],
+                claudeProfiles: [weeklyOnlyClaude()],
+                isPreview: true,
+                referenceDate: reference
+            )
         case .freshness:
             model = GuardAppModel(
                 profiles: [
@@ -596,6 +606,62 @@ enum PreviewFixtures {
             },
             status: status,
             detail: detail,
+            signInURL: nil,
+            quota: record
+        )
+    }
+
+    /// Built through the real classifier from the shape Codex sends a Pro plan.
+    private static func weeklyOnlyCodex() -> GuardProfilePresentation {
+        let observedAt = reference.addingTimeInterval(-40)
+        let snapshot = RateLimitSnapshot(
+            limitID: "codex",
+            primary: RateLimitWindow(usedPercent: 49, windowDurationMinutes: 10_080, resetsAt: reference.addingTimeInterval(130 * 3_600)),
+            secondary: nil,
+            observedAt: observedAt
+        )
+        let inventory = ResetInventorySnapshot(
+            availableCount: 3,
+            expiries: .listed([.on(reference.addingTimeInterval(8 * 86_400))]),
+            fetchedAt: observedAt
+        )
+        let observation = RateLimitClassifier().quotaObservation(
+            snapshot, inventory: .reported(inventory), includedUsageAccess: .allowed
+        )
+        var profile = codex(
+            ID.personal, "Personal", hint: "p•••@example.com", status: .healthy, detail: "Checked every 60 seconds.",
+            record: QuotaAccountRecord(provider: .codex, accountID: ID.personal, lastSuccess: observation)
+        )
+        profile.planName = "Pro"
+        return profile
+    }
+
+    /// Parsed from the text Claude Code prints for a plan without a session limit.
+    private static func weeklyOnlyClaude() -> ClaudeProfilePresentation {
+        let text = """
+        Current week (all models): 42% used · resets Jul 31, 2026 at 12am (UTC)
+        Current week (Fable): 16% used · resets Jul 31, 2026 at 12am (UTC)
+        """
+        let observedAt = reference.addingTimeInterval(-180)
+        let report = try? ClaudeUsageParser.parseText(text, observedAt: observedAt)
+        let record = QuotaAccountRecord(provider: .claude, accountID: ID.studio, lastSuccess: report?.quotaObservation)
+        let current = record.reading(at: reference)
+        return ClaudeProfilePresentation(
+            id: ID.studio.uuidString.lowercased(),
+            displayName: "Studio",
+            accountHint: "s•••@example.com",
+            planName: "Max",
+            windows: current.windows.map { window in
+                ClaudeWindowPresentation(
+                    id: window.id,
+                    label: QuotaDisplayBuilder.label(for: window.window.kind),
+                    remainingPercent: window.window.remainingPercent,
+                    resetsAt: window.window.resetsAt,
+                    isCurrent: window.isCurrent
+                )
+            },
+            status: .healthy,
+            detail: "Checked every 5 minutes.",
             signInURL: nil,
             quota: record
         )

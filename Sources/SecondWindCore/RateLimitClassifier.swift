@@ -92,17 +92,26 @@ public struct RateLimitClassifier: Sendable {
         // Count every lane that claims a length first, as `classify` does, so a second weekly lane
         // makes the week ambiguous even when that lane is itself incomplete.
         var found: [QuotaWindowKind: [RateLimitWindow]] = [:]
+        var hasUnlabelledLane = false
         for window in [snapshot.primary, snapshot.secondary].compactMap({ $0 }) {
-            guard let duration = window.windowDurationMinutes, duration.isFinite else { continue }
+            guard let duration = window.windowDurationMinutes, duration.isFinite else {
+                hasUnlabelledLane = true
+                continue
+            }
             if isWeeklyDuration(duration) {
                 found[.weekly, default: []].append(window)
             } else if isDuration(duration, near: Self.sessionDurationMinutes) {
                 found[.session, default: []].append(window)
+            } else {
+                hasUnlabelledLane = true
             }
         }
         // The sole candidate must also be complete: Codex always sends a valid percentage and a
-        // reset time. Ambiguous or incomplete windows are unknown, never shown.
-        let expected: [QuotaWindowKind] = [.session, .weekly]
+        // reset time. Ambiguous or incomplete windows are unknown, never shown. Some plans have
+        // no five-hour limit: when every lane sent is labelled and none is five hours, the account
+        // has none, rather than an unknown one.
+        let hasNoSessionLimit = !hasUnlabelledLane && found[.session] == nil && (found[.weekly]?.count ?? 0) <= 1
+        let expected: [QuotaWindowKind] = hasNoSessionLimit ? [.weekly] : [.session, .weekly]
         let windows = expected.compactMap { kind -> QuotaWindow? in
             guard let matches = found[kind], matches.count == 1, let window = matches.first,
                   window.usedPercent.isFinite,

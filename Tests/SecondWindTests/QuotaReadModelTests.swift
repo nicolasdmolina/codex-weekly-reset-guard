@@ -75,12 +75,46 @@ private func seconds(_ offset: TimeInterval) -> Int64 {
     #expect(reading.isConfirmed)
 }
 
-@Test func missingFiveHourWindowIsUnknownNotZeroAndBlocksAllClear() throws {
+@Test func codexPlanWithoutFiveHourLimitShowsOnlyTheWeek() throws {
+    // A Pro plan sends only a weekly lane and leaves the second lane empty.
     let reading = codexRecord(try observation(codexSnapshot(session: nil))).reading(at: now)
     #expect(reading.windows.map(\.window.kind) == [.weekly])
+    #expect(reading.unknownWindows.isEmpty)
+    #expect(reading.hasConfirmedWindows)
+}
+
+@Test func codexLaneWithUnrecognisedLengthKeepsFiveHourUnknown() throws {
+    let reading = codexRecord(try observation(codexSnapshot(sessionDuration: 60))).reading(at: now)
+    #expect(reading.windows.map(\.window.kind) == [.weekly])
     #expect(reading.unknownWindows == [.session])
-    #expect(reading.warning == nil)
-    #expect(!reading.isConfirmed)
+    #expect(!QuotaSummary(readings: [reading]).isAllClear)
+}
+
+@Test func claudePlanWithoutSessionLineShowsOnlyItsWeeklyLimits() throws {
+    let text = """
+    You are currently using your subscription to power your Claude Code usage
+
+    Current week (all models): 46% used · resets Jan 2, 2034 at 12am (America/Los_Angeles)
+    Current week (Fable): 19% used · resets Jan 2, 2034 at 12am (America/Los_Angeles)
+    """
+    let report = try ClaudeUsageParser.parseText(text, observedAt: now)
+    let reading = QuotaAccountRecord(provider: .claude, accountID: UUID(), lastSuccess: report.quotaObservation)
+        .reading(at: now)
+    #expect(reading.windows.map(\.window.kind) == [.weekly, .modelWeekly("Fable")])
+    #expect(reading.unknownWindows.isEmpty)
+    #expect(reading.isConfirmed)
+}
+
+@Test func unreadableClaudeSessionLineStaysUnknown() throws {
+    let text = """
+    Current session: unavailable
+    Current week (all models): 46% used · resets Jan 2, 2034 at 3am (UTC)
+    """
+    let report = try ClaudeUsageParser.parseText(text, observedAt: now)
+    let reading = QuotaAccountRecord(provider: .claude, accountID: UUID(), lastSuccess: report.quotaObservation)
+        .reading(at: now)
+    #expect(reading.windows.map(\.window.kind) == [.weekly])
+    #expect(reading.unknownWindows == [.session])
     #expect(!QuotaSummary(readings: [reading]).isAllClear)
 }
 

@@ -486,10 +486,13 @@ extension ResetInventorySnapshot {
 extension ClaudeUsageReport {
     private var unreportedWindowKinds: [QuotaWindowKind] {
         var kinds: [QuotaWindowKind] = []
-        if session == nil { kinds.append(.session) }
         if weekly == nil { kinds.append(.weekly) }
         for scope in unreadableScopes {
-            if case let .modelWeekly(name) = scope { kinds.append(.modelWeekly(name)) }
+            switch scope {
+            case .session: kinds.append(.session)
+            case .weekly: break // Unreadable means missing, which is already unknown.
+            case let .modelWeekly(name): kinds.append(.modelWeekly(name))
+            }
         }
         return kinds
     }
@@ -505,8 +508,9 @@ extension ClaudeUsageReport {
                 }
                 return QuotaWindow(kind: kind, usedPercent: window.usedPercent, resetsAt: window.resetsAt)
             },
-            // The session and all-model weekly limits apply to every plan; one missing is unknown.
-            // A named limit Claude Code could not read is unknown too.
+            // The all-model weekly limit applies to every plan; missing, it is unknown. Some plans
+            // have no five-hour session limit, so a session line Claude Code leaves out is not
+            // shown. A named limit Claude Code could not read is unknown.
             unreportedWindows: unreportedWindowKinds,
             inventory: .notTracked
         )

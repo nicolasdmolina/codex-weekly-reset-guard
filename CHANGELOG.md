@@ -1,5 +1,11 @@
 # Changelog
 
+## Unreleased
+
+- A Codex Free account that failed its checks before 0.4.1 no longer stays
+  flagged in red with “Monthly usage is current.” Its next monthly reading
+  clears the old flag, unless a reset was in flight.
+
 ## 0.4.3
 
 - Monitor the account signed in to Antigravity CLI on this Mac. See quota and

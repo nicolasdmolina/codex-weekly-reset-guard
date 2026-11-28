@@ -1059,6 +1059,18 @@ actor GuardRuntimeController {
             live.inventory = noWeekly.inventory
             live.detail = "Monthly usage is current."
             liveProfiles[profileID] = live
+            // A check that failed before this plan was understood left the account needing
+            // attention, and the policy that clears it never runs here. A current reading clears
+            // it, unless a reset was in flight: that stays until the weekly path reconciles it.
+            if var state = persistentState?.monitorState(for: profileID),
+               state.attempt == nil, state.phase == .attentionRequired {
+                state.phase = state.isEnabled ? .healthy : .disabled
+                state.attentionMessage = nil
+                state.confirmation = nil
+                if let saved = try? await persistence.saveMonitorState(state, now: now()) {
+                    adoptPersistentState(saved)
+                }
+            }
             lastLoggedFailure[profileID] = nil
             checkFailureBanners[profileID] = nil
             lastCheckedAt = now()

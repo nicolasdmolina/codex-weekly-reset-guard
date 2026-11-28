@@ -4,7 +4,7 @@ set -euo pipefail
 # Verify the two downloadable archives against their tag, GitHub provenance and
 # contents before updating the website. No Apple identity is needed.
 PROJECT_ROOT="$(cd "$(dirname "$0")/.." && pwd)"
-REPOSITORY="nicolasdmolina/codex-weekly-reset-guard"
+REPOSITORY="nicolasdmolina/second-wind"
 APP_NAME="Second Wind"
 BUNDLE_ID="com.nickymolina.second-wind"
 EXECUTABLE="SecondWind"

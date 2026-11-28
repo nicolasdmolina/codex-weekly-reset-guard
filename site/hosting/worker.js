@@ -1,4 +1,4 @@
-const pages = 'https://nicolasdmolina.github.io/codex-weekly-reset-guard';
+const pages = 'https://nicolasdmolina.github.io/second-wind';
 
 export default {
   async fetch(request) {

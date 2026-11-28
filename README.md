@@ -7,7 +7,7 @@ page where you redeem one.
 
 **macOS 14+ · Apple silicon and Intel · MIT**
 
-[![CI](https://github.com/nicolasdmolina/codex-weekly-reset-guard/actions/workflows/ci.yml/badge.svg)](https://github.com/nicolasdmolina/codex-weekly-reset-guard/actions/workflows/ci.yml)
+[![CI](https://github.com/nicolasdmolina/second-wind/actions/workflows/ci.yml/badge.svg)](https://github.com/nicolasdmolina/second-wind/actions/workflows/ci.yml)
 
 <p>
   <img src="docs/images/overview.png" width="380" alt="Second Wind popover showing a Codex account at 61% weekly headroom and a Claude account at 42% of its 5-hour limit">
@@ -28,7 +28,7 @@ it moves your existing accounts over on first launch.
 [secondwind.nickymolina.com](https://secondwind.nickymolina.com/) has screenshots, requirements and downloads.
 
 The Mac app and source downloads include SHA-256 checksums and GitHub build
-provenance. See [releases](https://github.com/nicolasdmolina/codex-weekly-reset-guard/releases)
+provenance. See [releases](https://github.com/nicolasdmolina/second-wind/releases)
 and the [verification instructions](docs/RELEASING.md#what-verify_releasesh-checks).
 
 Second Wind shows the lowest remaining allowance in your Mac menu bar and can use a saved Codex weekly reset when you run low.
@@ -43,7 +43,7 @@ To update the Cloudflare route, run this from the repository root after Pages pu
 The first command checks that the Pages URL serves the site directly.
 
 ```sh
-pages_url=https://nicolasdmolina.github.io/codex-weekly-reset-guard/
+pages_url=https://nicolasdmolina.github.io/second-wind/
 test "$(curl -sS -o /dev/null -w '%{http_code}' "$pages_url")" = 200 &&
   npx wrangler@4 deploy --config site/hosting/wrangler.jsonc
 ```
@@ -129,7 +129,7 @@ plus the official tools for the services you want to watch:
 No API key and no third-party Swift package is required.
 
 ```sh
-git clone https://github.com/nicolasdmolina/codex-weekly-reset-guard.git second-wind
+git clone https://github.com/nicolasdmolina/second-wind.git second-wind
 cd second-wind
 ./scripts/test.sh
 ./scripts/package_app.sh

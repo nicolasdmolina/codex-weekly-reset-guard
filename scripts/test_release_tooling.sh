@@ -132,7 +132,7 @@ assert release["app"] == {"file": app, "sha256": digest(app), "minimumSystemVers
                           "architectures": ["arm64", "x86_64"], "signing": "ad-hoc"}
 assert release["source"] == {"file": source, "folder": f"Second-Wind-{version}", "sha256": digest(source)}
 PY
-repo=nicolasdmolina/codex-weekly-reset-guard
+repo=nicolasdmolina/second-wind
 for file in "$SOURCE" "$APP"; do
   grep -qF "$file --repo $repo --signer-workflow $repo/.github/workflows/release.yml --source-ref refs/tags/$TAG --source-digest $COMMIT --deny-self-hosted-runners" "$RELEASE_TEST_LOG"
 done

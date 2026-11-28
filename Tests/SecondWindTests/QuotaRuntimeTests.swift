@@ -130,6 +130,50 @@ import Testing
     await controller.stop()
 }
 
+@Test @MainActor func monthlyOnlyPlanIsCurrentAndNeverRedeemsEvenWithAutoRedeemOn() async throws {
+    // Codex Free sends one 30-day lane and no weekly lane.
+    let fixture = try QuotaFixture(profiles: [("free@example.com", true)])
+    defer { fixture.remove() }
+    let clock = QuotaClock(fixture.now)
+    let session = QuotaSession(email: "free@example.com", clock: clock, sessionUsed: 0, weeklyUsed: 99, monthlyOnly: true)
+    let controller = fixture.controller(sessions: ["free@example.com": session], clock: clock)
+    _ = try await controller.start()
+    #expect(await settled(controller, sessions: [session]))
+    for _ in 0..<3 {
+        clock.advance(by: 10)
+        _ = await controller.checkNow()
+    }
+
+    let snapshot = await controller.snapshot()
+    let reading = try #require(snapshot.profiles.first?.quota.reading(at: clock.value))
+    #expect(reading.freshness == .fresh(lastSuccessAt: clock.value))
+    #expect(reading.windows.map(\.window.kind) == [.monthly])
+    #expect(reading.unknownWindows.isEmpty)
+    let model = GuardAppModel(referenceDate: clock.value)
+    model.apply(snapshot)
+    let profile = try #require(model.profiles.first)
+    #expect(profile.isConnected)
+    #expect(profile.status == .nearLimit)
+    #expect(profile.detail == "Monthly limit is running low.")
+    #expect(await session.consumeCount() == 0)
+    await controller.stop()
+}
+
+@Test @MainActor func healthyMonthlyOnlyPlanCanBeAllClear() async throws {
+    let fixture = try QuotaFixture(profiles: [("free@example.com", false)])
+    defer { fixture.remove() }
+    let clock = QuotaClock(fixture.now)
+    let session = QuotaSession(email: "free@example.com", clock: clock, sessionUsed: 0, weeklyUsed: 0, monthlyOnly: true)
+    let controller = fixture.controller(sessions: ["free@example.com": session], clock: clock)
+    _ = try await controller.start()
+    #expect(await settled(controller, sessions: [session]))
+    let model = GuardAppModel(referenceDate: clock.value)
+    model.apply(await controller.snapshot())
+    #expect(model.profiles.first?.status == .healthy)
+    #expect(model.quotaSummary(at: clock.value).isAllClear)
+    await controller.stop()
+}
+
 @Test func codexReadingGoesStaleWithoutAFreshPoll() async throws {
     let fixture = try QuotaFixture(profiles: [("first@example.com", false)])
     defer { fixture.remove() }
@@ -748,6 +792,8 @@ private actor QuotaSession: GuardAppServerSession {
     private let weeklyResetAt: Date
     private let inventory: InventoryShape
     private var access: IncludedUsageAccess
+    /// Sends one 30-day lane, at `weeklyUsed`, in place of the session and weekly lanes.
+    private let monthlyOnly: Bool
     private var rateReadError: AppServerClientError?
     private var rateReads = 0
     private var consumes = 0
@@ -761,9 +807,11 @@ private actor QuotaSession: GuardAppServerSession {
         sessionUsed: Int,
         weeklyUsed: Int,
         inventory: InventoryShape = .listed(1),
-        access: IncludedUsageAccess = .unreported
+        access: IncludedUsageAccess = .unreported,
+        monthlyOnly: Bool = false
     ) {
         self.access = access
+        self.monthlyOnly = monthlyOnly
         self.email = email
         self.clock = clock
         self.sessionUsed = sessionUsed
@@ -824,7 +872,16 @@ private actor QuotaSession: GuardAppServerSession {
         }
         let sessionResetAt = next(self.sessionResetAt, every: 5 * 3_600)
         let weeklyResetAt = next(self.weeklyResetAt, every: 7 * 86_400)
-        let snapshot = RPCRateLimitSnapshot(
+        let snapshot = monthlyOnly ? RPCRateLimitSnapshot(
+            limitID: "codex",
+            limitName: nil,
+            primary: RPCRateLimitWindow(
+                usedPercent: weeklyUsed,
+                windowDurationMinutes: 43_200,
+                resetsAt: Int64(weeklyResetAt.timeIntervalSince1970)
+            ),
+            secondary: nil
+        ) : RPCRateLimitSnapshot(
             limitID: "codex",
             limitName: nil,
             primary: RPCRateLimitWindow(

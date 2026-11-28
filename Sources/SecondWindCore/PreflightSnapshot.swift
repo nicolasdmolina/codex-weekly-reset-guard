@@ -307,6 +307,7 @@ extension QuotaWindowKind {
         switch key {
         case "session": self = .session
         case "weekly": self = .weekly
+        case "monthly": self = .monthly
         default:
             let prefix = "weekly:"
             guard key.hasPrefix(prefix), key.count > prefix.count else { return nil }

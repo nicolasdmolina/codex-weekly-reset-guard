@@ -105,10 +105,10 @@ private func command(_ enabled: Bool, profile: UUID = workID, issuedAt: Date = n
 }
 
 @Test func windowKindKeysRoundTrip() {
-    for kind in [QuotaWindowKind.session, .weekly, .modelWeekly("Sonnet only")] {
+    for kind in [QuotaWindowKind.session, .weekly, .monthly, .modelWeekly("Sonnet only")] {
         #expect(QuotaWindowKind(key: kind.key) == kind)
     }
-    #expect(QuotaWindowKind(key: "monthly") == nil)
+    #expect(QuotaWindowKind(key: "yearly") == nil)
     #expect(QuotaWindowKind(key: "weekly:") == nil)
 }
 

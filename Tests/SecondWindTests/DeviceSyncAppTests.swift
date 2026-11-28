@@ -412,3 +412,17 @@ private let laptop = SyncDeviceID(UUID(uuidString: "22222222-0000-4000-8000-0000
     let noEmail = RemoteAlertAccount(device: mini, deviceName: "Mac mini", provider: .codex, profileID: remoteWorkID, name: "Work")
     #expect(noEmail.token != a.token)
 }
+
+@Test @MainActor func turningOffThisMacWhileAnotherMacIsAlsoOnShowsThatMac() {
+    var local = localWork(autoReset: true)
+    let model = GuardAppModel(profiles: [local], referenceDate: now)
+    model.remoteDevices = [miniSnapshot(autoRedeem: true)]
+    // Both on: the switch is this Mac's, and the other Mac is named beside it.
+    #expect(model.drivenRedeemer(of: local, now: now) == nil)
+    #expect(model.remoteRedeemer(of: local, now: now)?.device.deviceID == mini)
+
+    // Once this Mac is off, the switch shows the Mac that still redeems, so a second tap turns it off there.
+    local.autoResetEnabled = false
+    model.profiles = [local]
+    #expect(model.drivenRedeemer(of: local, now: now)?.device.deviceID == mini)
+}

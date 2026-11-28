@@ -63,7 +63,9 @@ pauses it until you turn it back on. Launch at login is opt-in. macOS controls
 notification permission. Quitting stops all monitoring processes; it does not
 revoke account access or delete local data.
 
-You can rename or remove an individual account from the menu. When a Codex
+You can rename or remove an individual account from the menu. With sync on, you
+can also ask another Mac to remove an account only it has; that Mac runs its own
+Remove. When a Codex
 reset is still being verified, Second Wind preserves the information it needs
 to reconcile that request if you enroll the same email again. Removing a
 Codex account deletes its local sign-in. Removing a Claude account asks Claude

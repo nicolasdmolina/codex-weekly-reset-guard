@@ -48,6 +48,7 @@ final class DeviceSyncCoordinator {
             missedPasses = [:]
             model?.remoteDevices = []
             model?.pendingRemoteCommands = [:]
+            model?.pendingRemovals = [:]
             interface?.updateSyncStatus(.off)
             // Withdraw this Mac's snapshot so the others stop listing a Mac that left, even when
             // no pass has run yet this session.
@@ -93,6 +94,26 @@ final class DeviceSyncCoordinator {
                     PendingRemoteCommand(commandID: command.id, enabled: enabled, issuedAt: command.issuedAt)
             } catch {
                 self?.model?.reportActionFailure("Could not send the change to \(deviceName). Try again.", for: ref)
+            }
+        }
+    }
+
+    func sendRemoval(to device: SyncDeviceID, account: SharedAccount, reportingTo ref: AccountRef) {
+        let deviceName = model?.remoteDevices.first { $0.deviceID == device }?.deviceName ?? "the other Mac"
+        guard let service else {
+            model?.reportActionFailure("Sync is not connected. Try again in a moment.", for: ref)
+            return
+        }
+        interface?.dismissFeedback(for: ref)
+        Task { @MainActor [weak self] in
+            do {
+                let command = try await service.send(.removeAccount(profileID: account.profileID), to: device)
+                self?.model?.pendingRemovals[GuardAppModel.remoteKey(device: device, account: account)] = PendingRemoval(
+                    commandID: command.id, issuedAt: command.issuedAt, device: device, deviceName: deviceName,
+                    profileID: account.profileID, displayName: account.displayName, card: ref
+                )
+            } catch {
+                self?.model?.reportActionFailure("Could not send the removal to \(deviceName). Try again.", for: ref)
             }
         }
     }
@@ -160,6 +181,7 @@ final class DeviceSyncCoordinator {
     static func describe(_ decision: CommandDecision) -> String {
         switch decision {
         case let .apply(_, enabled): enabled ? "apply:on" : "apply:off"
+        case .remove: "apply:remove"
         case let .reject(reason):
             switch reason {
             case .alreadyApplied: "reject:alreadyApplied"
@@ -169,6 +191,8 @@ final class DeviceSyncCoordinator {
             case .unknownProfile: "reject:unknownProfile"
             case .unsupportedProfile: "reject:unsupportedProfile"
             case .autoRedeemOnElsewhere: "reject:autoRedeemOnElsewhere"
+            case .unknownSender: "reject:unknownSender"
+            case .removalUnsupported: "reject:removalUnsupported"
             }
         }
     }
@@ -188,6 +212,9 @@ final class DeviceSyncCoordinator {
             },
             applyAutoRedeem: { [weak model] profileID, enabled in
                 await model?.applyRemoteAutoReset(profileID: profileID, enabled: enabled) ?? false
+            },
+            applyRemoval: { [weak model] profileID in
+                await model?.applyRemoteRemoval(profileID: profileID) ?? false
             }
         )
         self.service = service
@@ -216,6 +243,7 @@ final class DeviceSyncCoordinator {
             }
             return false
         }
+        model.settleRemovals(now: now)
         // Alerts come only from what this pass actually read, never for a window this Mac alerts
         // for itself. The alert key collapses the same window from several Macs into one notice.
         let fresh = read.filter { $0.freshness(at: now).isLive }

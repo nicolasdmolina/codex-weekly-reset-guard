@@ -54,11 +54,13 @@ public struct DeviceSyncPass: Equatable, Sendable {
 
 /// One sync pass: read the other Macs, handle commands addressed to this one, then publish this
 /// Mac's snapshot. Reading and publishing fail separately: a Mac that cannot read the folder
-/// still publishes, saying it does not accept commands. The only side effect a command can have
-/// is `applyAutoRedeem`, which the app wires to the same function its own Auto-redeem switch uses.
+/// still publishes, saying it does not accept commands. A command's only side effects are
+/// `applyAutoRedeem` and `applyRemoval`, which the app wires to the same functions its own
+/// Auto-redeem switch and Remove use.
 public actor DeviceSyncService {
     public typealias AccountsProvider = @Sendable () async -> [SharedAccount]
     public typealias AutoRedeemApplier = @Sendable (_ profileID: UUID, _ enabled: Bool) async -> Bool
+    public typealias RemovalApplier = @Sendable (_ profileID: UUID) async -> Bool
 
     private let folder: DeviceSyncFolder
     private let store: SecureStateStore<DeviceSyncState>
@@ -66,6 +68,7 @@ public actor DeviceSyncService {
     private let now: @Sendable () -> Date
     private let localAccounts: AccountsProvider
     private let applyAutoRedeem: AutoRedeemApplier
+    private let applyRemoval: RemovalApplier?
     private var isRunning = false
     private var isWithdrawn = false
 
@@ -75,7 +78,8 @@ public actor DeviceSyncService {
         deviceName: String,
         now: @escaping @Sendable () -> Date = Date.init,
         localAccounts: @escaping AccountsProvider,
-        applyAutoRedeem: @escaping AutoRedeemApplier
+        applyAutoRedeem: @escaping AutoRedeemApplier,
+        applyRemoval: RemovalApplier? = nil
     ) {
         self.folder = folder
         self.store = SecureStateStore(fileURL: stateURL, maximumBytes: 64 * 1_024)
@@ -83,6 +87,7 @@ public actor DeviceSyncService {
         self.now = now
         self.localAccounts = localAccounts
         self.applyAutoRedeem = applyAutoRedeem
+        self.applyRemoval = applyRemoval
     }
 
     /// The device ID, created and saved on first use.
@@ -118,6 +123,9 @@ public actor DeviceSyncService {
         }
 
         var decisions: [CommandDecision] = []
+        // Accounts removed this pass. The app's roster may publish the removal a moment later, and
+        // this pass's snapshot must not show the sender an account that is already gone.
+        var removed: Set<UUID> = []
         if let devices, !pending.isEmpty {
             let accounts = await localAccounts()
             for (url, command) in pending {
@@ -125,7 +133,7 @@ public actor DeviceSyncService {
                     try? folder.delete(url)
                     continue
                 }
-                let decision = RemoteCommandPolicy.decide(
+                var decision = RemoteCommandPolicy.decide(
                     command,
                     host: device,
                     hostAccounts: accounts,
@@ -133,14 +141,19 @@ public actor DeviceSyncService {
                     otherDevices: devices,
                     now: now()
                 )
+                // A build that cannot remove never says it accepts removal; refuse the request anyway.
+                if case .remove = decision, applyRemoval == nil { decision = .reject(.removalUnsupported) }
                 decisions.append(decision)
                 if decision != .reject(.alreadyApplied) {
                     // Saved before acting, so a crash mid-apply can never apply it twice.
                     state.remember(command.id)
                     try await store.save(state)
                 }
-                if case let .apply(profileID, enabled) = decision {
-                    _ = await applyAutoRedeem(profileID, enabled)
+                switch decision {
+                case let .apply(profileID, enabled): _ = await applyAutoRedeem(profileID, enabled)
+                case let .remove(profileID):
+                    if await applyRemoval?(profileID) == true { removed.insert(profileID) }
+                case .reject: break
                 }
                 try? folder.delete(url)
             }
@@ -152,9 +165,10 @@ public actor DeviceSyncService {
             deviceID: device,
             deviceName: deviceName,
             publishedAt: now(),
-            accounts: await localAccounts(),
+            accounts: await localAccounts().filter { !removed.contains($0.profileID) },
             appliedCommandIDs: state.handledCommandIDs,
-            acceptsCommands: acceptsCommands
+            acceptsCommands: acceptsCommands,
+            acceptsRemoval: applyRemoval != nil
         )
         guard !isWithdrawn else { return nil }
         var publishFailure: SyncFailure?

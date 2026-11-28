@@ -516,3 +516,84 @@ private let laptop = SyncDeviceID(UUID(uuidString: "22222222-0000-4000-8000-0000
     model.setAccountAutoReset(profileID: profile.id, enabled: false, shown: shown, drawnAt: drawnAt)
     #expect(sent == [false])
 }
+
+// MARK: Removing another Mac's account
+
+private func removableMini(publishedAt: Date = now, acceptsRemoval: Bool = true) -> DeviceSnapshot {
+    var snapshot = miniSnapshot(autoRedeem: false, publishedAt: publishedAt)
+    snapshot.acceptsRemoval = acceptsRemoval
+    return snapshot
+}
+
+@Test @MainActor func removalIsOfferedOnlyForAMacThatCanTakeIt() throws {
+    let model = GuardAppModel(referenceDate: now)
+    model.remoteDevices = [removableMini(acceptsRemoval: false)]
+    var synced = try #require(model.remoteOnlyAccounts(now: now).first)
+    #expect(model.removalHosts(of: synced, now: now).isEmpty)
+
+    model.remoteDevices = [removableMini(publishedAt: now.addingTimeInterval(-DeviceSyncPolicy.staleAfter - 1))]
+    synced = try #require(model.remoteOnlyAccounts(now: now).first)
+    #expect(model.removalHosts(of: synced, now: now).isEmpty)
+
+    model.remoteDevices = [removableMini()]
+    synced = try #require(model.remoteOnlyAccounts(now: now).first)
+    #expect(model.removalHosts(of: synced, now: now).map(\.device.deviceID) == [mini])
+}
+
+@Test @MainActor func removingAsksEveryMacWithACopyOnceAndReportsAFailure() throws {
+    let studio = SyncDeviceID(UUID(uuidString: "33333333-0000-4000-8000-000000000003")!)
+    let model = GuardAppModel(referenceDate: now)
+    var other = device(studio, name: "Studio", accounts: [sharedAccount(UUID(), email: "work@example.com")])
+    other.acceptsRemoval = true
+    model.remoteDevices = [removableMini(), other]
+    var sent: [SyncDeviceID] = []
+    model.onRemoveRemoteAccount = { device, _, _ in sent.append(device) }
+    let synced = try #require(model.remoteOnlyAccounts(now: now).first)
+    let card = AccountRef(provider: .codex, id: synced.host.account.profileID)
+    model.removeRemoteAccount(synced, reportingTo: card)
+    #expect(Set(sent) == [mini, studio])
+
+    // The Mac mini handled the request but kept the account: the card says so.
+    let commandID = UUID()
+    model.pendingRemovals[GuardAppModel.remoteKey(device: mini, account: model.remoteDevices[0].accounts[0])] = PendingRemoval(
+        commandID: commandID, issuedAt: now, device: mini, deviceName: "Mac mini",
+        profileID: remoteWorkID, displayName: "Work", card: card
+    )
+    #expect(model.isRemoving(synced))
+    var failures: [String] = []
+    model.onAccountActionFailure = { _, message in failures.append(message) }
+    var handled = removableMini()
+    handled.appliedCommandIDs = [commandID]
+    model.remoteDevices = [handled]
+    model.settleRemovals(now: now)
+    #expect(failures == ["Mac mini did not remove Work."])
+    #expect(model.pendingRemovals.isEmpty)
+}
+
+@Test func aRemovalSettlesWhenTheAccountIsGoneOrTimesOut() {
+    let pending = PendingRemoval(
+        commandID: UUID(), issuedAt: now, device: mini, deviceName: "Mac mini",
+        profileID: remoteWorkID, displayName: "Work", card: AccountRef(provider: .codex, id: remoteWorkID)
+    )
+    let present = removableMini()
+    #expect(pending.outcome(in: present, now: now.addingTimeInterval(60)) == .waiting)
+    var gone = present
+    gone.accounts = []
+    #expect(pending.outcome(in: gone, now: now.addingTimeInterval(60)) == .removed)
+    let late = now.addingTimeInterval(DeviceSyncPolicy.commandLifetime + DeviceSyncPolicy.allowedClockSkew + 1)
+    #expect(pending.outcome(in: present, now: late) == .notRemoved)
+    #expect(pending.outcome(in: nil, now: late) == .notRemoved)
+}
+
+@Test @MainActor func aRemovalRequestRunsThisMacsOwnRemove() async {
+    let model = GuardAppModel(profiles: [localWork()], referenceDate: now)
+    var removed: [AccountRef] = []
+    model.removeLocalAccount = { removed.append($0) }
+    #expect(await model.applyRemoteRemoval(profileID: workID))
+    #expect(removed == [AccountRef(provider: .codex, id: workID)])
+    #expect(await model.applyRemoteRemoval(profileID: UUID()) == false)
+
+    let readOnly = GuardAppModel(profiles: [localWork()], isReadOnly: true, referenceDate: now)
+    readOnly.removeLocalAccount = { _ in Issue.record("A read-only Mac never removes") }
+    #expect(await readOnly.applyRemoteRemoval(profileID: workID) == false)
+}

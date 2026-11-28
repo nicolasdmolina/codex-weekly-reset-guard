@@ -18,6 +18,13 @@ private actor FakeHost {
         return true
     }
 
+    private(set) var removed: Set<UUID> = []
+
+    func remove(_ id: UUID) -> Bool {
+        removed.insert(id)
+        return true
+    }
+
     func accounts() -> [SharedAccount] {
         [personalID, workID].map { id in
             SharedAccount(
@@ -252,4 +259,66 @@ func unreadableSyncFolderStillPublishesWithoutAcceptingCommands(_ blocked: Strin
     let pass = try #require(try await pair.host.run())
     #expect(FileManager.default.fileExists(atPath: inbox.path))
     #expect(pass.commandsListed == 0 && pass.commandsDecoded == 0)
+}
+
+@Test func hostRemovesAnAccountOnRequestAndPublishesWithoutIt() async throws {
+    let root = try makeDirectory()
+    let shared = DeviceSyncFolder(root: root.appendingPathComponent("iCloud/Second Wind", isDirectory: true))
+    let clock = Clock()
+    let fake = FakeHost()
+    // The roster still lists the account for a moment after removal, as the app's may.
+    let host = DeviceSyncService(
+        folder: shared,
+        stateURL: root.appendingPathComponent("mini/sync-state.json"),
+        deviceName: "Mac mini",
+        now: { clock.now },
+        localAccounts: { await fake.accounts() },
+        applyAutoRedeem: { await fake.apply($0, $1) },
+        applyRemoval: { await fake.remove($0) }
+    )
+    let viewer = DeviceSyncService(
+        folder: shared,
+        stateURL: root.appendingPathComponent("laptop/sync-state.json"),
+        deviceName: "MacBook Pro",
+        now: { clock.now },
+        localAccounts: { [] },
+        applyAutoRedeem: { _, _ in false }
+    )
+    let hostID = try await host.deviceID()
+    _ = try await viewer.run()
+    _ = try await host.run()
+    let seen = try #require(try await viewer.run()?.devices?.first)
+    #expect(seen.acceptsRemoval)
+
+    let sent = try await viewer.send(.removeAccount(profileID: workID), to: hostID)
+    clock.advance(10)
+    let handled = try #require(try await host.run())
+    #expect(handled.decisions == [.remove(profileID: workID)])
+    #expect(await fake.removed == [workID])
+
+    let after = try #require(try await viewer.run()?.devices?.first)
+    #expect(after.appliedCommandIDs.contains(sent.id))
+    #expect(!after.accounts.contains { $0.profileID == workID })
+    #expect(after.accounts.contains { $0.profileID == personalID })
+
+    // Delivered twice, it is not removed twice.
+    try shared.send(sent, to: hostID)
+    let again = try #require(try await host.run())
+    #expect(again.decisions == [.reject(.alreadyApplied)])
+    #expect(await fake.removed == [workID])
+}
+
+@Test func aHostThatCannotRemoveSaysSoAndRefusesTheRequest() async throws {
+    let pair = try makePair()
+    let hostID = try await pair.host.deviceID()
+    _ = try await pair.viewer.run()
+    _ = try await pair.host.run()
+    let seen = try #require(try await pair.viewer.run()?.devices?.first)
+    #expect(!seen.acceptsRemoval)
+
+    _ = try await pair.viewer.send(.removeAccount(profileID: workID), to: hostID)
+    let handled = try #require(try await pair.host.run())
+    #expect(handled.decisions == [.reject(.removalUnsupported)])
+    let after = try #require(try await pair.viewer.run()?.devices?.first)
+    #expect(after.accounts.contains { $0.profileID == workID })
 }

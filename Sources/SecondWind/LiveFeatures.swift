@@ -76,6 +76,11 @@ func connectLiveFeatures(
     model.onSetRemoteAutoReset = { device, account, enabled, card in
         sync.send(to: device, account: account, enabled: enabled, reportingTo: card)
     }
+    // Another Mac's removal request runs the same path as this Mac's own Remove.
+    model.removeLocalAccount = interface.removeAccount
+    model.onRemoveRemoteAccount = { device, account, card in
+        sync.sendRemoval(to: device, account: account, reportingTo: card)
+    }
     delegate.onPopoverOpen = { sync.syncNow() }
     sync.start()
     delegate.finishQuotaUpdates = {

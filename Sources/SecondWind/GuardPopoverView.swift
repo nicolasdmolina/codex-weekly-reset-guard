@@ -375,9 +375,19 @@ struct GuardPopoverView: View {
     private func remoteRows(_ accounts: [GuardAppModel.SyncedAccount], after localCount: Int, now: Date) -> some View {
         ForEach(Array(accounts.enumerated()), id: \.element.key) { index, synced in
             if localCount + index > 0 { RowDivider() }
+            let hosts = model.removalHosts(of: synced, now: now)
+            let card = AccountRef(provider: synced.host.account.provider == .codex ? .codex : .claude, id: synced.host.account.profileID)
+            let isRemoving = model.isRemoving(synced)
             RemoteAccountRow(
                 device: synced.host.device,
                 account: synced.host.account,
+                removal: model.isReadOnly || hosts.isEmpty || isRemoving ? nil : RemoteRemoval(
+                    hostName: ListFormatter.localizedString(byJoining: hosts.map(\.device.deviceName)),
+                    onRemove: { model.removeRemoteAccount(synced, reportingTo: card) }
+                ),
+                removingFrom: isRemoving
+                    ? ListFormatter.localizedString(byJoining: synced.copies.filter { model.pendingRemovals[$0.key] != nil }.map(\.device.deviceName))
+                    : nil,
                 state: model.remoteState(of: synced.host.account, in: synced.host.device, now: now),
                 quota: QuotaDisplayBuilder.remote(synced.reading.account, now: now),
                 interface: interface,
@@ -551,6 +561,8 @@ private struct AccountRow<Details: View, Actions: View>: View {
     let now: Date
     /// The details sit in a footer under a hairline: saved resets and Auto-redeem on one line.
     var hasFooter = false
+    /// Set on another Mac's account when that Mac can remove it on request.
+    var remoteRemoval: RemoteRemoval? = nil
     @ViewBuilder var details: Details
     @ViewBuilder var actions: Actions
     @Environment(\.accessibilityReduceMotion) private var reduceMotion
@@ -568,14 +580,24 @@ private struct AccountRow<Details: View, Actions: View>: View {
             VStack(alignment: .leading, spacing: SW.Space.sm + 2) {
                 heading
                 if case .renaming = editor { feedback }
-                if isConfirmingRemoval {
+                // A remote card whose Mac stopped taking removals closes its confirmation.
+                if isConfirmingRemoval && (!isReadOnly || remoteRemoval != nil) {
                     RemovalConfirmation(
                         name: name,
                         provider: provider,
-                        keepsResetRecord: ref.map { interface.removalKeepsResetRecord(for: $0) } ?? false,
+                        host: remoteRemoval?.hostName,
+                        keepsResetRecord: remoteRemoval == nil && (ref.map { interface.removalKeepsResetRecord(for: $0) } ?? false),
                         isBusy: isBusy,
                         onCancel: { interface.cancelEditing() },
-                        onRemove: { if let ref { interface.remove(ref, displayName: name) } }
+                        onRemove: {
+                            // Another Mac's account is never handed to this Mac's own Remove.
+                            if let remoteRemoval {
+                                remoteRemoval.onRemove()
+                                interface.cancelEditing()
+                            } else if let ref, !isReadOnly {
+                                interface.remove(ref, displayName: name)
+                            }
+                        }
                     )
                 } else {
                     if !quota.windows.isEmpty {
@@ -733,7 +755,7 @@ private struct AccountRow<Details: View, Actions: View>: View {
 
     @ViewBuilder
     private var accountMenu: some View {
-        if ref != nil && !isReadOnly {
+        if ref != nil && (!isReadOnly || remoteRemoval != nil) {
             if isStaticRender {
                 Image(systemName: "ellipsis")
                     .font(.system(size: 11, weight: .semibold))
@@ -760,7 +782,9 @@ private struct AccountRow<Details: View, Actions: View>: View {
 
     @ViewBuilder
     private var menuItems: some View {
-        if let ref, !isReadOnly {
+        if let ref, let remoteRemoval {
+            Button("Remove from \(remoteRemoval.hostName)…", role: .destructive) { interface.confirmRemoval(ref) }
+        } else if let ref, !isReadOnly {
             Button("Rename…") { interface.beginRename(ref, currentName: name) }
             if interface.preflightCommand(for: ref) != nil || interface.isPreview {
                 Button("Copy pre-job check") { interface.copyPreflightCommand(for: ref) }
@@ -1079,6 +1103,9 @@ private struct ClaudeAccountRow: View {
 private struct RemoteAccountRow: View {
     let device: DeviceSnapshot
     let account: SharedAccount
+    let removal: RemoteRemoval?
+    /// The Macs asked to remove this account, while they have not answered.
+    let removingFrom: String?
     let state: RemoteAccountState
     let quota: AccountQuotaDisplay
     @ObservedObject var interface: GuardInterfaceModel
@@ -1102,7 +1129,8 @@ private struct RemoteAccountRow: View {
             isStaticRender: isStaticRender,
             isReadOnly: true,
             now: now,
-            hasFooter: quota.inventory != nil || account.autoRedeemEnabled != nil
+            hasFooter: quota.inventory != nil || account.autoRedeemEnabled != nil || removingFrom != nil,
+            remoteRemoval: removal
         ) {
             // The same footer line as this Mac's accounts: saved resets, then Auto-redeem.
             HStack(alignment: .top, spacing: SW.Space.sm) {
@@ -1114,7 +1142,11 @@ private struct RemoteAccountRow: View {
                 } else {
                     Spacer(minLength: 0)
                 }
-                if let enabled = account.autoRedeemEnabled {
+                if let removingFrom {
+                    Text("Removing from \(removingFrom)…")
+                        .font(.system(size: 11.5, weight: .medium))
+                        .foregroundStyle(SW.Palette.textSecondary)
+                } else if let enabled = account.autoRedeemEnabled {
                     autoRedeem(enabled)
                 }
             }
@@ -1662,9 +1694,17 @@ private struct RenameField: View {
     }
 }
 
+/// What a remote card's Remove asks for: the Macs it names and the request it sends.
+struct RemoteRemoval {
+    let hostName: String
+    let onRemove: () -> Void
+}
+
 private struct RemovalConfirmation: View {
     let name: String
     let provider: ProviderKind
+    /// The other Mac or Macs that would remove it, for another Mac's account.
+    var host: String? = nil
     let keepsResetRecord: Bool
     let isBusy: Bool
     let onCancel: () -> Void
@@ -1672,10 +1712,10 @@ private struct RemovalConfirmation: View {
 
     var body: some View {
         VStack(alignment: .leading, spacing: SW.Space.sm) {
-            Text("Remove \(name) from Second Wind?")
+            Text("Remove \(name) from \(host ?? "Second Wind")?")
                 .font(.system(size: 12.5, weight: .semibold))
             Text(provider == .antigravity ? "Second Wind will stop checking agy on this Mac."
-                 : "Second Wind deletes only its own copy of the sign-in. Your \(provider == .codex ? "Codex" : "Claude Code") sign-in elsewhere stays.")
+                 : "Second Wind\(host.map { " on \($0)" } ?? "") deletes only its own copy of the sign-in. Your \(provider == .codex ? "Codex" : "Claude Code") sign-in elsewhere stays.")
                 .font(.system(size: 11.5))
                 .foregroundStyle(SW.Palette.textSecondary)
                 .fixedSize(horizontal: false, vertical: true)

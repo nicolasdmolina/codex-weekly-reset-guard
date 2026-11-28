@@ -161,12 +161,12 @@ function escapeHtml(text: string): string {
   return text.replace(/[&<>"']/g, (character) => `&#${character.charCodeAt(0)};`);
 }
 
-const SERVICES = 'the official Codex CLI or app, Claude Code, or both';
+const SERVICES = 'the official tool for each service you use: the Codex CLI or app, Claude Code, or the Antigravity CLI';
 
 // The no-JavaScript fallback in index.html, rendered at build time from the same plan.
 export function installNoscriptHtml(plan: InstallPlan): string {
   const e = escapeHtml;
-  const account = '<li>The app opens as a wind symbol in your menu bar. Pick Codex or Claude and sign in.</li>';
+  const account = '<li>The app opens as a wind symbol in your menu bar. Pick Codex or Claude and sign in, or pick Antigravity to follow the account signed in to its CLI. Open <code>agy</code> and sign in once first.</li>';
   switch (plan.kind) {
     case 'main':
     case 'source': {

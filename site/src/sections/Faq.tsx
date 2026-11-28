@@ -10,11 +10,15 @@ const questions = [
   },
   {
     q: 'Can it promise I never run out?',
-    a: 'No. It checks Codex every minute and Claude every 5 minutes, and only while the app is open and your Mac is awake and online. Auto-redeem waits until 3%, so up to 3% of a week can go unused.',
+    a: 'No. It checks Codex every minute and Claude and Antigravity every 5 minutes, and only while the app is open and your Mac is awake and online. Auto-redeem waits until 3%, so up to 3% of a week can go unused.',
   },
   {
-    q: 'Will it sign me out of Codex or Claude Code?',
-    a: 'No. Every account it watches has its own folder, separate from your normal sign-in.',
+    q: 'Will it sign me out of Codex, Claude Code or Antigravity?',
+    a: 'No. Each Codex and Claude account it watches has its own folder, separate from your normal sign-in. Antigravity reads the account already signed in to its CLI and doesn’t change it.',
+  },
+  {
+    q: 'Can I see accounts from my other Macs?',
+    a: 'Yes, for Codex and Claude accounts. Turn on Sync with your other Macs in Settings on each Mac. It uses your iCloud Drive. The same account on two Macs shows as one card, and Second Wind won’t turn on Auto-redeem for an account another Mac already redeems.',
   },
   {
     q: 'I use Codex Weekly Reset Guard. What happens?',

@@ -1,6 +1,6 @@
 # Changelog
 
-## Unreleased
+## 0.4.1
 
 - Codex Free accounts show their monthly limit. They used to fail every check
   with “The weekly limit could not be classified safely.” Auto-redeem acts only

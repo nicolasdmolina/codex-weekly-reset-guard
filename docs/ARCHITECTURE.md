@@ -114,9 +114,10 @@ names the other Mac, says when it was last seen or needs attention, and says whe
 both Macs have Auto-redeem on. The menu bar uses the same cards.
 
 Remote alerts check the low windows of every Mac read this pass, except a Claude
-window this Mac reads currently, since Claude monitoring alerts for it here;
-Codex monitoring has no low alert of its own. The alert key names provider, email
-and window, so the same low window notifies once even when several Macs report it.
+window this Mac read currently at least as recently, since Claude monitoring
+alerts for it here; Codex monitoring has no low alert of its own. The alert key
+names the provider, a digest of the email (never the email itself) and the window,
+so the same low window notifies once even when several Macs report it.
 
 The viewing Mac reads remote windows through `QuotaReadPolicy.remote`. A snapshot
 or reading older than 10 minutes is stale: it shows its age and never alerts.

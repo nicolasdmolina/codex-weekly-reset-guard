@@ -1,3 +1,4 @@
+import CryptoKit
 import Foundation
 import SecondWindCore
 
@@ -27,9 +28,13 @@ struct RemoteAlertAccount: Equatable, Sendable {
     /// roster never prunes it.
     var token: String {
         let email = DeviceSyncPolicy.normalizedEmail(email)
-        return email.isEmpty
-            ? "remote:\(device)|\(provider.rawValue):\(profileID.uuidString.lowercased())"
-            : "remote:\(provider.rawValue):\(email)"
+        guard !email.isEmpty else {
+            return "remote:\(device)|\(provider.rawValue):\(profileID.uuidString.lowercased())"
+        }
+        // The ledger and Notification Center keep this id, so it carries a digest, not the email.
+        let digest = SHA256.hash(data: Data("\(provider.rawValue)|\(email)".utf8))
+            .prefix(12).map { String(format: "%02x", $0) }.joined()
+        return "remote:\(provider.rawValue):\(digest)"
     }
 }
 

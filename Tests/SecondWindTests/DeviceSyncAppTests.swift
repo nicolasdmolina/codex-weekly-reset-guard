@@ -349,6 +349,12 @@ private let laptop = SyncDeviceID(UUID(uuidString: "22222222-0000-4000-8000-0000
     let remote = SharedAccount(profileID: remoteWorkID, provider: .claude, displayName: "Work", email: "work@example.com", autoRedeemEnabled: nil, windows: [])
     #expect(model.alertsLocally(remote, window: .weekly, now: now))
     #expect(!model.alertsLocally(remote, window: .session, now: now))
+    // Another Mac's newer reading of the same window still alerts: it may be lower than this Mac's.
+    let newer = SharedAccount(
+        profileID: remoteWorkID, provider: .claude, displayName: "Work", email: "work@example.com", autoRedeemEnabled: nil,
+        windows: [SharedWindow(kind: .weekly, remainingPercent: 5, resetsAt: now.addingTimeInterval(86_400), observedAt: now)]
+    )
+    #expect(!model.alertsLocally(newer, window: .weekly, now: now))
     let codex = sharedAccount(remoteWorkID, email: "work@example.com")
     #expect(!model.alertsLocally(codex, window: .weekly, now: now))
 }
@@ -409,6 +415,7 @@ private let laptop = SyncDeviceID(UUID(uuidString: "22222222-0000-4000-8000-0000
     let a = RemoteAlertAccount(device: mini, deviceName: "Mac mini", provider: .codex, profileID: remoteWorkID, email: "Work@example.com", name: "Work")
     let b = RemoteAlertAccount(device: laptop, deviceName: "MacBook", provider: .codex, profileID: UUID(), email: "work@example.com", name: "Work")
     #expect(a.token == b.token)
+    #expect(!a.token.contains("example.com"))
     let noEmail = RemoteAlertAccount(device: mini, deviceName: "Mac mini", provider: .codex, profileID: remoteWorkID, name: "Work")
     #expect(noEmail.token != a.token)
 }

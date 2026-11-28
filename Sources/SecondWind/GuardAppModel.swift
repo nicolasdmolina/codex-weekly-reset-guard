@@ -436,12 +436,18 @@ final class GuardAppModel: ObservableObject {
     }
 
     /// True when this Mac alerts for this window itself: Claude monitoring does for every window
-    /// it reads currently. Codex monitoring has no low alert of its own.
+    /// it reads currently, so another Mac's reading adds nothing unless it is newer. Codex
+    /// monitoring has no low alert of its own.
     func alertsLocally(_ account: SharedAccount, window kind: QuotaWindowKind, now: Date) -> Bool {
         guard account.provider == .claude, let key = Self.accountKey(.claude, email: account.email) else { return false }
+        let remoteObservedAt = account.quotaRecord().lastSuccess?.observedAt ?? .distantPast
         return claudeProfiles.contains { profile in
-            Self.accountKey(.claude, email: profile.email) == key
-                && profile.quota?.reading(at: now).windows.contains { $0.isCurrent && $0.window.kind == kind } == true
+            guard Self.accountKey(.claude, email: profile.email) == key,
+                  let record = profile.quota,
+                  let localObservedAt = record.lastSuccess?.observedAt,
+                  localObservedAt >= remoteObservedAt
+            else { return false }
+            return record.reading(at: now).windows.contains { $0.isCurrent && $0.window.kind == kind }
         }
     }
 

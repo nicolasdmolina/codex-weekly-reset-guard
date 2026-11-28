@@ -326,7 +326,7 @@ struct GuardPopoverView: View {
                             isReadOnly: model.isReadOnly,
                             now: now,
                             onToggle: { [shown = model.drivenRemote(of: profile, now: now)?.key] enabled in
-                                model.setAccountAutoReset(profileID: profile.id, enabled: enabled, shown: shown)
+                                model.setAccountAutoReset(profileID: profile.id, enabled: enabled, shown: shown, drawnAt: now)
                             },
                             onReconnect: { model.reconnect(profileID: profile.id) }
                         )

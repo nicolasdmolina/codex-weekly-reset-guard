@@ -486,10 +486,12 @@ final class GuardAppModel: ObservableObject {
     /// guards, and otherwise this Mac. `shown` is the other Mac the card named when it was drawn;
     /// if that changed before the click, nothing is sent and the card asks for another try.
     /// Failures show on this card.
-    func setAccountAutoReset(profileID: String, enabled: Bool, shown: String? = nil) {
+    func setAccountAutoReset(profileID: String, enabled: Bool, shown: String? = nil, drawnAt: Date? = nil) {
         guard let profile = profiles.first(where: { $0.id == profileID }) else { return }
         let ref = AccountRef(provider: .codex, rawID: profileID)
-        let copy = drivenRemote(of: profile, now: referenceDate ?? Date())
+        // Judged on the clock the card was drawn with, so a Mac crossing the quiet line between
+        // popover ticks does not bounce every click until the next tick.
+        let copy = drivenRemote(of: profile, now: drawnAt ?? referenceDate ?? Date())
         guard copy?.key == shown else {
             if let ref { reportActionFailure("The other Mac changed. Try again.", for: ref) }
             return

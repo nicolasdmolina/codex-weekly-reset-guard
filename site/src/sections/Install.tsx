@@ -6,7 +6,13 @@ import { Link } from '@astryxdesign/core/Link';
 import { Text } from '@astryxdesign/core/Text';
 import { Download } from '../components/icons';
 import { SCREEN_HEIGHT, SCREEN_WIDTH, onboardingScreen } from '../components/screens';
-import { APPLE_OPEN_APPS_URL, CLAUDE_CODE_SETUP_URL, CODEX_SETUP_URL, README_INSTALL_URL } from '../config';
+import {
+  ANTIGRAVITY_CLI_SETUP_URL,
+  APPLE_OPEN_APPS_URL,
+  CLAUDE_CODE_SETUP_URL,
+  CODEX_SETUP_URL,
+  README_INSTALL_URL,
+} from '../config';
 import { INSTALL } from '../install';
 import { checkCommands, macRequirement, type InstallPlan, type VerifiedDownload } from '../release';
 
@@ -26,7 +32,7 @@ function sentence(phrase: string): string {
 function Services() {
   return (
     <>
-      The official{' '}
+      The official tool for each service you use: the{' '}
       <Link href={CODEX_SETUP_URL} isExternalLink>
         Codex CLI or app
       </Link>
@@ -34,7 +40,11 @@ function Services() {
       <Link href={CLAUDE_CODE_SETUP_URL} isExternalLink>
         Claude Code
       </Link>
-      , or both.
+      , or the{' '}
+      <Link href={ANTIGRAVITY_CLI_SETUP_URL} isExternalLink>
+        Antigravity CLI
+      </Link>
+      .
     </>
   );
 }
@@ -54,8 +64,9 @@ function AccountStep({ opening }: { opening: string }) {
         Add an account
       </Heading>
       <Text as="p" color="secondary" className="prose">
-        {opening} Pick Codex or Claude, enter the account&rsquo;s email and sign in through your
-        browser. Launch at login is in the &bull;&bull;&bull; menu.
+        {opening} Pick Codex or Claude and sign in through your browser. Pick Antigravity to
+        follow the account signed in to its CLI; open <code>agy</code> and sign in once first.
+        Launch at login is in the &bull;&bull;&bull; menu.
       </Text>
     </li>
   );

@@ -6,7 +6,7 @@ import { PRIVACY_URL } from '../config';
 const facts = [
   {
     title: 'It signs in through the official tools.',
-    body: 'Each account runs Codex or Claude Code in its own private folder, so your everyday sign-in stays as it is. It never calls private endpoints.',
+    body: 'Each Codex or Claude account runs the official tool in its own private folder, so your everyday sign-in stays as it is. Antigravity uses the sign-in its CLI already has. It never calls private endpoints.',
   },
   {
     title: 'It never touches your tokens.',
@@ -14,11 +14,11 @@ const facts = [
   },
   {
     title: 'No analytics and no server.',
-    body: 'No tracking, no crash uploads, no backend of ours. Accounts and readings stay on your Mac. Codex and Claude Code still talk to OpenAI and Anthropic as they always do.',
+    body: 'No tracking, no crash uploads, no backend of ours. Accounts and readings stay on your Mac. If you turn on sync, they also go to your other Macs through your own iCloud Drive. The official tools still talk to OpenAI, Anthropic and Google as they always do.',
   },
   {
     title: 'Nothing is on until you turn it on.',
-    body: 'Auto-redeem starts off for every account, and so does launch at login.',
+    body: 'Auto-redeem starts off for every account. So do launch at login and sync with your other Macs.',
   },
 ];
 

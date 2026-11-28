@@ -109,7 +109,9 @@ window by window, so the card's age stays true. While this Mac's Auto-redeem is
 off, the switch drives another Mac through that Mac's guards: a redeemer that is
 live or has a change in flight, or, while this Mac is signed out, the first Mac
 that can take a change. Otherwise it drives this Mac. A quiet redeemer hands the
-switch back, as `AutoRedeemGuard` does. Failures report on this card. The caption
+switch back, as `AutoRedeemGuard` does. A live redeemer that cannot take
+commands shows the switch on and locked. A click goes to the Mac the card named
+when drawn; if that changed, nothing is sent. Failures report on this card. The caption
 names the other Mac, says when it was last seen or needs attention, and says when
 both Macs have Auto-redeem on. The menu bar uses the same cards.
 

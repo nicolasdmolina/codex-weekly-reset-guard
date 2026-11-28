@@ -325,7 +325,9 @@ struct GuardPopoverView: View {
                             isStaticRender: isStaticRender,
                             isReadOnly: model.isReadOnly,
                             now: now,
-                            onToggle: { model.setAccountAutoReset(profileID: profile.id, enabled: $0) },
+                            onToggle: { [shown = model.drivenRemote(of: profile, now: now)?.key] enabled in
+                                model.setAccountAutoReset(profileID: profile.id, enabled: enabled, shown: shown)
+                            },
                             onReconnect: { model.reconnect(profileID: profile.id) }
                         )
                     }
@@ -820,8 +822,18 @@ private struct CodexAccountRow: View {
     private var ref: AccountRef? { AccountRef(provider: .codex, rawID: profile.id) }
     private var showsAutoRedeem: Bool { profile.isConnected || profile.autoResetEnabled || redeemer != nil || driven != nil }
 
+    /// A live Mac that redeems the account but cannot take a change from here.
+    private var lockedElsewhere: GuardAppModel.RemoteCopy? {
+        guard driven == nil, !profile.autoResetEnabled, let copy = redeemer?.copy,
+              copy.account.autoRedeemEnabled == true, copy.device.freshness(at: now).isLive,
+              !copy.device.acceptsCommands
+        else { return nil }
+        return copy
+    }
+
     /// What the switch shows: this Mac's setting, or the other Mac's while it redeems the account.
     private var switchIsOn: Bool {
+        if lockedElsewhere != nil { return true }
         guard let driven else { return profile.autoResetEnabled }
         if case let .pending(requested) = driven.state { return requested }
         return driven.copy.account.autoRedeemEnabled == true
@@ -837,6 +849,7 @@ private struct CodexAccountRow: View {
         if profile.autoResetEnabled {
             return redeemer.flatMap { $0.copy.account.autoRedeemEnabled == true ? "Also on \($0.copy.device.deviceName)" : nil }
         }
+        if let locked = lockedElsewhere { return "On \(locked.device.deviceName). Change it there." }
         let shown = driven ?? redeemer.flatMap { $0.copy.account.autoRedeemEnabled == true ? $0 : nil }
         guard let shown else { return nil }
         let device = shown.copy.device
@@ -855,7 +868,7 @@ private struct CodexAccountRow: View {
     }
 
     private var switchDisabled: Bool {
-        if isReadOnly || isWaitingOnOtherMac { return true }
+        if isReadOnly || isWaitingOnOtherMac || lockedElsewhere != nil { return true }
         if driven != nil { return false }
         return !profile.isConnected && !profile.autoResetEnabled
     }

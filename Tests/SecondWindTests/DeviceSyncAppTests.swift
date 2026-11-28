@@ -382,7 +382,10 @@ private let laptop = SyncDeviceID(UUID(uuidString: "22222222-0000-4000-8000-0000
     let id = workID.uuidString.lowercased()
 
     #expect(model.remoteRedeemer(of: model.profiles[0], now: now)?.device.deviceID == mini)
-    model.setAccountAutoReset(profileID: id, enabled: false)
+    // A click aimed at a Mac the card no longer names sends nothing.
+    model.setAccountAutoReset(profileID: id, enabled: false, shown: nil)
+    #expect(sent.isEmpty)
+    model.setAccountAutoReset(profileID: id, enabled: false, shown: model.drivenRemote(of: model.profiles[0], now: now)?.key)
     #expect(sent.map(\.0) == [false])
     // A failed send reports on the card the user touched.
     #expect(sent.first?.1 == AccountRef(provider: .codex, rawID: id))
@@ -445,7 +448,7 @@ private let laptop = SyncDeviceID(UUID(uuidString: "22222222-0000-4000-8000-0000
     model.onToggleAutoReset = { _, enabled in toggles.append(enabled) }
 
     #expect(model.drivenRemote(of: local, now: now)?.device.deviceID == mini)
-    model.setAccountAutoReset(profileID: local.id, enabled: true)
+    model.setAccountAutoReset(profileID: local.id, enabled: true, shown: model.drivenRemote(of: local, now: now)?.key)
     #expect(sent == [true])
     #expect(toggles.isEmpty)
 
@@ -475,4 +478,18 @@ private let laptop = SyncDeviceID(UUID(uuidString: "22222222-0000-4000-8000-0000
         device(laptop, name: "MacBook", accounts: [sharedAccount(UUID(), email: "work@example.com")]),
     ]
     #expect(model.drivenRemote(of: local, now: now)?.device.deviceID == laptop)
+}
+
+@Test @MainActor func aLiveRedeemerThatCanTakeAChangeRanksFirst() {
+    let profile = localWork()
+    let model = GuardAppModel(profiles: [profile], referenceDate: now)
+    var readOnly = device(mini, name: "Mac mini", accounts: [sharedAccount(remoteWorkID, email: "work@example.com", autoRedeem: true)])
+    readOnly.acceptsCommands = false
+    model.remoteDevices = [readOnly]
+    // It still counts as the redeemer, but the switch cannot drive it.
+    #expect(model.remoteRedeemer(of: profile, now: now)?.device.deviceID == mini)
+    #expect(model.drivenRemote(of: profile, now: now) == nil)
+
+    model.remoteDevices.append(device(laptop, name: "MacBook", accounts: [sharedAccount(UUID(), email: "work@example.com", autoRedeem: true)]))
+    #expect(model.drivenRemote(of: profile, now: now)?.device.deviceID == laptop)
 }

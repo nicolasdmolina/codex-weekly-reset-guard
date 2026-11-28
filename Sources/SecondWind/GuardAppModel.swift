@@ -397,9 +397,11 @@ final class GuardAppModel: ObservableObject {
             .compactMap { copy in observed(copy).map { (copy, $0) } }
             .max { $0.1 < $1.1 }?.0
         let redeemRank = { (copy: RemoteCopy) -> Int in
-            if case .pending = self.remoteState(of: copy.account, in: copy.device, now: now) { return 3 }
+            if case .pending = self.remoteState(of: copy.account, in: copy.device, now: now) { return 4 }
             guard copy.account.autoRedeemEnabled == true else { return 0 }
-            return copy.device.freshness(at: now).isLive ? 2 : 1
+            guard copy.device.freshness(at: now).isLive else { return 1 }
+            // Among live redeemers, one that can take a change can be turned off from here.
+            return copy.device.acceptsCommands ? 3 : 2
         }
         let redeemer = byDevice.filter { redeemRank($0) > 0 }.max { redeemRank($0) < redeemRank($1) }
         // Prefer a reachable Mac whose copy is healthy, since a signed-out copy cannot redeem.
@@ -477,16 +479,19 @@ final class GuardAppModel: ObservableObject {
     }
 
     /// The switch on an account card. It changes the Mac `drivenRemote` names, through that Mac's
-    /// guards, and otherwise this Mac. Failures show on this card.
-    func setAccountAutoReset(profileID: String, enabled: Bool) {
-        if let profile = profiles.first(where: { $0.id == profileID }),
-           let copy = drivenRemote(of: profile, now: referenceDate ?? Date()) {
-            setRemoteAutoReset(
-                device: copy.device,
-                account: copy.account,
-                enabled: enabled,
-                reportingTo: AccountRef(provider: .codex, rawID: profileID)
-            )
+    /// guards, and otherwise this Mac. `shown` is the other Mac the card named when it was drawn;
+    /// if that changed before the click, nothing is sent and the card asks for another try.
+    /// Failures show on this card.
+    func setAccountAutoReset(profileID: String, enabled: Bool, shown: String? = nil) {
+        guard let profile = profiles.first(where: { $0.id == profileID }) else { return }
+        let ref = AccountRef(provider: .codex, rawID: profileID)
+        let copy = drivenRemote(of: profile, now: referenceDate ?? Date())
+        guard copy?.key == shown else {
+            if let ref { reportActionFailure("The other Mac changed. Try again.", for: ref) }
+            return
+        }
+        if let copy {
+            setRemoteAutoReset(device: copy.device, account: copy.account, enabled: enabled, reportingTo: ref)
         } else {
             setAutoReset(profileID: profileID, enabled: enabled)
         }

@@ -1,9 +1,10 @@
 # Changelog
 
-## Unreleased
+## 0.4.3
 
-- Monitor the account signed in to Antigravity CLI on this Mac. See quota and refill times by model group, get warnings at 10% remaining, and opt into alerts when an exhausted limit refills.
-
+- Monitor the account signed in to Antigravity CLI on this Mac. See quota and
+  refill times by model group, get warnings at 10% remaining, and opt into
+  alerts when an exhausted limit refills.
 - A long email or Mac name no longer pushes the big “% left” figure onto two
   lines. The line under the account name shortens instead.
 - An account that only another Mac has can be removed from this Mac: choose

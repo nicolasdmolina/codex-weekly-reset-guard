@@ -417,7 +417,17 @@ enum PreviewFixtures {
             personal.autoResetEnabled = false
             personal.email = "personal@example.com"
             model = GuardAppModel(profiles: [personal], isPreview: true, referenceDate: reference)
-            model.remoteDevices = [miniSnapshot(publishedSecondsAgo: 25, workAutoRedeem: false)]
+            // A long account name, email and Mac name, so the subtitle has to give way to the figure.
+            var mini = miniSnapshot(publishedSecondsAgo: 25, workAutoRedeem: false)
+            mini.deviceName = "Studio Front Desk Mac mini"
+            mini.accounts[1].displayName = "Workstation76"
+            mini.accounts[1].email = "workstation76@studio.example"
+            mini.accounts[1].windows = mini.accounts[1].windows.map { window in
+                var full = window
+                full.remainingPercent = 100
+                return full
+            }
+            model.remoteDevices = [mini]
             syncStatus = .on
         case .settingsSync:
             syncStatus = .unavailable

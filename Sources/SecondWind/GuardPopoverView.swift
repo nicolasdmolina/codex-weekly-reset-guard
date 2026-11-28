@@ -654,11 +654,12 @@ private struct AccountRow<Details: View, Actions: View>: View {
                         }
                         accountMenu
                     }
-                    // The email always shows whole; the reading's age shortens to fit beside it.
+                    // The reading's age shortens, then drops; only then does the line itself truncate.
                     ViewThatFits(in: .horizontal) {
                         subtitle(age: status.routineAge)
                         subtitle(age: status.routineAge.map { $0.replacingOccurrences(of: "updated ", with: "") })
                         subtitle(age: nil)
+                        subtitle(age: nil, fits: false)
                     }
                 }
                 Spacer(minLength: SW.Space.sm)
@@ -670,17 +671,19 @@ private struct AccountRow<Details: View, Actions: View>: View {
                         tone: headline.isWarning ? .caution : .neutral,
                         isCurrent: headline.state == .current
                     )
+                    .fixedSize()
                 }
             }
         }
     }
 
-    private func subtitle(age: String?) -> some View {
+    private func subtitle(age: String?, fits: Bool = true) -> some View {
         (Text(hint).foregroundStyle(SW.Palette.textSecondary)
             + Text(age.map { " · \($0)" } ?? "").foregroundStyle(SW.Palette.textTertiary))
             .font(.system(size: 11))
             .lineLimit(1)
-            .fixedSize(horizontal: true, vertical: false)
+            .truncationMode(.tail)
+            .fixedSize(horizontal: fits, vertical: false)
     }
 
     private var renameHeading: some View {

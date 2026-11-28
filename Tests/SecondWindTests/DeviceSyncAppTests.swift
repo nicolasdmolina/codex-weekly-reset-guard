@@ -291,6 +291,13 @@ private func device(_ id: SyncDeviceID, name: String, publishedAt: Date = now, a
     #expect(model.remoteRedeemer(of: model.profiles[0], now: now) == nil)
     model.setAccountAutoReset(profileID: id, enabled: true)
     #expect(toggles == [true])
+
+    // A leftover change to another Mac never turns an enable into a command to that Mac.
+    model.pendingRemoteCommands[GuardAppModel.remoteKey(device: mini, account: model.remoteDevices[0].accounts[0])] =
+        PendingRemoteCommand(commandID: UUID(), enabled: false, issuedAt: now)
+    model.setAccountAutoReset(profileID: id, enabled: true)
+    #expect(toggles == [true, true])
+    #expect(sent == [false])
 }
 
 @Test @MainActor func anotherMacsLowAlertIsSkippedOnlyWhenThisMacReadsTheAccount() {

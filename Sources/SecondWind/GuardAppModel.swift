@@ -401,7 +401,8 @@ final class GuardAppModel: ObservableObject {
     /// The switch on an account card: it changes whichever Mac redeems the account, so turning it
     /// off where another Mac runs it asks that Mac, and turning it on always runs it here.
     func setAccountAutoReset(profileID: String, enabled: Bool) {
-        if let profile = profiles.first(where: { $0.id == profileID }),
+        if !enabled,
+           let profile = profiles.first(where: { $0.id == profileID }),
            let copy = remoteRedeemer(of: profile, now: referenceDate ?? Date()) {
             setRemoteAutoReset(device: copy.device, account: copy.account, enabled: enabled)
         } else {

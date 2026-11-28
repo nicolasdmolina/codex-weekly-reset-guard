@@ -1,5 +1,23 @@
 # Release verification
 
+## 0.4.1, November 28, 2026 (UTC)
+
+The macOS check passed on commit `41b74111b949462de983d4ab3dcdb76e08773a05`.
+All 394 tests passed locally. GitHub built the Mac and source ZIPs from that
+commit. Both public downloads matched their SHA-256 checksums and the build
+attestation.
+[Mac check](https://github.com/nicolasdmolina/codex-weekly-reset-guard/actions/runs/46095578586) ·
+[Release files](https://github.com/nicolasdmolina/codex-weekly-reset-guard/releases/tag/v0.4.1) ·
+[Build run](https://github.com/nicolasdmolina/codex-weekly-reset-guard/actions/runs/46095578578).
+
+| File | SHA-256 |
+| --- | --- |
+| `Second-Wind-0.4.1-mac.zip` | `21c25c62c7633ade53f95c77fec431a3b119d26f9f5236dd2cdfdf7fb5e41f11` |
+| `Second-Wind-0.4.1-source.zip` | `7b5fa12587c46dea406ac2de479baae60670f66687c97271d3451144c64e988a` |
+
+The downloaded app's self-test passed on Apple silicon and under Rosetta for
+Intel. A live Codex Free account read its monthly limit with no check failure.
+
 ## 0.4.0, November 28, 2026 (UTC)
 
 The macOS check passed on commit `cdd9d62a472d0fcf3b4b2eddd0d27ad2cc9e4624`.
